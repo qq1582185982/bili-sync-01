@@ -142,7 +142,7 @@ impl<'a> Collection<'a> {
                     vec![
                         ("mid", self.collection.mid.as_str()),
                         ("season_id", self.collection.sid.as_str()),
-                        ("sort_reverse", "true"),
+                        ("sort_reverse", "false"),
                         ("page_num", page.as_str()),
                         ("page_size", "30"),
                     ],
