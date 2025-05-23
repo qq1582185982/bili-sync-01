@@ -1,0 +1,11 @@
+[package]
+name = "bili_sync_entity"
+version = { workspace = true }
+edition = { workspace = true }
+publish = { workspace = true }
+
+[dependencies]
+sea-orm = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+strum = { version = "0.26.3", features = ["derive"] }

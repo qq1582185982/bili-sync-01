@@ -1,0 +1,186 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .create_table(
+                Table::create()
+                    .table(Favorite::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Favorite::Id)
+                            .unsigned()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Favorite::FId).unique_key().unsigned().not_null())
+                    .col(ColumnDef::new(Favorite::Name).string().not_null())
+                    .col(ColumnDef::new(Favorite::Path).string().not_null())
+                    .col(
+                        ColumnDef::new(Favorite::CreatedAt)
+                            .timestamp()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_table(
+                Table::create()
+                    .table(Video::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Video::Id)
+                            .unsigned()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Video::FavoriteId).unsigned().not_null())
+                    .col(ColumnDef::new(Video::UpperId).unsigned().not_null())
+                    .col(ColumnDef::new(Video::UpperName).string().not_null())
+                    .col(ColumnDef::new(Video::UpperFace).string().not_null())
+                    .col(ColumnDef::new(Video::Name).string().not_null())
+                    .col(ColumnDef::new(Video::Path).string().not_null())
+                    .col(ColumnDef::new(Video::Category).small_unsigned().not_null())
+                    .col(ColumnDef::new(Video::Bvid).string().not_null())
+                    .col(ColumnDef::new(Video::Intro).string().not_null())
+                    .col(ColumnDef::new(Video::Cover).string().not_null())
+                    .col(ColumnDef::new(Video::Ctime).timestamp().not_null())
+                    .col(ColumnDef::new(Video::Pubtime).timestamp().not_null())
+                    .col(ColumnDef::new(Video::Favtime).timestamp().not_null())
+                    .col(ColumnDef::new(Video::DownloadStatus).unsigned().not_null())
+                    .col(ColumnDef::new(Video::Valid).boolean().not_null())
+                    .col(ColumnDef::new(Video::Tags).json_binary())
+                    .col(ColumnDef::new(Video::SinglePage).boolean())
+                    .col(
+                        ColumnDef::new(Video::CreatedAt)
+                            .timestamp()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_table(
+                Table::create()
+                    .table(Page::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Page::Id)
+                            .unsigned()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Page::VideoId).unsigned().not_null())
+                    .col(ColumnDef::new(Page::Cid).unsigned().not_null())
+                    .col(ColumnDef::new(Page::Pid).unsigned().not_null())
+                    .col(ColumnDef::new(Page::Name).string().not_null())
+                    .col(ColumnDef::new(Page::Width).unsigned())
+                    .col(ColumnDef::new(Page::Height).unsigned())
+                    .col(ColumnDef::new(Page::Duration).unsigned().not_null())
+                    .col(ColumnDef::new(Page::Path).string())
+                    .col(ColumnDef::new(Page::Image).string())
+                    .col(ColumnDef::new(Page::DownloadStatus).unsigned().not_null())
+                    .col(
+                        ColumnDef::new(Page::CreatedAt)
+                            .timestamp()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .table(Video::Table)
+                    .name("idx_video_favorite_id_bvid")
+                    .col(Video::FavoriteId)
+                    .col(Video::Bvid)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .table(Page::Table)
+                    .name("idx_page_video_id_pid")
+                    .col(Page::VideoId)
+                    .col(Page::Pid)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(Favorite::Table).to_owned())
+            .await?;
+        manager.drop_table(Table::drop().table(Video::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(Page::Table).to_owned()).await?;
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum Favorite {
+    Table,
+    Id,
+    FId,
+    Name,
+    Path,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Video {
+    Table,
+    Id,
+    FavoriteId,
+    UpperId,
+    UpperName,
+    UpperFace,
+    Name,
+    Path,
+    Category,
+    Bvid,
+    Intro,
+    Cover,
+    Ctime,
+    Pubtime,
+    Favtime,
+    DownloadStatus,
+    Valid,
+    Tags,
+    SinglePage,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Page {
+    Table,
+    Id,
+    VideoId,
+    Cid,
+    Pid,
+    Name,
+    Width,
+    Height,
+    Duration,
+    Path,
+    Image,
+    DownloadStatus,
+    CreatedAt,
+}
