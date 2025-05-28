@@ -1,0 +1,143 @@
+name: Build bili-sync
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: Windows-x86_64
+            extension: .exe
+            archive: zip
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            name: Linux-x86_64-musl
+            extension: ""
+            archive: tar.gz
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            name: Linux-aarch64-musl
+            extension: ""
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: Darwin-x86_64
+            extension: ""
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: Darwin-aarch64
+            extension: ""
+            archive: tar.gz
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: web/package-lock.json
+
+    - name: Install frontend dependencies
+      run: |
+        cd web
+        npm ci
+
+    - name: Build frontend
+      run: |
+        cd web
+        npm run build
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.target }}
+
+    - name: Install cross (for Linux ARM64)
+      if: matrix.target == 'aarch64-unknown-linux-musl'
+      run: cargo install cross --git https://github.com/cross-rs/cross
+
+    - name: Install musl tools (for Linux x86_64)
+      if: matrix.target == 'x86_64-unknown-linux-musl'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
+
+    - name: Build binary
+      run: |
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+          cross build --release --target ${{ matrix.target }} -p bili_sync
+        else
+          cargo build --release --target ${{ matrix.target }} -p bili_sync
+        fi
+      shell: bash
+
+    - name: Prepare binary
+      run: |
+        mkdir -p release
+        if [ "${{ runner.os }}" = "Windows" ]; then
+          cp target/${{ matrix.target }}/release/bili-sync-rs${{ matrix.extension }} release/bili-sync-rs-${{ matrix.name }}${{ matrix.extension }}
+        else
+          cp target/${{ matrix.target }}/release/bili-sync-rs release/bili-sync-rs-${{ matrix.name }}
+        fi
+      shell: bash
+
+    - name: Create archive
+      run: |
+        cd release
+        if [ "${{ matrix.archive }}" = "zip" ]; then
+          7z a bili-sync-rs-${{ matrix.name }}.zip bili-sync-rs-${{ matrix.name }}${{ matrix.extension }}
+        else
+          tar -czf bili-sync-rs-${{ matrix.name }}.tar.gz bili-sync-rs-${{ matrix.name }}
+        fi
+      shell: bash
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bili-sync-rs-${{ matrix.name }}
+        path: release/bili-sync-rs-${{ matrix.name }}.*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: artifacts/**/*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
