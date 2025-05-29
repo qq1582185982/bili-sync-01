@@ -50,3 +50,18 @@ Thumbs.db
 # 临时文件
 *.tmp
 *.temp
+
+# 压缩包和打包文件
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# 编译产物和发布文件
+releases/
+bili-sync-source-*
+temp_package/
+
+# 版本记录和第三方库
+版本记录/
+bilibili-api-main/
