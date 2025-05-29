@@ -1,0 +1,41 @@
+📋 需要上传到 GitHub 的文件清单
+
+🔧 GitHub Actions 工作流 (必需)
+├── .github/workflows/build.yml
+└── .github/workflows/manual-build.yml
+
+📚 文档文件 (推荐)
+└── docs/github-actions-build.md
+
+🛠️ 编译脚本 (推荐)
+├── build-windows.bat
+├── build-cross.bat
+└── setup-github-actions.bat
+
+📄 项目核心文件 (必需)
+├── Cargo.toml
+├── Cargo.lock
+├── .gitignore
+└── README.md
+
+📁 源代码目录 (必需)
+├── crates/
+│   ├── bili_sync/
+│   ├── bili_sync_entity/
+│   └── bili_sync_migration/
+└── web/
+    ├── package.json
+    ├── package-lock.json
+    └── src/
+
+🚫 不需要上传的文件/目录
+├── target/          # Rust 编译输出
+├── releases/        # 本地编译结果
+├── node_modules/    # Node.js 依赖
+├── *.zip           # 压缩包
+├── *.tar.gz        # 压缩包
+└── 日志             # 日志文件
+
+💡 使用方法:
+1. 运行 copy-to-git.bat 自动复制文件
+2. 或者手动复制上述文件到你的 Git 仓库目录 
