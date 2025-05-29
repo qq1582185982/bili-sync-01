@@ -23,26 +23,31 @@ jobs:
             name: Windows-x86_64
             extension: .exe
             archive: zip
+            archive_name: bili-sync-rs-Windows-x86_64.zip
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             name: Linux-x86_64-musl
             extension: ""
             archive: tar.gz
+            archive_name: bili-sync-rs-Linux-x86_64-musl.tar.gz
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             name: Linux-aarch64-musl
             extension: ""
             archive: tar.gz
+            archive_name: bili-sync-rs-Linux-aarch64-musl.tar.gz
           - target: x86_64-apple-darwin
             os: macos-latest
             name: Darwin-x86_64
             extension: ""
             archive: tar.gz
+            archive_name: bili-sync-rs-Darwin-x86_64.tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
             name: Darwin-aarch64
             extension: ""
             archive: tar.gz
+            archive_name: bili-sync-rs-Darwin-aarch64.tar.gz
 
     steps:
     - name: Checkout code
@@ -108,17 +113,17 @@ jobs:
       run: |
         cd release
         if [ "${{ matrix.archive }}" = "zip" ]; then
-          7z a bili-sync-rs-${{ matrix.name }}.zip bili-sync-rs-${{ matrix.name }}${{ matrix.extension }}
+          7z a ${{ matrix.archive_name }} bili-sync-rs-${{ matrix.name }}${{ matrix.extension }}
         else
-          tar -czf bili-sync-rs-${{ matrix.name }}.tar.gz bili-sync-rs-${{ matrix.name }}
+          tar -czf ${{ matrix.archive_name }} bili-sync-rs-${{ matrix.name }}
         fi
       shell: bash
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: bili-sync-rs-${{ matrix.name }}
-        path: release/bili-sync-rs-${{ matrix.name }}.*
+        name: ${{ matrix.archive_name }}
+        path: release/${{ matrix.archive_name }}
 
   release:
     name: Create Release

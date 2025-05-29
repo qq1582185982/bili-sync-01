@@ -25,22 +25,27 @@ jobs:
             os: windows-latest
             name: Windows-x86_64
             platform: windows
+            archive_name: bili-sync-rs-Windows-x86_64.zip
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             name: Linux-x86_64-musl
             platform: linux
+            archive_name: bili-sync-rs-Linux-x86_64-musl.tar.gz
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             name: Linux-aarch64-musl
             platform: linux
+            archive_name: bili-sync-rs-Linux-aarch64-musl.tar.gz
           - target: x86_64-apple-darwin
             os: macos-latest
             name: Darwin-x86_64
             platform: macos
+            archive_name: bili-sync-rs-Darwin-x86_64.tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
             name: Darwin-aarch64
             platform: macos
+            archive_name: bili-sync-rs-Darwin-aarch64.tar.gz
         exclude:
           - platform: ${{ github.event.inputs.platforms == 'windows' && 'linux' || 'exclude-none' }}
           - platform: ${{ github.event.inputs.platforms == 'windows' && 'macos' || 'exclude-none' }}
@@ -94,15 +99,15 @@ jobs:
         mkdir release
         if [ "${{ runner.os }}" = "Windows" ]; then
           cp target/${{ matrix.target }}/release/bili-sync-rs.exe release/bili-sync-rs-${{ matrix.name }}.exe
-          cd release && 7z a bili-sync-rs-${{ matrix.name }}.zip bili-sync-rs-${{ matrix.name }}.exe
+          cd release && 7z a ${{ matrix.archive_name }} bili-sync-rs-${{ matrix.name }}.exe
         else
           cp target/${{ matrix.target }}/release/bili-sync-rs release/bili-sync-rs-${{ matrix.name }}
-          cd release && tar -czf bili-sync-rs-${{ matrix.name }}.tar.gz bili-sync-rs-${{ matrix.name }}
+          cd release && tar -czf ${{ matrix.archive_name }} bili-sync-rs-${{ matrix.name }}
         fi
       shell: bash
 
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: bili-sync-rs-${{ matrix.name }}
-        path: release/bili-sync-rs-${{ matrix.name }}.* 
+        name: ${{ matrix.archive_name }}
+        path: release/${{ matrix.archive_name }} 
