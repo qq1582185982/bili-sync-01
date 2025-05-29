@@ -57,7 +57,8 @@ sample/
 *.bak
 *.backup
 
-# 压缩文件
+# 压缩文件 (但保留Docker构建需要的Linux编译产物)
 *.zip
-*.tar.gz
-*.rar 
+*.rar
+bili-sync-source-*.tar.gz
+# !bili-sync-rs-Linux-*.tar.gz  # 允许Linux编译产物用于Docker构建 
