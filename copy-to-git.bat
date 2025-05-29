@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ========================================
@@ -49,25 +50,18 @@ if exist "docs\github-actions-build.md" (
 
 :: 复制编译脚本
 echo 复制编译脚本...
-if exist "build-windows.bat" (
-    copy "build-windows.bat" "%GIT_DIR%\"
-    echo   ✓ build-windows.bat
-) else (
-    echo   ✗ build-windows.bat 不存在
-)
-
-if exist "build-cross.bat" (
-    copy "build-cross.bat" "%GIT_DIR%\"
-    echo   ✓ build-cross.bat
-) else (
-    echo   ✗ build-cross.bat 不存在
-)
-
 if exist "setup-github-actions.bat" (
     copy "setup-github-actions.bat" "%GIT_DIR%\"
     echo   ✓ setup-github-actions.bat
 ) else (
     echo   ✗ setup-github-actions.bat 不存在
+)
+
+if exist "make.bat" (
+    copy "make.bat" "%GIT_DIR%\"
+    echo   ✓ make.bat
+) else (
+    echo   ✗ make.bat 不存在
 )
 
 :: 复制项目核心文件
@@ -114,7 +108,8 @@ echo   📁 .github/workflows/
 echo   📁 docs/
 echo   📁 crates/
 echo   📁 web/
-echo   📄 *.bat 脚本文件
+echo   📄 make.bat (主构建脚本)
+echo   📄 setup-github-actions.bat (GitHub Actions 设置)
 echo   📄 Cargo.toml, Cargo.lock
 echo   📄 README.md, .gitignore
 echo.
@@ -123,6 +118,11 @@ echo 1. 进入你的 Git 目录: cd "%GIT_DIR%"
 echo 2. 添加文件: git add .
 echo 3. 提交: git commit -m "Add GitHub Actions and build scripts"
 echo 4. 推送: git push origin main
+echo.
+echo 💡 使用说明:
+echo   - 本地编译: make.bat build
+echo   - 发布编译: make.bat release  
+echo   - 云端编译: 推送代码到 GitHub 自动触发
 echo.
 
 pause 

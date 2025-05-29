@@ -17,34 +17,34 @@ if "%1"=="docker" goto docker
 if "%1"=="compose" goto compose
 if "%1"=="package" goto package
 
-echo 未知任务: %1
+echo Unknown command: %1
 goto help
 
 :help
-echo bili-sync 可用任务:
+echo bili-sync Build Tool:
 echo.
-echo 开发任务:
-echo   setup     - 设置开发环境
-echo   dev       - 启动开发服务器
-echo   test      - 运行测试
-echo   fmt       - 格式化代码
-echo   lint      - 代码检查
+echo Development Commands:
+echo   setup     - Setup development environment
+echo   dev       - Start development servers
+echo   test      - Run tests
+echo   fmt       - Format code
+echo   lint      - Lint code
 echo.
-echo 构建任务:
-echo   build     - 构建项目
-echo   release   - 构建发布版本
-echo   clean     - 清理构建文件
-echo   package   - 打包源码 (先清理再打包)
+echo Build Commands:
+echo   build     - Build project
+echo   release   - Build release version
+echo   clean     - Clean build files
+echo   package   - Package source code
 echo.
-echo 文档任务:
-echo   docs      - 启动文档服务器
-echo   docs-build- 构建文档
+echo Documentation Commands:
+echo   docs      - Start documentation server
+echo   docs-build- Build documentation
 echo.
-echo Docker 任务:
-echo   docker    - 构建 Docker 镜像
-echo   compose   - 启动 Docker Compose
+echo Docker Commands:
+echo   docker    - Build Docker image
+echo   compose   - Start Docker Compose
 echo.
-echo 用法: make.bat ^<任务名^>
+echo Usage: make.bat ^<command^>
 goto end
 
 :setup
@@ -222,16 +222,53 @@ if exist "%tempDir%" rmdir /s /q "%tempDir%"
 mkdir "%tempDir%"
 
 :: Copy files
+echo Including: .github
+if exist ".github" (
+    xcopy /s /e /q ".github" "%tempDir%\.github\" >nul 2>&1
+    if errorlevel 1 echo WARNING: Failed to copy .github
+) else (
+    echo WARNING: .github folder not found
+)
+
 echo Including: crates
-xcopy /s /e /q "crates" "%tempDir%\crates\" >nul
+if exist "crates" (
+    xcopy /s /e /q "crates" "%tempDir%\crates\" >nul 2>&1
+    if errorlevel 1 echo WARNING: Failed to copy crates
+) else (
+    echo WARNING: crates folder not found
+)
+
 echo Including: web
-xcopy /s /e /q "web" "%tempDir%\web\" >nul
+if exist "web" (
+    xcopy /s /e /q "web" "%tempDir%\web\" >nul 2>&1
+    if errorlevel 1 echo WARNING: Failed to copy web
+) else (
+    echo WARNING: web folder not found
+)
+
 echo Including: docs
-xcopy /s /e /q "docs" "%tempDir%\docs\" >nul
+if exist "docs" (
+    xcopy /s /e /q "docs" "%tempDir%\docs\" >nul 2>&1
+    if errorlevel 1 echo WARNING: Failed to copy docs
+) else (
+    echo WARNING: docs folder not found
+)
+
 echo Including: scripts
-xcopy /s /e /q "scripts" "%tempDir%\scripts\" >nul
+if exist "scripts" (
+    xcopy /s /e /q "scripts" "%tempDir%\scripts\" >nul 2>&1
+    if errorlevel 1 echo WARNING: Failed to copy scripts
+) else (
+    echo WARNING: scripts folder not found
+)
+
 echo Including: assets
-xcopy /s /e /q "assets" "%tempDir%\assets\" >nul
+if exist "assets" (
+    xcopy /s /e /q "assets" "%tempDir%\assets\" >nul 2>&1
+    if errorlevel 1 echo WARNING: Failed to copy assets
+) else (
+    echo WARNING: assets folder not found
+)
 
 echo Including: Cargo.toml
 copy "Cargo.toml" "%tempDir%\" >nul
@@ -247,12 +284,20 @@ echo Including: rustfmt.toml
 copy "rustfmt.toml" "%tempDir%\" >nul
 echo Including: .gitignore
 copy ".gitignore" "%tempDir%\" >nul
+echo Including: .dockerignore
+copy ".dockerignore" "%tempDir%\" >nul
 echo Including: config.toml
 copy "config.toml" "%tempDir%\" >nul
 echo Including: make.bat
 copy "make.bat" "%tempDir%\" >nul
-echo Including: make.ps1
-copy "make.ps1" "%tempDir%\" >nul
+echo Including: setup-github-actions.bat
+copy "setup-github-actions.bat" "%tempDir%\" >nul
+echo Including: copy-to-git.bat
+copy "copy-to-git.bat" "%tempDir%\" >nul
+echo Including: files-to-upload.txt
+copy "files-to-upload.txt" "%tempDir%\" >nul
+echo Including: install-docker-wsl.sh
+copy "install-docker-wsl.sh" "%tempDir%\" >nul
 
 :: Clean up unwanted items in temp directory
 if exist "%tempDir%\web\node_modules" rmdir /s /q "%tempDir%\web\node_modules"
