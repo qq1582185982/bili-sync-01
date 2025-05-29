@@ -13,10 +13,8 @@ COPY ./bili-sync-rs-Linux-*.tar.gz  ./targets/
 
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
     tar xzvf ./targets/bili-sync-rs-Linux-x86_64-musl.tar.gz -C ./; \
-    mv ./bili-sync-rs-Linux-x86_64-musl ./bili-sync-rs; \
     else \
     tar xzvf ./targets/bili-sync-rs-Linux-aarch64-musl.tar.gz -C ./; \
-    mv ./bili-sync-rs-Linux-aarch64-musl ./bili-sync-rs; \
     fi
 
 RUN rm -rf ./targets && chmod +x ./bili-sync-rs

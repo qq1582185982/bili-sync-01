@@ -103,9 +103,9 @@ jobs:
       run: |
         mkdir -p release
         if [ "${{ runner.os }}" = "Windows" ]; then
-          cp target/${{ matrix.target }}/release/bili-sync-rs${{ matrix.extension }} release/bili-sync-rs-${{ matrix.name }}${{ matrix.extension }}
+          cp target/${{ matrix.target }}/release/bili-sync-rs${{ matrix.extension }} release/bili-sync-rs${{ matrix.extension }}
         else
-          cp target/${{ matrix.target }}/release/bili-sync-rs release/bili-sync-rs-${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/bili-sync-rs release/bili-sync-rs
         fi
       shell: bash
 
@@ -113,9 +113,9 @@ jobs:
       run: |
         cd release
         if [ "${{ matrix.archive }}" = "zip" ]; then
-          7z a ${{ matrix.archive_name }} bili-sync-rs-${{ matrix.name }}${{ matrix.extension }}
+          7z a ${{ matrix.archive_name }} bili-sync-rs${{ matrix.extension }}
         else
-          tar -czf ${{ matrix.archive_name }} bili-sync-rs-${{ matrix.name }}
+          tar -czf ${{ matrix.archive_name }} bili-sync-rs
         fi
       shell: bash
 

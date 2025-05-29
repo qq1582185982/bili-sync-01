@@ -98,11 +98,11 @@ jobs:
       run: |
         mkdir release
         if [ "${{ runner.os }}" = "Windows" ]; then
-          cp target/${{ matrix.target }}/release/bili-sync-rs.exe release/bili-sync-rs-${{ matrix.name }}.exe
-          cd release && 7z a ${{ matrix.archive_name }} bili-sync-rs-${{ matrix.name }}.exe
+          cp target/${{ matrix.target }}/release/bili-sync-rs.exe release/bili-sync-rs.exe
+          cd release && 7z a ${{ matrix.archive_name }} bili-sync-rs.exe
         else
-          cp target/${{ matrix.target }}/release/bili-sync-rs release/bili-sync-rs-${{ matrix.name }}
-          cd release && tar -czf ${{ matrix.archive_name }} bili-sync-rs-${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/bili-sync-rs release/bili-sync-rs
+          cd release && tar -czf ${{ matrix.archive_name }} bili-sync-rs
         fi
       shell: bash
 
