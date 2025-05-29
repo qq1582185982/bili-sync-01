@@ -1,8 +1,0 @@
-{
-    "zone": {
-        "url": "https://api.bilibili.com/x/web-interface/zone",
-        "method": "GET",
-        "verify": false,
-        "comment": "通过 IP 获取地理位置"
-    }
-}
