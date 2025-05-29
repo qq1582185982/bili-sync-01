@@ -115,8 +115,8 @@ jobs:
         name: ${{ matrix.name }}
         path: artifact/
 
-    - name: Upload archive
+    - name: Upload package
       uses: actions/upload-artifact@v4
       with:
-        name: archive-${{ matrix.name }}
+        name: ${{ matrix.archive_name }}
         path: release/${{ matrix.archive_name }} 

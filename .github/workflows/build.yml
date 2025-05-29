@@ -128,11 +128,10 @@ jobs:
         name: ${{ matrix.name }}
         path: artifact/
 
-    - name: Upload release archive
-      if: startsWith(github.ref, 'refs/tags/v')
+    - name: Upload release package
       uses: actions/upload-artifact@v4
       with:
-        name: release-${{ matrix.name }}
+        name: ${{ matrix.archive_name }}
         path: release/${{ matrix.archive_name }}
 
   release:
