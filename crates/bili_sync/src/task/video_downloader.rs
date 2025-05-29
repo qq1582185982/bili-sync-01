@@ -10,6 +10,7 @@ use crate::bilibili::{self, BiliClient};
 use crate::config::{CONFIG, Config};
 use crate::initialization;
 use crate::workflow::process_video_source;
+use crate::task::TASK_CONTROLLER;
 
 /// 初始化所有视频源的辅助函数
 async fn init_all_sources(
@@ -61,6 +62,13 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
     }
 
     loop {
+        // 检查是否需要暂停扫描任务
+        if TASK_CONTROLLER.is_paused() {
+            debug!("定时扫描任务已暂停，等待恢复...");
+            TASK_CONTROLLER.wait_if_paused().await;
+            info!("定时扫描任务已恢复");
+        }
+
         // 重新加载配置并初始化视频源
         // 注意：由于我们使用Lazy，全局CONFIG并不会自动更新
         // 但我们可以获取最新配置用于本轮任务
@@ -77,6 +85,12 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
         info!("开始执行本轮视频下载任务..");
 
         'inner: {
+            // 在开始扫描前再次检查是否暂停
+            if TASK_CONTROLLER.is_paused() {
+                debug!("扫描开始前检测到暂停信号，跳过本轮扫描");
+                break 'inner;
+            }
+
             match bili_client.wbi_img().await.map(|wbi_img| wbi_img.into()) {
                 Ok(Some(mixin_key)) => bilibili::set_global_mixin_key(mixin_key),
                 Ok(_) => {
@@ -122,6 +136,12 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
             let mut processed_sources = 0;
             let mut sources_with_new_content = 0;
             for (args, path) in &video_sources {
+                // 在处理每个视频源前检查是否暂停
+                if TASK_CONTROLLER.is_paused() {
+                    debug!("在处理视频源时检测到暂停信号，停止当前轮次扫描");
+                    break;
+                }
+
                 match process_video_source(*args, &bili_client, path, &connection).await {
                     Ok(new_video_count) => {
                         processed_sources += 1;

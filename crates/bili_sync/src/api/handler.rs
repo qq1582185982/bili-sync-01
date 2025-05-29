@@ -1097,6 +1097,10 @@ pub async fn update_config(
     let should_rename = updated_fields.iter().any(|field| naming_fields.contains(field));
 
     if should_rename {
+        // 暂停定时扫描任务，避免与重命名操作产生数据库锁定冲突
+        crate::task::pause_scanning();
+        info!("重命名操作开始，已暂停定时扫描任务");
+
         // 根据更新的字段类型来决定重命名哪些文件
         let rename_single_page = updated_fields.contains(&"page_name") || updated_fields.contains(&"video_name");
         let rename_multi_page = updated_fields.contains(&"multi_page_name") || updated_fields.contains(&"video_name");
@@ -1116,12 +1120,17 @@ pub async fn update_config(
         {
             Ok(count) => {
                 updated_files = count;
+                info!("重命名操作完成，共处理了 {} 个文件/文件夹", count);
             }
             Err(e) => {
                 error!("重命名已下载文件时出错: {}", e);
                 // 即使重命名失败，配置更新仍然成功
             }
         }
+
+        // 恢复定时扫描任务
+        crate::task::resume_scanning();
+        info!("重命名操作结束，已恢复定时扫描任务");
     }
 
     // 检查是否需要重新生成NFO文件
