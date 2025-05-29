@@ -96,18 +96,27 @@ jobs:
 
     - name: Package
       run: |
+        mkdir artifact
         mkdir release
         if [ "${{ runner.os }}" = "Windows" ]; then
+          cp target/${{ matrix.target }}/release/bili-sync-rs.exe artifact/bili-sync-rs.exe
           cp target/${{ matrix.target }}/release/bili-sync-rs.exe release/bili-sync-rs.exe
           cd release && 7z a ${{ matrix.archive_name }} bili-sync-rs.exe
         else
+          cp target/${{ matrix.target }}/release/bili-sync-rs artifact/bili-sync-rs
           cp target/${{ matrix.target }}/release/bili-sync-rs release/bili-sync-rs
           cd release && tar -czf ${{ matrix.archive_name }} bili-sync-rs
         fi
       shell: bash
 
-    - name: Upload
+    - name: Upload (binary only)
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.name }}
+        path: artifact/
+
+    - name: Upload archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: archive-${{ matrix.name }}
         path: release/${{ matrix.archive_name }} 
