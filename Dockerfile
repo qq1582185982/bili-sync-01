@@ -4,14 +4,14 @@ FROM rustlang/rust:nightly-alpine AS builder
 
 WORKDIR /app
 
-# 配置中国区镜像源
+# 配置中国区镜像源（这一层会被缓存）
 RUN mkdir -p /usr/local/cargo && \
     echo '[source.crates-io]' > /usr/local/cargo/config && \
     echo 'replace-with = "ustc"' >> /usr/local/cargo/config && \
     echo '[source.ustc]' >> /usr/local/cargo/config && \
     echo 'registry = "https://mirrors.ustc.edu.cn/crates.io-index"' >> /usr/local/cargo/config
 
-# 安装编译依赖
+# 安装编译依赖（这一层会被缓存，除非基础镜像更新）
 RUN apk update && apk add --no-cache \
     build-base \
     musl-dev \
@@ -21,20 +21,24 @@ RUN apk update && apk add --no-cache \
     git \
     sqlite-dev
 
-# 复制Cargo配置文件和web构建文件
+# 只复制依赖配置文件（优化：减少不必要的文件复制）
 COPY Cargo.toml Cargo.lock ./
-COPY crates ./crates/
-COPY web ./web/
+
+# 创建一个空的主程序，预先构建依赖（这一层只有在 Cargo.toml 或 Cargo.lock 变化时才会重新构建）
+RUN mkdir -p crates/bili_sync/src && \
+    echo "fn main() {}" > crates/bili_sync/src/main.rs && \
+    printf '[package]\nname = "bili_sync"\nversion = "0.1.0"\nedition = "2021"\n' > crates/bili_sync/Cargo.toml && \
+    cargo build --release && \
+    rm -rf crates target/release/deps/bili_sync*
+
+# 复制其他配置文件（分离复制，减少缓存失效）
 COPY rustfmt.toml ./
 
-# 创建一个空的主程序，预先构建依赖
-RUN mkdir -p src && \
-    echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src
+# 复制 crates 目录（如果 crates 内容变化，只会影响这一层之后的缓存）
+COPY crates ./crates/
 
-# 复制项目源代码
-COPY . .
+# 复制 web 目录（如果 web 内容变化，只会影响这一层之后的缓存）
+COPY web ./web/
 
 # 编译项目
 RUN cargo build --release && \
@@ -45,7 +49,7 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# 安装运行时依赖
+# 安装运行时依赖（这一层会被缓存）
 RUN apk update && apk add --no-cache \
     ca-certificates \
     tzdata \

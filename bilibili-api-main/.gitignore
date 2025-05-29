@@ -1,0 +1,31 @@
+# Python binariees
+__pycache__/
+# MacOS
+.DS_Store
+# Build
+build/
+dist/
+*.egg-info/
+# Danmakus
+*.ass
+*.srt
+# Interactive Videos
+*.ivi
+# Videos
+*.mp4
+# Test files / Scratch files
+test*.*
+scratch/
+# Tests
+!tests/*.py
+# Virtual environments
+venv/
+.venv/
+virtualenv/
+# IDE
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+# Doc Generater
+.doc_cache/
+.mypy_cache/

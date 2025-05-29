@@ -49,16 +49,20 @@ impl VideoSource for collection::Model {
     }
 
     fn log_refresh_video_end(&self, count: usize) {
-        info!(
-            "扫描{}「{}」完成，已拉取 {} 条视频",
-            CollectionType::from(self.r#type),
-            self.name,
-            count,
-        );
+        if count > 0 {
+            info!(
+                "扫描{}「{}」完成，已拉取 {} 条视频",
+                CollectionType::from(self.r#type),
+                self.name,
+                count,
+            );
+        } else {
+            info!("{}「{}」无新视频", CollectionType::from(self.r#type), self.name);
+        }
     }
 
     fn log_fetch_video_start(&self) {
-        info!(
+        debug!(
             "开始填充{}「{}」视频详情..",
             CollectionType::from(self.r#type),
             self.name
@@ -66,15 +70,15 @@ impl VideoSource for collection::Model {
     }
 
     fn log_fetch_video_end(&self) {
-        info!("填充{}「{}」视频详情完成", CollectionType::from(self.r#type), self.name);
+        debug!("填充{}「{}」视频详情完成", CollectionType::from(self.r#type), self.name);
     }
 
     fn log_download_video_start(&self) {
-        info!("开始下载{}「{}」视频..", CollectionType::from(self.r#type), self.name);
+        debug!("开始下载{}「{}」视频..", CollectionType::from(self.r#type), self.name);
     }
 
     fn log_download_video_end(&self) {
-        info!("下载{}「{}」视频完成", CollectionType::from(self.r#type), self.name);
+        debug!("下载{}「{}」视频完成", CollectionType::from(self.r#type), self.name);
     }
 }
 
@@ -91,16 +95,16 @@ pub async fn init_collection_sources(
                 collection::Column::SId
                     .eq(collection_item.sid.clone())
                     .and(collection::Column::MId.eq(collection_item.mid.clone()))
-                    .and(collection::Column::Type.eq(Into::<i32>::into(collection_item.collection_type.clone())))
+                    .and(collection::Column::Type.eq(Into::<i32>::into(collection_item.collection_type.clone()))),
             )
             .one(conn)
             .await?;
-        
+
         if existing.is_none() {
             // 如果不存在，尝试获取合集信息并创建新记录
             let bili_client = crate::bilibili::BiliClient::new(String::new());
             let collection = Collection::new(&bili_client, collection_item);
-            
+
             // 尝试获取合集信息
             match collection.get_info().await {
                 Ok(collection_info) => {
@@ -115,19 +119,19 @@ pub async fn init_collection_sources(
                         latest_row_at: Set(chrono::Utc::now().naive_utc()),
                         ..Default::default()
                     };
-                    
+
                     // 插入数据库
                     let result = collection::Entity::insert(model)
                         .exec(conn)
                         .await
                         .context("Failed to insert collection source")?;
-                    
+
                     info!("初始化合集源: {} (ID: {})", collection_info.name, result.last_insert_id);
-                },
+                }
                 Err(e) => {
                     // 如果获取失败，创建一个临时记录
                     warn!("获取合集 {:?} 信息失败: {}, 创建临时记录", collection_item, e);
-                    
+
                     // 尝试将sid和mid转换为i64
                     let sid_i64 = match collection_item.sid.parse::<i64>() {
                         Ok(id) => id,
@@ -136,7 +140,7 @@ pub async fn init_collection_sources(
                             continue;
                         }
                     };
-                    
+
                     let mid_i64 = match collection_item.mid.parse::<i64>() {
                         Ok(id) => id,
                         Err(e) => {
@@ -144,7 +148,7 @@ pub async fn init_collection_sources(
                             continue;
                         }
                     };
-                    
+
                     let model = collection::ActiveModel {
                         id: Set(Default::default()),
                         s_id: Set(sid_i64), // 转换为i64类型
@@ -155,35 +159,38 @@ pub async fn init_collection_sources(
                         latest_row_at: Set(chrono::Utc::now().naive_utc()),
                         ..Default::default()
                     };
-                    
+
                     let result = collection::Entity::insert(model)
                         .exec(conn)
                         .await
                         .context("Failed to insert temporary collection source")?;
-                    
-                    info!("初始化临时合集源: {:?} (ID: {})", collection_item, result.last_insert_id);
+
+                    info!(
+                        "初始化临时合集源: {:?} (ID: {})",
+                        collection_item, result.last_insert_id
+                    );
                 }
             }
         } else if let Some(existing) = existing {
             // 如果已存在，更新路径
-            if existing.path != path.to_string_lossy().to_string() {
+            if existing.path != path.to_string_lossy() {
                 let model = collection::ActiveModel {
                     id: Set(existing.id),
                     path: Set(path.to_string_lossy().to_string()),
                     ..Default::default()
                 };
-                
+
                 // 更新数据库
                 collection::Entity::update(model)
                     .exec(conn)
                     .await
                     .context("Failed to update collection source")?;
-                
+
                 info!("更新合集源: {} (ID: {})", existing.name, existing.id);
             }
         }
     }
-    
+
     Ok(())
 }
 

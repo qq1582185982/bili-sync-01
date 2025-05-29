@@ -3,10 +3,12 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
 	import VideoItem from '$lib/components/VideoItem.svelte';
-	import { listVideos, getVideoSources } from '$lib/api';
+	import { listVideos, getVideoSources, deleteVideoSource } from '$lib/api';
 	import type { VideoInfo, VideoSourcesResponse } from '$lib/types';
 	import Header from '$lib/components/Header.svelte';
 	import AddSourceForm from '$lib/components/AddSourceForm.svelte';
+	import ConfigForm from '$lib/components/ConfigForm.svelte';
+	import { toast } from 'svelte-sonner';
 
 	// API Token 管理
 	let apiToken: string = localStorage.getItem('auth_token') || '';
@@ -48,6 +50,7 @@
 	let currentPage = 0;
 	const pageSize = 10;
 	let showAddForm = false; // 控制添加表单的显示
+	let showConfigForm = false; // 控制配置表单的显示
 
 	// 视频列表模型及全局选中模型（只全局允许选中一个）
 	let videoListModels: VideoSourcesResponse = {
@@ -144,6 +147,11 @@
 		fetchVideoListModels(); // 刷新视频源列表
 	}
 
+	// 配置更新成功后的回调
+	function handleConfigSuccess() {
+		showConfigForm = false; // 隐藏配置表单
+	}
+
 	onMount(fetchVideoListModels);
 
 	$: activeCategory, currentPage, searchQuery, fetchVideos();
@@ -187,6 +195,36 @@
 		fetchVideos();
 		window.scrollTo({ top: 0, behavior: 'smooth' });
 	}
+
+	// 删除视频源
+	async function handleDeleteSource(category: keyof VideoSourcesResponse, id: number, name: string) {
+		if (!confirm(`确定要删除视频源 "${name}" 吗？此操作不可撤销。`)) {
+			return;
+		}
+		
+		// 询问是否同时删除本地文件
+		const deleteLocalFiles = confirm(`是否同时删除本地已下载的文件？\n选择"确定"将删除本地文件，选择"取消"将保留本地文件。`);
+		
+		try {
+			const result = await deleteVideoSource(category, id, deleteLocalFiles);
+			if (result.success) {
+				toast.success('删除成功', { 
+					description: result.message + (deleteLocalFiles ? '，本地文件已删除' : '，本地文件已保留') 
+				});
+				// 如果删除的是当前选中的视频源，取消选中状态
+				if (selectedModel && selectedModel.category === category && selectedModel.id === id) {
+					selectedModel = null;
+				}
+				// 刷新视频源列表
+				fetchVideoListModels();
+			} else {
+				toast.error('删除失败', { description: result.message });
+			}
+		} catch (error) {
+			console.error(error);
+			toast.error('删除失败', { description: `错误信息：${error}` });
+		}
+	}
 </script>
 
 <svelte:head>
@@ -199,10 +237,21 @@
 		<aside class="w-1/4 border-r p-4">
 			<div class="flex justify-between items-center mb-4">
 				<h2 class="text-xl font-bold">视频来源</h2>
-				<Button onclick={() => showAddForm = !showAddForm} class="px-2 py-1 h-auto">
-					{showAddForm ? '取消' : '添加'}
-				</Button>
+				<div class="flex space-x-2">
+					<Button onclick={() => showConfigForm = !showConfigForm} class="px-2 py-1 h-auto bg-blue-500 hover:bg-blue-600 text-white border-blue-500" variant="outline">
+						{showConfigForm ? '取消' : '下载配置'}
+					</Button>
+					<Button onclick={() => showAddForm = !showAddForm} class="px-2 py-1 h-auto bg-green-500 hover:bg-green-600 text-white">
+						{showAddForm ? '取消' : '添加视频源'}
+					</Button>
+				</div>
 			</div>
+
+			{#if showConfigForm}
+				<div class="mb-4">
+					<ConfigForm onSuccess={handleConfigSuccess} />
+				</div>
+			{/if}
 
 			{#if showAddForm}
 				<div class="mb-4">
@@ -226,9 +275,9 @@
 						{#if videoListModels[cat]?.length}
 							<ul class="ml-4">
 								{#each videoListModels[cat] as model}
-									<li class="mb-1">
+									<li class="mb-1 flex items-center">
 										<button
-											class="w-full rounded px-2 py-1 text-left hover:bg-gray-100 {selectedModel &&
+											class="flex-grow rounded px-2 py-1 text-left hover:bg-gray-100 {selectedModel &&
 											selectedModel.category === cat &&
 											selectedModel.id === model.id
 												? 'bg-gray-200'
@@ -236,6 +285,13 @@
 											on:click={() => selectModel(cat, model.id)}
 										>
 											{model.name}
+										</button>
+										<button 
+											class="ml-1 text-red-500 hover:text-red-700 px-2" 
+											title="删除"
+											on:click|stopPropagation={() => handleDeleteSource(cat, model.id, model.name)}
+										>
+											×
 										</button>
 									</li>
 								{/each}
@@ -261,7 +317,32 @@
 			</div>
 			<div class="mt-4 flex items-center justify-between">
 				<Button onclick={prevPage} disabled={currentPage === 0}>上一页</Button>
-				<span>第 {currentPage + 1} 页，共 {Math.ceil(total / pageSize)} 页</span>
+				<div class="flex items-center space-x-4">
+					<span>第 {currentPage + 1} 页，共 {Math.ceil(total / pageSize)} 页</span>
+					<div class="flex items-center space-x-2">
+						<span class="text-sm text-gray-500">跳转到</span>
+						<input 
+							type="number" 
+							min="1" 
+							max={Math.ceil(total / pageSize)}
+							placeholder="页码"
+							class="w-16 px-2 py-1 text-sm border border-gray-200 rounded focus:border-blue-300 focus:ring-1 focus:ring-blue-200 bg-gray-50"
+							on:keydown={(e) => {
+								if (e.key === 'Enter') {
+									const targetPage = parseInt(e.target.value) - 1;
+									if (targetPage >= 0 && targetPage < Math.ceil(total / pageSize)) {
+										currentPage = targetPage;
+										videoCollapseSignal = !videoCollapseSignal;
+										fetchVideos();
+										window.scrollTo({ top: 0, behavior: 'smooth' });
+									}
+									e.target.value = '';
+								}
+							}}
+						/>
+						<span class="text-sm text-gray-500">页</span>
+					</div>
+				</div>
 				<Button onclick={nextPage} disabled={(currentPage + 1) * pageSize >= total}>下一页</Button>
 			</div>
 			{:else}

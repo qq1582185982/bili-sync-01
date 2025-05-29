@@ -25,35 +25,98 @@ use crate::utils::model::{
 use crate::utils::nfo::{ModelWrapper, NFOMode, NFOSerializer};
 use crate::utils::status::{PageStatus, STATUS_OK, VideoStatus};
 
-/// 完整地处理某个视频来源
+/// 完整地处理某个视频来源，返回新增的视频数量
 pub async fn process_video_source(
     args: Args<'_>,
     bili_client: &BiliClient,
     path: &Path,
     connection: &DatabaseConnection,
-) -> Result<()> {
+) -> Result<usize> {
     // 记录当前处理的参数和路径
-    if let Args::Bangumi { season_id: _, media_id: _, ep_id: _ } = args {
+    if let Args::Bangumi {
+        season_id: _,
+        media_id: _,
+        ep_id: _,
+    } = args
+    {
         // 获取番剧标题，从路径中提取
-        let title = path.file_name()
+        let title = path
+            .file_name()
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| "未知番剧".to_string());
         info!("处理番剧下载: {}", title);
     }
-    
+
+    // 定义一个辅助函数来处理-101错误并重试
+    let retry_with_refresh = |error_msg: String| async move {
+        if error_msg.contains("status code: -101") || error_msg.contains("账号未登录") {
+            warn!("检测到登录状态过期，尝试刷新凭据...");
+            if let Err(refresh_err) = bili_client.check_refresh().await {
+                error!("刷新凭据失败：{:#}", refresh_err);
+                return Err(refresh_err);
+            } else {
+                info!("凭据刷新成功，将重试操作");
+                return Ok(());
+            }
+        }
+        Err(anyhow::anyhow!("非登录状态错误，无需刷新凭据"))
+    };
+
     // 从参数中获取视频列表的 Model 与视频流
-    let (video_source, video_streams) = video_source_from(args, path, bili_client, connection).await?;
-    // 从视频流中获取新视频的简要信息，写入数据库
-    refresh_video_source(&video_source, video_streams, connection).await?;
+    let (video_source, video_streams) = match video_source_from(args, path, bili_client, connection).await {
+        Ok(result) => result,
+        Err(e) => {
+            let error_msg = format!("{:#}", e);
+            if retry_with_refresh(error_msg).await.is_ok() {
+                // 刷新成功，重试
+                video_source_from(args, path, bili_client, connection).await?
+            } else {
+                return Err(e);
+            }
+        }
+    };
+
+    // 从视频流中获取新视频的简要信息，写入数据库，并获取新增视频数量
+    let new_video_count = match refresh_video_source(&video_source, video_streams, connection).await {
+        Ok(count) => count,
+        Err(e) => {
+            let error_msg = format!("{:#}", e);
+            if retry_with_refresh(error_msg).await.is_ok() {
+                // 刷新成功，重新获取视频流并重试
+                let (_, video_streams) = video_source_from(args, path, bili_client, connection).await?;
+                refresh_video_source(&video_source, video_streams, connection).await?
+            } else {
+                return Err(e);
+            }
+        }
+    };
+
     // 单独请求视频详情接口，获取视频的详情信息与所有的分页，写入数据库
-    fetch_video_details(bili_client, &video_source, connection).await?;
+    if let Err(e) = fetch_video_details(bili_client, &video_source, connection).await {
+        let error_msg = format!("{:#}", e);
+        if retry_with_refresh(error_msg).await.is_ok() {
+            // 刷新成功，重试
+            fetch_video_details(bili_client, &video_source, connection).await?;
+        } else {
+            return Err(e);
+        }
+    }
+
     if ARGS.scan_only {
         warn!("已开启仅扫描模式，跳过视频下载..");
     } else {
         // 从数据库中查找所有未下载的视频与分页，下载并处理
-        download_unprocessed_videos(bili_client, &video_source, connection).await?;
+        if let Err(e) = download_unprocessed_videos(bili_client, &video_source, connection).await {
+            let error_msg = format!("{:#}", e);
+            if retry_with_refresh(error_msg).await.is_ok() {
+                // 刷新成功，重试
+                download_unprocessed_videos(bili_client, &video_source, connection).await?;
+            } else {
+                return Err(e);
+            }
+        }
     }
-    Ok(())
+    Ok(new_video_count)
 }
 
 /// 请求接口，获取视频列表中所有新添加的视频信息，将其写入数据库
@@ -61,7 +124,7 @@ pub async fn refresh_video_source<'a>(
     video_source: &VideoSourceEnum,
     video_streams: Pin<Box<dyn Stream<Item = Result<VideoInfo>> + 'a + Send>>,
     connection: &DatabaseConnection,
-) -> Result<()> {
+) -> Result<usize> {
     video_source.log_refresh_video_start();
     let latest_row_at = video_source.get_latest_row_at().and_utc();
     let mut max_datetime = latest_row_at;
@@ -89,8 +152,14 @@ pub async fn refresh_video_source<'a>(
         .chunks(10);
     let mut count = 0;
     while let Some(videos_info) = video_streams.next().await {
-        count += videos_info.len();
+        // 获取插入前的视频数量
+        let before_count = get_video_count_for_source(video_source, connection).await?;
+
         create_videos(videos_info, video_source, connection).await?;
+
+        // 获取插入后的视频数量，计算实际新增数量
+        let after_count = get_video_count_for_source(video_source, connection).await?;
+        count += after_count - before_count;
     }
     // 如果获取视频分页过程中发生了错误，直接在此处返回，不更新 latest_row_at
     error?;
@@ -101,7 +170,7 @@ pub async fn refresh_video_source<'a>(
             .await?;
     }
     video_source.log_refresh_video_end(count);
-    Ok(())
+    Ok(count)
 }
 
 /// 筛选出所有未获取到全部信息的视频，尝试补充其详细信息
@@ -159,17 +228,19 @@ pub async fn download_unprocessed_videos(
     let semaphore = Semaphore::new(CONFIG.concurrent_limit.video);
     let downloader = Downloader::new(bili_client.client.clone());
     let unhandled_videos_pages = filter_unhandled_video_pages(video_source.filter_expr(), connection).await?;
-    
-    // 添加详细日志，记录找到的未处理视频数量
-    info!("找到 {} 个未处理完成的视频", unhandled_videos_pages.len());
-    
+
+    // 只有当有未处理视频时才显示日志
+    if !unhandled_videos_pages.is_empty() {
+        info!("找到 {} 个未处理完成的视频", unhandled_videos_pages.len());
+    }
+
     let mut assigned_upper = HashSet::new();
     let tasks = unhandled_videos_pages
         .into_iter()
         .map(|(video_model, pages_model)| {
             let should_download_upper = !assigned_upper.contains(&video_model.upper_id);
             assigned_upper.insert(video_model.upper_id);
-            info!("下载视频: {}", video_model.name);
+            debug!("下载视频: {}", video_model.name);
             download_video_pages(
                 bili_client,
                 video_source,
@@ -222,52 +293,46 @@ pub async fn download_video_pages(
     let _permit = semaphore.acquire().await.context("acquire semaphore failed")?;
     let mut status = VideoStatus::from(video_model.download_status);
     let separate_status = status.should_run();
-    
+
     // 添加判断：检查是否为番剧类型
-    let is_bangumi = match video_source {
-        VideoSourceEnum::BangumiSource(_) => true,
-        _ => false,
-    };
-    
-    // 添加日志，帮助排查，降级为debug级别
-    debug!("视频「{}」是否为番剧: {}", &video_model.name, is_bangumi);
-    debug!("视频source_type: {:?}", video_model.source_type);
-    
+    let is_bangumi = matches!(video_source, VideoSourceEnum::BangumiSource(_));
+
     // 获取番剧源和季度信息
     let (base_path, season_folder) = if is_bangumi {
         let bangumi_source = match video_source {
             VideoSourceEnum::BangumiSource(source) => source,
             _ => unreachable!(),
         };
-        
-        let path = bangumi_source.path().to_path_buf();
-        
+
+        // 番剧直接使用配置的路径，不创建额外的视频标题文件夹
+        let base_path = bangumi_source.path();
+
         // 如果启用了下载所有季度，则根据season_id创建子文件夹
         if bangumi_source.download_all_seasons && video_model.season_id.is_some() {
-            let season_id = video_model.season_id.as_ref().unwrap();
-            
+            let season_id = video_model
+                .season_id
+                .as_ref()
+                .context("season_id should not be None when download_all_seasons is true")?;
+
             // 从API获取季度标题
             let season_title = match get_season_title_from_api(bili_client, season_id).await {
                 Some(title) => title,
-                None => season_id.clone(), // 如果找不到季度名称，就使用season_id
+                None => format!("第{}季", season_id), // 如果找不到季度名称，使用默认格式
             };
-            
-            debug!("番剧「{}」使用季度文件夹: {}", &video_model.name, season_title);
-            (path.join(&season_title), Some(season_title))
+
+            (base_path.join(&season_title), Some(season_title))
         } else {
-            // 不启用下载所有季度时，直接使用指定路径
-            debug!("番剧「{}」使用直接路径: {}", &video_model.name, path.display());
-            (path, None)
+            // 不启用下载所有季度时，直接使用配置路径
+            (base_path.to_path_buf(), None)
         }
     } else {
         // 非番剧使用原来的逻辑
         let path = video_source
-        .path()
-        .join(TEMPLATE.path_safe_render("video", &video_format_args(&video_model))?);
-        debug!("非番剧「{}」使用子文件夹路径: {}", &video_model.name, path.display());
+            .path()
+            .join(TEMPLATE.path_safe_render("video", &video_format_args(&video_model))?);
         (path, None)
     };
-    
+
     // 确保季度文件夹存在
     if let Some(season_folder_name) = &season_folder {
         let season_path = video_source.path().join(season_folder_name);
@@ -276,13 +341,22 @@ pub async fn download_video_pages(
             info!("创建季度文件夹: {}", season_path.display());
         }
     }
-    
+
     let upper_id = video_model.upper_id.to_string();
     let base_upper_path = &CONFIG
         .upper_path
         .join(upper_id.chars().next().context("upper_id is empty")?.to_string())
         .join(upper_id);
     let is_single_page = video_model.single_page.context("single_page is null")?;
+
+    // 为多P视频生成基于视频名称的文件名
+    let video_base_name = if !is_single_page {
+        // 使用video_name模板渲染视频名称
+        TEMPLATE.path_safe_render("video", &video_format_args(&video_model))?
+    } else {
+        String::new() // 单P视频不需要这些文件
+    };
+
     // 对于单页视频，page 的下载已经足够
     // 对于多页视频，page 下载仅包含了分集内容，需要额外补上视频的 poster 的 tvshow.nfo
     let tasks: Vec<Pin<Box<dyn Future<Output = Result<ExecutionStatus>> + Send>>> = vec![
@@ -291,14 +365,14 @@ pub async fn download_video_pages(
             separate_status[0] && !is_single_page,
             &video_model,
             downloader,
-            base_path.join("poster.jpg"),
-            base_path.join("fanart.jpg"),
+            base_path.join(format!("{}-poster.jpg", video_base_name)),
+            base_path.join(format!("{}-fanart.jpg", video_base_name)),
         )),
         // 生成视频信息的 nfo
         Box::pin(generate_video_nfo(
             separate_status[1] && !is_single_page,
             &video_model,
-            base_path.join("tvshow.nfo"),
+            base_path.join(format!("{}.nfo", video_base_name)),
         )),
         // 下载 Up 主头像
         Box::pin(fetch_upper_face(
@@ -314,15 +388,16 @@ pub async fn download_video_pages(
             base_upper_path.join("person.nfo"),
         )),
         // 分发并执行分 P 下载的任务
-        Box::pin(dispatch_download_page(
-            separate_status[4],
+        Box::pin(dispatch_download_page(DownloadPageArgs {
+            should_run: separate_status[4],
             bili_client,
-            &video_model,
+            video_source,
+            video_model: &video_model,
             pages,
             connection,
             downloader,
-            &base_path,
-        )),
+            base_path: &base_path,
+        })),
     ];
     let tasks: FuturesOrdered<_> = tasks.into_iter().collect();
     let results: Vec<ExecutionStatus> = tasks.collect::<Vec<_>>().await.into_iter().map(Into::into).collect();
@@ -332,8 +407,8 @@ pub async fn download_video_pages(
         .take(4)
         .zip(["封面", "详情", "作者头像", "作者详情"])
         .for_each(|(res, task_name)| match res {
-            ExecutionStatus::Skipped => info!("处理视频「{}」{}已成功过，跳过", &video_model.name, task_name),
-            ExecutionStatus::Succeeded => info!("处理视频「{}」{}成功", &video_model.name, task_name),
+            ExecutionStatus::Skipped => debug!("处理视频「{}」{}已成功过，跳过", &video_model.name, task_name),
+            ExecutionStatus::Succeeded => debug!("处理视频「{}」{}成功", &video_model.name, task_name),
             ExecutionStatus::Ignored(e) => {
                 info!(
                     "处理视频「{}」{}出现常见错误，已忽略: {:#}",
@@ -360,30 +435,37 @@ pub async fn download_video_pages(
     Ok(video_active_model)
 }
 
+/// 分页下载任务的参数结构体
+pub struct DownloadPageArgs<'a> {
+    pub should_run: bool,
+    pub bili_client: &'a BiliClient,
+    pub video_source: &'a VideoSourceEnum,
+    pub video_model: &'a video::Model,
+    pub pages: Vec<page::Model>,
+    pub connection: &'a DatabaseConnection,
+    pub downloader: &'a Downloader,
+    pub base_path: &'a Path,
+}
+
 /// 分发并执行分页下载任务，当且仅当所有分页成功下载或达到最大重试次数时返回 Ok，否则根据失败原因返回对应的错误
-pub async fn dispatch_download_page(
-    should_run: bool,
-    bili_client: &BiliClient,
-    video_model: &video::Model,
-    pages: Vec<page::Model>,
-    connection: &DatabaseConnection,
-    downloader: &Downloader,
-    base_path: &Path,
-) -> Result<ExecutionStatus> {
-    if !should_run {
+pub async fn dispatch_download_page(args: DownloadPageArgs<'_>) -> Result<ExecutionStatus> {
+    if !args.should_run {
         return Ok(ExecutionStatus::Skipped);
     }
+
     let child_semaphore = Semaphore::new(CONFIG.concurrent_limit.page);
-    let tasks = pages
+    let tasks = args
+        .pages
         .into_iter()
         .map(|page_model| {
             download_page(
-                bili_client,
-                video_model,
+                args.bili_client,
+                args.video_source,
+                args.video_model,
                 page_model,
                 &child_semaphore,
-                downloader,
-                base_path,
+                args.downloader,
+                args.base_path,
             )
         })
         .collect::<FuturesUnordered<_>>();
@@ -414,10 +496,13 @@ pub async fn dispatch_download_page(
         .filter_map(|res| futures::future::ready(res.ok()))
         .chunks(10);
     while let Some(models) = stream.next().await {
-        update_pages_model(models, connection).await?;
+        update_pages_model(models, args.connection).await?;
     }
     if download_aborted {
-        error!("下载视频「{}」的分页时触发风控，将异常向上传递..", &video_model.name);
+        error!(
+            "下载视频「{}」的分页时触发风控，将异常向上传递..",
+            &args.video_model.name
+        );
         bail!(DownloadAbortError());
     }
     if target_status != STATUS_OK {
@@ -429,6 +514,7 @@ pub async fn dispatch_download_page(
 /// 下载某个分页，未发生风控且正常运行时返回 Ok(Page::ActiveModel)，其中 status 字段存储了新的下载状态，发生风控时返回 DownloadAbortError
 pub async fn download_page(
     bili_client: &BiliClient,
+    video_source: &VideoSourceEnum,
     video_model: &video::Model,
     page_model: page::Model,
     semaphore: &Semaphore,
@@ -439,19 +525,39 @@ pub async fn download_page(
     let mut status = PageStatus::from(page_model.download_status);
     let separate_status = status.should_run();
     let is_single_page = video_model.single_page.context("single_page is null")?;
-    
+
     // 检查是否为番剧
     let is_bangumi = match video_model.source_type {
-        Some(1) => true,  // source_type = 1 表示为番剧
+        Some(1) => true, // source_type = 1 表示为番剧
         _ => false,
     };
-    
-    // 添加日志，帮助排查
-    debug!("分集「{}」是否为番剧: {}", &page_model.name, is_bangumi);
-    debug!("分集所属视频source_type: {:?}", video_model.source_type);
-    debug!("使用基础路径: {}", base_path.display());
-    
-    let base_name = TEMPLATE.path_safe_render("page", &page_format_args(video_model, &page_model))?;
+
+    // 根据视频源类型选择不同的模板渲染方式
+    let base_name = if is_bangumi {
+        // 番剧使用专用的模板方法
+        if let VideoSourceEnum::BangumiSource(bangumi_source) = video_source {
+            bangumi_source.render_page_name(video_model, &page_model)?
+        } else {
+            // 如果类型不匹配，回退到全局模板
+            TEMPLATE.path_safe_render("page", &page_format_args(video_model, &page_model))?
+        }
+    } else if !is_single_page {
+        // 对于多P视频（非番剧），使用配置中的multi_page_name模板
+        let page_args = page_format_args(video_model, &page_model);
+        match TEMPLATE.render_template(&CONFIG.multi_page_name, &page_args) {
+            Ok(rendered) => crate::utils::filenamify::filenamify(&rendered),
+            Err(_) => {
+                // 如果渲染失败，使用默认格式
+                let season_number = 1;
+                let episode_number = page_model.pid;
+                format!("S{:02}E{:02}-{:02}", season_number, episode_number, episode_number)
+            }
+        }
+    } else {
+        // 单P视频使用全局模板系统
+        TEMPLATE.path_safe_render("page", &page_format_args(video_model, &page_model))?
+    };
+
     let (poster_path, video_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
         (
             base_path.join(format!("{}-poster.jpg", &base_name)),
@@ -464,7 +570,7 @@ pub async fn download_page(
     } else if is_bangumi {
         // 番剧直接使用基础路径，不创建子文件夹结构
         (
-            base_path.join(format!("{}-thumb.jpg", &base_name)),
+            base_path.join(format!("{}-poster.jpg", &base_name)),
             base_path.join(format!("{}.mp4", &base_name)),
             base_path.join(format!("{}.nfo", &base_name)),
             base_path.join(format!("{}.zh-CN.default.ass", &base_name)),
@@ -472,23 +578,15 @@ pub async fn download_page(
             base_path.join(format!("{}.srt", &base_name)),
         )
     } else {
-        // 非番剧使用原来的逻辑
-        // 使用自定义文件夹结构模板
-        let folder_structure = TEMPLATE.path_safe_render("folder_structure", &page_format_args(video_model, &page_model))?;
-        // 分割路径，确保所有父目录都存在
-        let folder_path = base_path.join(&folder_structure);
-        if let Some(parent) = folder_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        
+        // 非番剧的多P视频直接使用基础路径，不创建子文件夹
         (
-            folder_path.with_extension("thumb.jpg"),
-            folder_path.with_extension("mp4"),
-            folder_path.with_extension("nfo"),
-            folder_path.with_extension("zh-CN.default.ass"),
-            // 对于多页视频，会在上一步 fetch_video_poster 中获取剧集的 fanart，无需在此处下载单集的
-            None,
-            folder_path.with_extension("srt"),
+            base_path.join(format!("{}-poster.jpg", &base_name)),
+            base_path.join(format!("{}.mp4", &base_name)),
+            base_path.join(format!("{}.nfo", &base_name)),
+            base_path.join(format!("{}.zh-CN.default.ass", &base_name)),
+            // 多P视频的每个分页都应该有自己的fanart
+            Some(base_path.join(format!("{}-fanart.jpg", &base_name))),
+            base_path.join(format!("{}.srt", &base_name)),
         )
     };
     let dimension = match (page_model.width, page_model.height) {
@@ -550,11 +648,11 @@ pub async fn download_page(
         .iter()
         .zip(["封面", "视频", "详情", "弹幕", "字幕"])
         .for_each(|(res, task_name)| match res {
-            ExecutionStatus::Skipped => info!(
+            ExecutionStatus::Skipped => debug!(
                 "处理视频「{}」第 {} 页{}已成功过，跳过",
                 &video_model.name, page_model.pid, task_name
             ),
-            ExecutionStatus::Succeeded => info!(
+            ExecutionStatus::Succeeded => debug!(
                 "处理视频「{}」第 {} 页{}成功",
                 &video_model.name, page_model.pid, task_name
             ),
@@ -573,11 +671,11 @@ pub async fn download_page(
                     );
                 } else {
                     error!(
-                "处理视频「{}」第 {} 页{}失败: {:#}",
-                &video_model.name, page_model.pid, task_name, e
+                        "处理视频「{}」第 {} 页{}失败: {:#}",
+                        &video_model.name, page_model.pid, task_name, e
                     );
                 }
-            },
+            }
         });
     // 如果下载视频时触发风控，直接返回 DownloadAbortError
     if let ExecutionStatus::Failed(e) = results.into_iter().nth(1).context("video download result not found")? {
@@ -620,6 +718,77 @@ pub async fn fetch_page_poster(
     Ok(ExecutionStatus::Succeeded)
 }
 
+/// 下载单个流文件并返回文件大小
+async fn download_stream(
+    downloader: &Downloader,
+    urls: &[&str],
+    path: &Path,
+    use_parallel: bool,
+    threads: usize,
+) -> Result<u64> {
+    // 获取多线程下载配置
+    let parallel_config = &CONFIG.concurrent_limit.parallel_download;
+
+    // 智能判断是否使用多线程下载
+    let should_use_parallel = if use_parallel && parallel_config.enabled {
+        // 先尝试获取文件大小来判断是否需要多线程下载
+        if let Some(url) = urls.first() {
+            match downloader.get_content_length(url).await {
+                Ok(size) => {
+                    let use_parallel = size >= parallel_config.min_size;
+                    if use_parallel {
+                        debug!(
+                            "文件大小 {:.2} MB >= 最小阈值 {:.2} MB，使用多线程下载",
+                            size as f64 / 1_048_576.0,
+                            parallel_config.min_size as f64 / 1_048_576.0
+                        );
+                    } else {
+                        debug!(
+                            "文件大小 {:.2} MB < 最小阈值 {:.2} MB，使用普通下载",
+                            size as f64 / 1_048_576.0,
+                            parallel_config.min_size as f64 / 1_048_576.0
+                        );
+                    }
+                    use_parallel
+                }
+                Err(_) => {
+                    debug!("无法获取文件大小，使用普通下载");
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let download_result = if should_use_parallel {
+        downloader.fetch_with_fallback_parallel(urls, path, threads).await
+    } else {
+        downloader.fetch_with_fallback(urls, path).await
+    };
+
+    match download_result {
+        Ok(_) => {
+            // 获取文件大小
+            Ok(tokio::fs::metadata(path)
+                .await
+                .map(|metadata| metadata.len())
+                .unwrap_or(0))
+        }
+        Err(e) => {
+            // 对于404错误，降级为debug日志
+            if let Some(BiliError::RequestFailed(-404, _)) = e.downcast_ref::<BiliError>() {
+                debug!("下载失败(404): {:#}", e);
+            } else {
+                error!("下载失败: {:#}", e);
+            }
+            Err(e)
+        }
+    }
+}
+
 pub async fn fetch_page_video(
     should_run: bool,
     bili_client: &BiliClient,
@@ -631,78 +800,64 @@ pub async fn fetch_page_video(
     if !should_run {
         return Ok(ExecutionStatus::Skipped);
     }
-    
+
     let bili_video = Video::new(bili_client, video_model.bvid.clone());
-    
+
     // 获取视频流信息
     let streams = match bili_video.get_page_analyzer(page_info).await {
         Ok(mut analyzer) => {
             match analyzer.best_stream(&CONFIG.filter_option) {
-                Ok(stream) => {
-                    stream
-                },
+                Ok(stream) => stream,
                 Err(e) => {
                     // 对于404错误，降级为debug日志，不需要打扰用户
                     if let Some(BiliError::RequestFailed(-404, _)) = e.downcast_ref::<BiliError>() {
                         debug!("选择最佳流失败(404): {:#}", e);
                     } else {
-                    error!("选择最佳流失败: {:#}", e);
+                        error!("选择最佳流失败: {:#}", e);
                     }
                     return Err(e);
                 }
             }
-        },
+        }
         Err(e) => {
             // 对于404错误，降级为debug日志，不需要打扰用户
             if let Some(BiliError::RequestFailed(-404, _)) = e.downcast_ref::<BiliError>() {
                 debug!("获取视频分析器失败(404): {:#}", e);
             } else {
-            error!("获取视频分析器失败: {:#}", e);
+                error!("获取视频分析器失败: {:#}", e);
             }
             return Err(e);
         }
     };
-    
+
     // 创建保存目录
     if let Some(parent) = page_path.parent() {
         if !parent.exists() {
             tokio::fs::create_dir_all(parent).await?;
         }
     }
-    
+
+    // 获取多线程下载配置
+    let parallel_config = &CONFIG.concurrent_limit.parallel_download;
+    let use_parallel = parallel_config.enabled;
+    let threads = parallel_config.threads;
+
+    // 记录开始时间
+    let start_time = std::time::Instant::now();
+
     // 根据流类型进行不同处理
-    match streams {
+    let total_bytes = match streams {
         BestStream::Mixed(mix_stream) => {
-            match downloader.fetch_with_fallback(&mix_stream.urls(), page_path).await {
-                Ok(_) => {},
-                Err(e) => {
-                    // 对于404错误，降级为debug日志
-                    if let Some(BiliError::RequestFailed(-404, _)) = e.downcast_ref::<BiliError>() {
-                        debug!("下载失败(404): {:#}", e);
-                    } else {
-                    error!("下载失败: {:#}", e);
-                    }
-                    return Err(e);
-                }
-            }
-        },
+            let urls = mix_stream.urls();
+            download_stream(downloader, &urls, page_path, use_parallel, threads).await?
+        }
         BestStream::VideoAudio {
             video: video_stream,
             audio: None,
         } => {
-            match downloader.fetch_with_fallback(&video_stream.urls(), page_path).await {
-                Ok(_) => {},
-                Err(e) => {
-                    // 对于404错误，降级为debug日志
-                    if let Some(BiliError::RequestFailed(-404, _)) = e.downcast_ref::<BiliError>() {
-                        debug!("下载失败(404): {:#}", e);
-                    } else {
-                    error!("下载失败: {:#}", e);
-                    }
-                    return Err(e);
-                }
-            }
-        },
+            let urls = video_stream.urls();
+            download_stream(downloader, &urls, page_path, use_parallel, threads).await?
+        }
         BestStream::VideoAudio {
             video: video_stream,
             audio: Some(audio_stream),
@@ -711,29 +866,68 @@ pub async fn fetch_page_video(
                 page_path.with_extension("tmp_video"),
                 page_path.with_extension("tmp_audio"),
             );
-            
-            if let Err(e) = downloader.fetch_with_fallback(&video_stream.urls(), &tmp_video_path).await {
-                error!("视频流下载失败: {:#}", e);
-                return Err(e);
-            }
-            
-            if let Err(e) = downloader.fetch_with_fallback(&audio_stream.urls(), &tmp_audio_path).await {
-                error!("音频流下载失败: {:#}", e);
-                let _ = fs::remove_file(&tmp_video_path).await;
-                return Err(e);
-            }
-            
+
+            let video_urls = video_stream.urls();
+            let video_size = download_stream(downloader, &video_urls, &tmp_video_path, use_parallel, threads)
+                .await
+                .map_err(|e| {
+                    error!("视频流下载失败: {:#}", e);
+                    e
+                })?;
+
+            let audio_urls = audio_stream.urls();
+            let audio_size = download_stream(downloader, &audio_urls, &tmp_audio_path, use_parallel, threads)
+                .await
+                .map_err(|e| {
+                    error!("音频流下载失败: {:#}", e);
+                    // 异步删除临时视频文件
+                    let video_path_clone = tmp_video_path.clone();
+                    tokio::spawn(async move {
+                        let _ = fs::remove_file(&video_path_clone).await;
+                    });
+                    e
+                })?;
+
             let res = downloader.merge(&tmp_video_path, &tmp_audio_path, page_path).await;
             let _ = fs::remove_file(tmp_video_path).await;
             let _ = fs::remove_file(tmp_audio_path).await;
-            
+
             if let Err(e) = res {
                 error!("音视频合并失败: {:#}", e);
                 return Err(e);
             }
+
+            // 获取合并后文件大小，如果失败则使用视频和音频大小之和
+            tokio::fs::metadata(page_path)
+                .await
+                .map(|metadata| metadata.len())
+                .unwrap_or(video_size + audio_size)
         }
+    };
+
+    // 计算并记录下载速度
+    let elapsed = start_time.elapsed();
+    let elapsed_secs = elapsed.as_secs_f64();
+
+    if elapsed_secs > 0.0 && total_bytes > 0 {
+        let speed_bps = total_bytes as f64 / elapsed_secs;
+        let (speed, unit) = if speed_bps >= 1_048_576.0 {
+            (speed_bps / 1_048_576.0, "MB/s")
+        } else if speed_bps >= 1_024.0 {
+            (speed_bps / 1_024.0, "KB/s")
+        } else {
+            (speed_bps, "B/s")
+        };
+
+        info!(
+            "视频下载完成，总大小: {:.2} MB，耗时: {:.2} 秒，平均速度: {:.2} {}",
+            total_bytes as f64 / 1_048_576.0,
+            elapsed_secs,
+            speed,
+            unit
+        );
     }
-    
+
     Ok(ExecutionStatus::Succeeded)
 }
 
@@ -867,59 +1061,48 @@ async fn generate_nfo(serializer: NFOSerializer<'_>, nfo_path: PathBuf) -> Resul
 
 async fn get_season_title_from_api(bili_client: &BiliClient, season_id: &str) -> Option<String> {
     use crate::bilibili::bangumi::Bangumi;
-    
-    // 记录日志
-    debug!("通过API获取season_id: {} 的季度标题", season_id);
-    
+
     // 创建Bangumi实例
     let bangumi = Bangumi::new(bili_client, None, Some(season_id.to_string()), None);
-    
+
     // 尝试获取季度信息
     match bangumi.get_season_info().await {
         Ok(season_info) => {
-            // 获取完整标题用于日志
-            let title = season_info["title"].as_str().unwrap_or_default();
-            
-            // 从seasons数组中查找当前season_id对应的简短季度标题
+            // 优先从seasons数组中查找当前season_id对应的季度标题
             if let Some(seasons) = season_info["seasons"].as_array() {
-                for season in seasons {
-                    if let (Some(id), Some(season_title)) = (
-                        season["season_id"].as_u64().map(|id| id.to_string()),
-                        season["season_title"].as_str()
-                    ) {
-                        if id == season_id && !season_title.is_empty() {
-                            info!("成功获取到番剧「{}」的季度标题: {}", title, season_title);
-                            return Some(season_title.to_string());
+                for season in seasons.iter() {
+                    if let Some(id) = season["season_id"].as_u64().map(|id| id.to_string()) {
+                        if id == season_id {
+                            // 找到匹配的season_id，直接使用其season_title
+                            if let Some(season_title) = season["season_title"].as_str() {
+                                return Some(season_title.to_string());
+                            }
                         }
                     }
                 }
             }
-            
-            // 如果在seasons数组中没找到，尝试使用根级别的season_title
+
+            // 如果在seasons数组中没找到匹配的season_id，使用根级别的season_title
             if let Some(season_title) = season_info["season_title"].as_str() {
-                // 尝试从完整标题中提取季度部分（通常在末尾）
-                if let Some(idx) = season_title.rfind(' ') {
-                    let short_title = &season_title[idx + 1..];
-                    if short_title.contains("季") {
-                        info!("从完整标题「{}」提取季度标题: {}", title, short_title);
-                        return Some(short_title.to_string());
-                    }
-                }
-                
-                info!("使用番剧「{}」的默认季度标题: {}", title, season_title);
                 return Some(season_title.to_string());
             }
-            
-            // 如果没有获取到季度标题，尝试使用备用方法
-            warn!("未能从API获取到season_id: {} 的季度标题", season_id);
+
             None
-        },
+        }
         Err(e) => {
-            // 记录错误日志
-            warn!("获取season_id: {} 的季度标题失败: {}", season_id, e);
+            error!("获取season_id: {} 的季度信息失败: {}", season_id, e);
             None
         }
     }
+}
+
+/// 获取特定视频源的视频数量
+async fn get_video_count_for_source(video_source: &VideoSourceEnum, connection: &DatabaseConnection) -> Result<usize> {
+    let count = video::Entity::find()
+        .filter(video_source.filter_expr())
+        .count(connection)
+        .await?;
+    Ok(count as usize)
 }
 
 #[cfg(test)]

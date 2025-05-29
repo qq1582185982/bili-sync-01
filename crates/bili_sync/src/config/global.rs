@@ -13,7 +13,9 @@ pub static CONFIG: Lazy<Config> = Lazy::new(load_config);
 
 /// 重新加载配置
 pub fn reload_config() -> Config {
-    let config = Config::load().unwrap_or_else(|err| {
+    // 由于CONFIG是Lazy，我们无法直接修改，但我们可以返回新的配置
+    // 让调用方使用这个新配置
+    Config::load().unwrap_or_else(|err| {
         if err
             .downcast_ref::<std::io::Error>()
             .is_none_or(|e| e.kind() != std::io::ErrorKind::NotFound)
@@ -22,11 +24,7 @@ pub fn reload_config() -> Config {
         }
         warn!("配置文件不存在，使用默认配置..");
         Config::default()
-    });
-    
-    // 由于CONFIG是Lazy，我们无法直接修改，但我们可以返回新的配置
-    // 让调用方使用这个新配置
-    config
+    })
 }
 
 /// 全局的 TEMPLATE，用来渲染 video_name 和 page_name 模板
@@ -76,7 +74,7 @@ fn load_config() -> Config {
     config.save().expect("保存默认配置时遇到错误");
     info!("检查配置文件..");
     if config.check() {
-    info!("配置文件检查通过");
+        info!("配置文件检查通过");
     } else {
         info!("您可以访问管理页 http://{}/ 添加视频源", config.bind_address);
     }

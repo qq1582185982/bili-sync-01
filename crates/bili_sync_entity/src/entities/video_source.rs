@@ -1,22 +1,15 @@
 //! 视频源实体定义
 
-use sea_orm::entity::prelude::*;
 use sea_orm::ActiveModelBehavior;
-use strum::{Display, EnumString, EnumIter};
+use sea_orm::entity::prelude::*;
+use strum::EnumIter;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Display, EnumString)]
-#[derive(sea_orm::DeriveActiveEnum)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, EnumIter, Default)]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 pub enum SourceType {
     #[sea_orm(num_value = 1)]
+    #[default]
     Bangumi = 1,
-}
-
-// 实现 Default trait
-impl Default for SourceType {
-    fn default() -> Self {
-        SourceType::Bangumi
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Default)]
@@ -32,9 +25,11 @@ pub struct Model {
     pub media_id: Option<String>,
     pub ep_id: Option<String>,
     pub download_all_seasons: Option<bool>,
+    pub video_name_template: Option<String>,
+    pub page_name_template: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
 
-impl ActiveModelBehavior for ActiveModel {} 
+impl ActiveModelBehavior for ActiveModel {}

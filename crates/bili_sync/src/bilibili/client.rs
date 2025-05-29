@@ -77,12 +77,14 @@ impl BiliClient {
             .rate_limit
             .as_ref()
             .map(|RateLimit { limit, duration }| {
-                Arc::new(RateLimiter::builder()
-                    .initial(*limit)
-                    .refill(*limit)
-                    .max(*limit)
-                    .interval(Duration::from_millis(*duration))
-                    .build())
+                Arc::new(
+                    RateLimiter::builder()
+                        .initial(*limit)
+                        .refill(*limit)
+                        .max(*limit)
+                        .interval(Duration::from_millis(*duration))
+                        .build(),
+                )
             });
         Self {
             client,
@@ -106,7 +108,11 @@ impl BiliClient {
             limiter.acquire_one().await;
         }
         let credential = CONFIG.credential.load();
-        Ok(self.client.request(Method::GET, url, credential.as_deref()).send().await?)
+        Ok(self
+            .client
+            .request(Method::GET, url, credential.as_deref())
+            .send()
+            .await?)
     }
 
     pub async fn check_refresh(&self) -> Result<()> {

@@ -1,0 +1,54 @@
+auth_token = "8#Z2Q8t^zoMhglIv"
+bind_address = "0.0.0.0:12345"
+video_name = "{{title}}"
+page_name = "{{title}}"
+multi_page_name = "{{title}}-P{{pid_pad}}"
+bangumi_name = "S{{season_pad}}EEE{{pid_pad}}-{{pid_pad}}"
+folder_structure = "Season 1"
+interval = 60
+upper_path = 'C:\Users\001\AppData\Roaming\bili-sync\upper_face'
+nfo_time_type = "favtime"
+time_format = "%Y-%m-%d"
+cdn_sorting = true
+
+# 收藏夹配置（新格式）
+[[favorite_list_v2]]
+fid = "3594171330"
+path = "D:/Downloads/收藏"
+download_all_seasons = false
+
+# 合集配置（新格式）
+[[collection_list_v2]]
+collection_type = "season"
+upper_id = "320178233"
+collection_id = "4305770"
+path = "D:/Downloads/合集/合集·MacNAS"
+download_all_seasons = false
+
+[[collection_list_v2]]
+collection_type = "series"
+upper_id = "521722088"
+collection_id = "387214"
+path = "D:/Downloads/合集/列表"
+download_all_seasons = false
+
+# UP主投稿配置（新格式）
+[[submission_list_v2]]
+upper_id = "473317168"
+path = "D:/Downloads/关注/庄心妍"
+download_all_seasons = false
+
+[watch_later]
+enabled = true
+path = "D:/Downloads/稍后再看"
+download_all_seasons = false
+
+[[bangumi]]
+season_id = "96969"
+path = "D:/Downloads/番剧/九龙大众浪漫"
+download_all_seasons = false
+
+[[bangumi]]
+season_id = "91498"
+path = "D:/Downloads/番剧/300"
+download_all_seasons = true 

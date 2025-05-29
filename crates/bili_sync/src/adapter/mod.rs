@@ -1,8 +1,8 @@
+pub mod bangumi;
 mod collection;
 mod favorite;
 mod submission;
 mod watch_later;
-pub mod bangumi;
 
 // 将子模块改为公开
 pub use collection::init_collection_sources;
@@ -27,11 +27,11 @@ use bili_sync_entity::favorite::Model as Favorite;
 use bili_sync_entity::submission::Model as Submission;
 use bili_sync_entity::watch_later::Model as WatchLater;
 
+use crate::adapter::bangumi::BangumiSource;
 use crate::adapter::collection::collection_from;
 use crate::adapter::favorite::favorite_from;
 use crate::adapter::submission::submission_from;
 use crate::adapter::watch_later::watch_later_from;
-use crate::adapter::bangumi::BangumiSource;
 use crate::bilibili::{BiliClient, CollectionItem, VideoInfo};
 
 #[enum_dispatch]
@@ -88,11 +88,21 @@ pub trait VideoSource {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Args<'a> {
-    Favorite { fid: &'a str },
-    Collection { collection_item: &'a CollectionItem },
+    Favorite {
+        fid: &'a str,
+    },
+    Collection {
+        collection_item: &'a CollectionItem,
+    },
     WatchLater,
-    Submission { upper_id: &'a str },
-    Bangumi { season_id: &'a Option<String>, media_id: &'a Option<String>, ep_id: &'a Option<String> },
+    Submission {
+        upper_id: &'a str,
+    },
+    Bangumi {
+        season_id: &'a Option<String>,
+        media_id: &'a Option<String>,
+        ep_id: &'a Option<String>,
+    },
 }
 
 pub async fn video_source_from<'a>(
@@ -109,7 +119,11 @@ pub async fn video_source_from<'a>(
         Args::Collection { collection_item } => collection_from(collection_item, path, bili_client, connection).await,
         Args::WatchLater => watch_later_from(path, bili_client, connection).await,
         Args::Submission { upper_id } => submission_from(upper_id, path, bili_client, connection).await,
-        Args::Bangumi { season_id, media_id, ep_id } => bangumi_from(season_id, media_id, ep_id, path, bili_client, connection).await,
+        Args::Bangumi {
+            season_id,
+            media_id,
+            ep_id,
+        } => bangumi_from(season_id, media_id, ep_id, path, bili_client, connection).await,
     }
 }
 
@@ -156,22 +170,22 @@ pub async fn bangumi_from<'a>(
     Pin<Box<dyn Stream<Item = Result<VideoInfo>> + 'a + Send>>,
 )> {
     // 使用可用的ID构建查询条件
-    let mut query = bili_sync_entity::video_source::Entity::find()
-        .filter(bili_sync_entity::video_source::Column::Type.eq(1));
-    
+    let mut query =
+        bili_sync_entity::video_source::Entity::find().filter(bili_sync_entity::video_source::Column::Type.eq(1));
+
     // 根据提供的标识符构建查询
     if let Some(season_id_value) = season_id {
         query = query.filter(bili_sync_entity::video_source::Column::SeasonId.eq(season_id_value));
     }
-    
+
     if let Some(media_id_value) = media_id {
         query = query.filter(bili_sync_entity::video_source::Column::MediaId.eq(media_id_value));
     }
-    
+
     if let Some(ep_id_value) = ep_id {
         query = query.filter(bili_sync_entity::video_source::Column::EpId.eq(ep_id_value));
     }
-    
+
     // 从数据库中获取现有的番剧源
     let bangumi_model = query.one(connection).await?;
 
@@ -186,6 +200,7 @@ pub async fn bangumi_from<'a>(
             ep_id: model.ep_id,
             path: path.to_path_buf(),
             download_all_seasons: model.download_all_seasons.unwrap_or(false),
+            page_name_template: model.page_name_template,
         }
     } else {
         // 如果数据库中不存在，使用默认值并发出警告
@@ -195,7 +210,7 @@ pub async fn bangumi_from<'a>(
             (_, _, Some(e)) => format!("ep_id: {}", e),
             _ => "未提供ID".to_string(),
         };
-        
+
         warn!("数据库中未找到番剧 {} 的记录，使用临时ID", id_desc);
         BangumiSource {
             id: 0, // 临时的 ID
@@ -206,19 +221,20 @@ pub async fn bangumi_from<'a>(
             ep_id: ep_id.clone(),
             path: path.to_path_buf(),
             download_all_seasons: false,
+            page_name_template: None,
         }
     };
-    
+
     // 获取番剧的视频流
     let video_stream = bangumi_source.video_stream_from(bili_client, path).await?;
-    
+
     // 将 'static 生命周期的流转换为 'a 生命周期
     let video_stream = unsafe {
         std::mem::transmute::<
             Pin<Box<dyn Stream<Item = Result<VideoInfo>> + Send>>,
-            Pin<Box<dyn Stream<Item = Result<VideoInfo>> + 'a + Send>>
+            Pin<Box<dyn Stream<Item = Result<VideoInfo>> + 'a + Send>>,
         >(video_stream)
     };
-    
+
     Ok((VideoSourceEnum::BangumiSource(bangumi_source), video_stream))
 }

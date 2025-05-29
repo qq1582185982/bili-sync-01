@@ -1,4 +1,4 @@
-import type { VideoResponse, VideoInfo, VideosResponse, VideoSourcesResponse, ResetVideoResponse, AddVideoSourceResponse } from './types';
+import type { VideoResponse, VideoInfo, VideosResponse, VideoSourcesResponse, ResetVideoResponse, AddVideoSourceResponse, DeleteVideoSourceResponse } from './types';
 
 const BASE_URL = '/api';
 
@@ -27,7 +27,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
     }
         
         const responseData = await response.json();
-        if (!responseData.data && url !== `${BASE_URL}/video-sources`) {
+        if (!responseData.data) {
             console.warn(`API响应缺少data字段:`, responseData);
         }
         
@@ -74,14 +74,61 @@ export async function resetVideo(id: number): Promise<ResetVideoResponse> {
 export async function addVideoSource(params: {
     source_type: string;
     source_id: string;
+    up_id?: string;
     name: string;
     path: string;
+    collection_type?: string;
     media_id?: string;
     ep_id?: string;
     download_all_seasons?: boolean;
 }): Promise<AddVideoSourceResponse> {
     return fetchWithAuth(`${BASE_URL}/video-sources`, {
         method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(params)
+    });
+}
+
+// 删除视频源
+export async function deleteVideoSource(source_type: string, id: number, delete_local_files: boolean = false): Promise<DeleteVideoSourceResponse> {
+    return fetchWithAuth(`${BASE_URL}/video-sources/${source_type}/${id}?delete_local_files=${delete_local_files}`, {
+        method: 'DELETE'
+    });
+}
+
+// 获取配置
+export async function getConfig(): Promise<{
+    video_name: string;
+    page_name: string;
+    folder_structure: string;
+    time_format: string;
+    interval: number;
+    nfo_time_type: string;
+}> {
+    return fetchWithAuth(`${BASE_URL}/config`, {
+        method: 'GET'
+    });
+}
+
+// 更新配置
+export async function updateConfig(params: {
+    video_name?: string;
+    page_name?: string;
+    multi_page_name?: string;
+    bangumi_name?: string;
+    folder_structure?: string;
+    time_format?: string;
+    interval?: number;
+    nfo_time_type?: string;
+}): Promise<{
+    success: boolean;
+    message: string;
+    updated_files?: number;
+}> {
+    return fetchWithAuth(`${BASE_URL}/config`, {
+        method: 'PUT',
         headers: {
             'Content-Type': 'application/json'
         },

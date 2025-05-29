@@ -7,6 +7,8 @@ mod m20240724_161008_submission;
 mod m20250122_062926_add_latest_row_at;
 mod m20250519_000001_add_source_id;
 mod m20250520_000001_add_download_all_seasons;
+mod m20250525_000001_add_bangumi_templates;
+mod m20250525_000002_add_season_number;
 
 pub struct Migrator;
 
@@ -21,6 +23,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20250122_062926_add_latest_row_at::Migration),
             Box::new(m20250519_000001_add_source_id::Migration),
             Box::new(m20250520_000001_add_download_all_seasons::Migration),
+            Box::new(m20250525_000001_add_bangumi_templates::Migration),
+            Box::new(m20250525_000002_add_season_number::Migration),
         ]
     }
 }

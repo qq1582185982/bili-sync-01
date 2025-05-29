@@ -10,11 +10,7 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Alias::new("video_source"))
-                    .add_column(
-                        ColumnDef::new(Alias::new("download_all_seasons"))
-                            .boolean()
-                            .null(),
-                    )
+                    .add_column(ColumnDef::new(Alias::new("download_all_seasons")).boolean().null())
                     .to_owned(),
             )
             .await
@@ -30,4 +26,4 @@ impl MigrationTrait for Migration {
             )
             .await
     }
-} 
+}

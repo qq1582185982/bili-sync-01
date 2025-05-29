@@ -1,14 +1,63 @@
-# 排除Git相关文件
+# Git 相关
 .git
-.github
 .gitignore
+.gitattributes
 
-# 排除构建产物
-target
+# 构建产物
+target/
+*.exe
+*.dll
+*.so
+*.dylib
 
-# 排除文档
-docs
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# 排除其他不需要的文件
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+
+# 文档
+README.md
+LICENSE
 *.md
-LICENSE 
+
+# Docker 相关
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# 测试文件
+tests/
+
+# 示例配置
+examples/
+sample/
+
+# 开发工具配置
+.cargo/config
+.rustfmt.toml
+
+# 环境变量文件
+.env
+.env.local
+
+# 备份文件
+*.bak
+*.backup
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar 

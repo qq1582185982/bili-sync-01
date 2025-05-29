@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use axum::extract::Request;
 use axum::http::{Uri, header};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Extension, Router, ServiceExt, middleware};
 use reqwest::StatusCode;
 use rust_embed::Embed;
@@ -13,7 +13,10 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::{Config, SwaggerUi};
 
 use crate::api::auth;
-use crate::api::handler::{ApiDoc, get_video, get_video_sources, get_videos, reset_video, add_video_source, reload_config};
+use crate::api::handler::{
+    ApiDoc, add_video_source, delete_video_source, get_config, get_video, get_video_sources, get_videos, reload_config,
+    reset_video, update_config,
+};
 use crate::config::CONFIG;
 
 #[derive(Embed)]
@@ -24,10 +27,13 @@ pub async fn http_server(database_connection: Arc<DatabaseConnection>) -> Result
     let app = Router::new()
         .route("/api/video-sources", get(get_video_sources))
         .route("/api/video-sources", post(add_video_source))
+        .route("/api/video-sources/{source_type}/{id}", delete(delete_video_source))
         .route("/api/videos", get(get_videos))
         .route("/api/videos/{id}", get(get_video))
         .route("/api/videos/{id}/reset", post(reset_video))
         .route("/api/reload-config", post(reload_config))
+        .route("/api/config", get(get_config))
+        .route("/api/config", put(update_config))
         .merge(
             SwaggerUi::new("/swagger-ui/")
                 .url("/api-docs/openapi.json", ApiDoc::openapi())

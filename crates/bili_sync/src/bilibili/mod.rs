@@ -150,6 +150,10 @@ pub enum VideoInfo {
         #[serde(with = "ts_seconds")]
         pubtime: DateTime<Utc>,
         show_title: Option<String>,
+        /// 季度编号，从seasons数组中的位置计算得出
+        season_number: Option<i32>,
+        /// 集数，直接从API的title字段获取
+        episode_number: Option<i32>,
     },
 }
 
@@ -164,7 +168,7 @@ mod tests {
     #[tokio::test]
     async fn test_video_info_type() {
         init_logger("None,bili_sync=debug");
-        let bili_client = BiliClient::new();
+        let bili_client = BiliClient::new(String::new());
         // 请求 UP 主视频必须要获取 mixin key，使用 key 计算请求参数的签名，否则直接提示权限不足返回空
         let Ok(Some(mixin_key)) = bili_client.wbi_img().await.map(|wbi_img| wbi_img.into()) else {
             panic!("获取 mixin key 失败");
@@ -220,7 +224,7 @@ mod tests {
     #[ignore = "only for manual test"]
     #[tokio::test]
     async fn test_subtitle_parse() -> Result<()> {
-        let bili_client = BiliClient::new();
+        let bili_client = BiliClient::new(String::new());
         let Ok(Some(mixin_key)) = bili_client.wbi_img().await.map(|wbi_img| wbi_img.into()) else {
             panic!("获取 mixin key 失败");
         };

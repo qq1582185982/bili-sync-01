@@ -9,9 +9,11 @@
 
 	let source_type: VideoCategory = 'collection';
 	let source_id = '';
+	let up_id = '';
 	let name = '';
 	let path = '/Downloads';
 	let download_all_seasons = false;
+	let collection_type = 'season';
 	let loading = false;
 	
 	// 源类型对应的中文名称和说明
@@ -22,11 +24,22 @@
 		watch_later: { name: '稍后观看', description: '只能添加一个稍后观看源' },
 		bangumi: { name: '番剧', description: '番剧season_id可在番剧页面URL中获取' }
 	};
+	
+	// 合集类型对应的中文名称和说明
+	const collectionTypeLabels = {
+		season: { name: '合集', description: 'B站标准合集，有统一的合集页面和标题-season:{mid}:{season_id}' },
+		series: { name: '列表', description: '视频列表，组织较松散的视频合集-series:{mid}:{series_id}' }
+	};
 
 	async function handleSubmit() {
 		if (source_type !== 'watch_later' && !source_id) {
 			// 所有类型（除稍后观看外）都需要source_id
 			toast.error('请输入ID', { description: '视频源ID不能为空' });
+			return;
+		}
+		
+		if (source_type === 'collection' && !up_id) {
+			toast.error('请输入UP主ID', { description: '合集需要提供UP主ID' });
 			return;
 		}
 		
@@ -46,8 +59,10 @@
 			const result = await addVideoSource({
 				source_type,
 				source_id,
+				up_id: source_type === 'collection' ? up_id : undefined,
 				name,
 				path,
+				collection_type: source_type === 'collection' ? collection_type : undefined,
 				download_all_seasons: source_type === 'bangumi' ? download_all_seasons : undefined
 			});
 			
@@ -55,9 +70,11 @@
 				toast.success('添加成功', { description: result.message });
 				// 重置表单
 				source_id = '';
+				up_id = '';
 				name = '';
 				path = '/Downloads';
 				download_all_seasons = false;
+				collection_type = 'season';
 				// 调用成功回调，通知父组件刷新数据
 				onSuccess();
 			} else {
@@ -82,7 +99,7 @@
 			</label>
 			<select 
 				id="source-type" 
-				class="w-full p-2 border rounded" 
+				class="w-full p-2 border rounded bg-gray-50 text-gray-900 border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
 				bind:value={source_type}
 			>
 				<option value="collection">合集</option>
@@ -94,12 +111,40 @@
 			<p class="text-xs text-gray-500 mt-1">{sourceTypeLabels[source_type].description}</p>
 		</div>
 		
+		{#if source_type === 'collection'}
+		<div>
+			<label class="block text-sm font-medium mb-1" for="collection-type">
+				合集类型
+			</label>
+			<select 
+				id="collection-type" 
+				class="w-full p-2 border rounded bg-gray-50 text-gray-900 border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
+				bind:value={collection_type}
+			>
+				<option value="season">{collectionTypeLabels.season.name}</option>
+				<option value="series">{collectionTypeLabels.series.name}</option>
+			</select>
+			<p class="text-xs text-gray-500 mt-1">{collectionTypeLabels[collection_type].description}</p>
+		</div>
+		{/if}
+		
+		{#if source_type === 'collection'}
+		<div>
+			<label class="block text-sm font-medium mb-1" for="up-id">
+				UP主ID
+			</label>
+			<Input id="up-id" bind:value={up_id} placeholder="请输入UP主ID（可在UP主空间URL中获取）" />
+			<p class="text-xs text-gray-500 mt-1">UP主ID是合集所属UP主的唯一标识，必须提供</p>
+		</div>
+		{/if}
+		
 		{#if source_type !== 'watch_later'}
 		<div>
 			<label class="block text-sm font-medium mb-1" for="source-id">
 				{source_type === 'bangumi' ? 'season_id' : 
 				  source_type === 'favorite' ? '收藏夹ID' : 
-				  source_type === 'submission' ? 'UP主ID' : '合集ID'}
+				  source_type === 'submission' ? 'UP主ID' : 
+				  source_type === 'collection' ? '合集ID' : 'ID'}
 			</label>
 			<Input id="source-id" bind:value={source_id} placeholder="请输入ID" />
 		</div>

@@ -106,6 +106,8 @@ impl VideoInfo {
                 intro,
                 pubtime,
                 show_title,
+                season_number,
+                episode_number,
                 ..
             } => bili_sync_entity::video::ActiveModel {
                 bvid: Set(bvid),
@@ -118,6 +120,8 @@ impl VideoInfo {
                 valid: Set(true),
                 season_id: Set(Some(season_id)),
                 ep_id: Set(Some(ep_id)),
+                season_number: Set(season_number),
+                episode_number: Set(episode_number),
                 ..default
             },
             _ => unreachable!(),
@@ -143,7 +147,9 @@ impl VideoInfo {
                 bvid: Set(bvid),
                 // 如果原始model的name字段包含"第"并且看起来像番剧的show_title格式，则保留原来的name
                 // 否则优先使用show_title，如果show_title为空则使用title
-                name: if base_model.name.contains("第") && (base_model.name.contains("话") || base_model.name.contains("集")) {
+                name: if base_model.name.contains("第")
+                    && (base_model.name.contains("话") || base_model.name.contains("集"))
+                {
                     NotSet
                 } else {
                     Set(show_title.unwrap_or(title))
@@ -175,7 +181,7 @@ impl VideoInfo {
             VideoInfo::Collection { pubtime: time, .. }
             | VideoInfo::Favorite { fav_time: time, .. }
             | VideoInfo::WatchLater { fav_time: time, .. }
-            | VideoInfo::Submission { ctime: time, .. } 
+            | VideoInfo::Submission { ctime: time, .. }
             | VideoInfo::Bangumi { pubtime: time, .. } => time,
             _ => unreachable!(),
         }

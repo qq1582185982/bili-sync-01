@@ -29,11 +29,11 @@ async fn migrate_database() -> Result<()> {
     } else {
         info!("检测到现有数据库文件，将在必要时应用迁移");
     }
-    
+
     // 注意此处使用内部构造的 DatabaseConnection，而不是通过 database_connection() 获取
     // 这是因为使用多个连接的 Connection 会导致奇怪的迁移顺序问题，而使用默认的连接选项不会
     let connection = Database::connect(database_url()).await?;
-    
+
     // 确保所有迁移都应用
     Ok(Migrator::up(&connection, None).await?)
 }

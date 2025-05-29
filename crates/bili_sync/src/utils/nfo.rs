@@ -224,12 +224,12 @@ mod tests {
             upper_id: 1,
             upper_name: "upper_name".to_string(),
             favtime: chrono::NaiveDateTime::new(
-                chrono::NaiveDate::from_ymd_opt(2022, 2, 2).unwrap(),
-                chrono::NaiveTime::from_hms_opt(2, 2, 2).unwrap(),
+                chrono::NaiveDate::from_ymd_opt(2022, 2, 2).expect("valid date"),
+                chrono::NaiveTime::from_hms_opt(2, 2, 2).expect("valid time"),
             ),
             pubtime: chrono::NaiveDateTime::new(
-                chrono::NaiveDate::from_ymd_opt(2033, 3, 3).unwrap(),
-                chrono::NaiveTime::from_hms_opt(3, 3, 3).unwrap(),
+                chrono::NaiveDate::from_ymd_opt(2033, 3, 3).expect("valid date"),
+                chrono::NaiveTime::from_hms_opt(3, 3, 3).expect("valid time"),
             ),
             bvid: "BV1nWcSeeEkV".to_string(),
             tags: Some(serde_json::json!(["tag1", "tag2"])),
@@ -239,7 +239,7 @@ mod tests {
             NFOSerializer(ModelWrapper::Video(&video), NFOMode::MOVIE)
                 .generate_nfo(&NFOTimeType::PubTime)
                 .await
-                .unwrap(),
+                .expect("NFO generation should succeed"),
             r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <movie>
     <plot><![CDATA[原始视频：<a href="https://www.bilibili.com/video/BV1nWcSeeEkV/">BV1nWcSeeEkV</a><br/><br/>intro]]></plot>
@@ -260,7 +260,7 @@ mod tests {
             NFOSerializer(ModelWrapper::Video(&video), NFOMode::TVSHOW)
                 .generate_nfo(&NFOTimeType::FavTime)
                 .await
-                .unwrap(),
+                .expect("NFO generation should succeed"),
             r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <tvshow>
     <plot><![CDATA[原始视频：<a href="https://www.bilibili.com/video/BV1nWcSeeEkV/">BV1nWcSeeEkV</a><br/><br/>intro]]></plot>
@@ -281,7 +281,7 @@ mod tests {
             NFOSerializer(ModelWrapper::Video(&video), NFOMode::UPPER)
                 .generate_nfo(&NFOTimeType::FavTime)
                 .await
-                .unwrap(),
+                .expect("NFO generation should succeed"),
             r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <person>
     <plot/>
@@ -301,7 +301,7 @@ mod tests {
             NFOSerializer(ModelWrapper::Page(&page), NFOMode::EPOSODE)
                 .generate_nfo(&NFOTimeType::FavTime)
                 .await
-                .unwrap(),
+                .expect("NFO generation should succeed"),
             r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <episodedetails>
     <plot/>

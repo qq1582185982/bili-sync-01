@@ -3,12 +3,12 @@ use std::pin::Pin;
 
 use anyhow::{Context, Result};
 use bili_sync_entity::*;
+use chrono::Utc;
 use futures::Stream;
 use sea_orm::ActiveValue::Set;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::{OnConflict, SimpleExpr};
 use sea_orm::{DatabaseConnection, Unchanged};
-use chrono::Utc;
 
 use crate::adapter::{_ActiveModel, VideoSource, VideoSourceEnum};
 use crate::bilibili::{BiliClient, VideoInfo, WatchLater};
@@ -49,41 +49,40 @@ impl VideoSource for watch_later::Model {
     }
 
     fn log_refresh_video_end(&self, count: usize) {
-        info!("扫描稍后再看完成，获取到 {} 条新视频", count);
+        if count > 0 {
+            info!("扫描稍后再看完成，获取到 {} 条新视频", count);
+        } else {
+            info!("稍后再看无新视频");
+        }
     }
 
     fn log_fetch_video_start(&self) {
-        info!("开始填充稍后再看视频详情..");
+        debug!("开始填充稍后再看视频详情..");
     }
 
     fn log_fetch_video_end(&self) {
-        info!("填充稍后再看视频详情完成");
+        debug!("填充稍后再看视频详情完成");
     }
 
     fn log_download_video_start(&self) {
-        info!("开始下载稍后再看视频..");
+        debug!("开始下载稍后再看视频..");
     }
 
     fn log_download_video_end(&self) {
-        info!("下载稍后再看视频完成");
+        debug!("下载稍后再看视频完成");
     }
 }
 
 // 添加初始化稍后观看源的方法
-pub async fn init_watch_later_source(
-    conn: &DatabaseConnection,
-    watch_later_config: &WatchLaterConfig,
-) -> Result<()> {
+pub async fn init_watch_later_source(conn: &DatabaseConnection, watch_later_config: &WatchLaterConfig) -> Result<()> {
     // 如果稍后观看功能未启用，则不需要初始化
     if !watch_later_config.enabled {
         return Ok(());
     }
-    
+
     // 检查数据库中是否已存在稍后观看记录
-    let existing = watch_later::Entity::find()
-        .one(conn)
-        .await?;
-    
+    let existing = watch_later::Entity::find().one(conn).await?;
+
     if existing.is_none() {
         // 如果不存在，创建新记录
         let model = watch_later::ActiveModel {
@@ -92,33 +91,33 @@ pub async fn init_watch_later_source(
             latest_row_at: Set(chrono::Utc::now().naive_utc()),
             ..Default::default()
         };
-        
+
         // 插入数据库
         let result = watch_later::Entity::insert(model)
             .exec(conn)
             .await
             .context("Failed to insert watch_later source")?;
-        
+
         info!("初始化稍后观看源 (ID: {})", result.last_insert_id);
     } else if let Some(existing) = existing {
         // 如果已存在，更新路径
-        if existing.path != watch_later_config.path.to_string_lossy().to_string() {
+        if existing.path != watch_later_config.path.to_string_lossy() {
             let model = watch_later::ActiveModel {
                 id: Set(existing.id),
                 path: Set(watch_later_config.path.to_string_lossy().to_string()),
                 ..Default::default()
             };
-            
+
             // 更新数据库
             watch_later::Entity::update(model)
                 .exec(conn)
                 .await
                 .context("Failed to update watch_later source")?;
-            
+
             info!("更新稍后观看源 (ID: {})", existing.id);
         }
     }
-    
+
     Ok(())
 }
 
