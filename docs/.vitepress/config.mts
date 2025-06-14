@@ -23,7 +23,7 @@ export default defineConfig({
 		nav: [
 			{ text: "主页", link: "/" },
 			{
-				        text: "v2.7.2+",
+				        text: "v2.7.2 Final",
 				items: [
 					{
 						text: "程序更新",
@@ -69,6 +69,10 @@ export default defineConfig({
 				text: "高级",
 				items: [
 					{ text: "任务队列管理", link: "/queue-management" },
+					{ text: "智能风控处理", link: "/risk-control-guide" },
+					{ text: "双重重置系统", link: "/reset-functionality-guide" },
+					{ text: "视觉功能增强", link: "/visual-enhancements-guide" },
+					{ text: "技术架构文档", link: "/technical-architecture" },
 					{ text: "部署指南", link: "/deploy-guide" },
 					{ text: "工作原理", link: "/design" },
 				]
@@ -84,6 +88,7 @@ export default defineConfig({
 				text: "更新日志",
 				collapsed: true,
 				items: [
+					{ text: "v2.7.2 Final (2025-06-14)", link: "/update-log-2025-06-14-comprehensive" },
 					{ text: "v2.7.2+ (2025-06-14)", link: "/update-log-2025-06-14" },
 					{ text: "v2.7.1 (2025-06-08)", link: "/update-log-v2.7.1" },
 					{ text: "v2.7.0 (2025-06-03)", link: "/comprehensive-update-2025-06-03" },

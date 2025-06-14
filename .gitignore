@@ -51,7 +51,6 @@ Thumbs.db
 *.tmp
 *.temp
 bili-sync-main
-
 # 压缩包和打包文件
 *.zip
 *.tar.gz
@@ -87,7 +86,7 @@ targets/
 # Log files
 日志
 *.log
-
+log*
 # Dockerfile copies
 Dockerfile*副本
 Dockerfile - 副本
