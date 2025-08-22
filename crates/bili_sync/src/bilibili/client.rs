@@ -969,4 +969,45 @@ impl BiliClient {
 
         Ok((videos, total))
     }
+
+    /// 发起GET请求并解析JSON响应
+    pub async fn get_json<T>(&self, url: &str) -> Result<T, anyhow::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let token = CancellationToken::new();
+        let response = self.get(url, token).await?;
+        let text = response.text().await?;
+        serde_json::from_str(&text).map_err(|e| anyhow!("JSON解析失败: {}, 响应内容: {}", e, text))
+    }
+
+    /// 发起带参数的GET请求并解析JSON响应
+    pub async fn get_json_with_params<T>(
+        &self,
+        url: &str,
+        params: &std::collections::HashMap<String, String>,
+    ) -> Result<T, anyhow::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let mut url = url.to_string();
+        if !params.is_empty() {
+            let query_string: String = params
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("&");
+            url = format!("{}?{}", url, query_string);
+        }
+        
+        self.get_json(&url).await
+    }
+
+    /// 发起HEAD请求
+    pub async fn head(&self, url: &str) -> Result<reqwest::Response, anyhow::Error> {
+        let token = CancellationToken::new();
+        let builder = self.request(reqwest::Method::HEAD, url).await;
+        let response = builder.send().await?;
+        Ok(response)
+    }
 }

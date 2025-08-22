@@ -14,10 +14,12 @@ use utoipa_swagger_ui::{Config, SwaggerUi};
 
 use crate::api::auth;
 use crate::api::handler::{
+    add_live_monitor,
     add_video_source,
     batch_update_config_internal,
     check_initial_setup,
     clear_credential,
+    delete_live_monitor,
     delete_video,
     delete_video_source,
     download_log_file,
@@ -30,11 +32,14 @@ use crate::api::handler::{
     get_current_user,
     get_dashboard_data,
     get_hot_reload_status,
+    get_live_monitor_status,
+    get_live_monitors,
     get_log_files,
     get_logs,
     get_notification_config,
     get_notification_status,
     get_queue_status,
+    get_recordings,
     get_submission_videos,
     get_subscribed_collections,
     get_task_control_status,
@@ -64,6 +69,7 @@ use crate::api::handler::{
     update_config,
     update_config_item_internal,
     update_credential,
+    update_live_monitor,
     update_notification_config,
     update_video_source_enabled,
     update_video_source_scan_deleted,
@@ -221,6 +227,13 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
         .route("/api/config/notification", get(get_notification_config))
         .route("/api/config/notification", post(update_notification_config))
         .route("/api/notification/status", get(get_notification_status))
+        // 直播监控API
+        .route("/api/live/monitors", get(get_live_monitors))
+        .route("/api/live/monitors", post(add_live_monitor))
+        .route("/api/live/monitors/{id}", put(update_live_monitor))
+        .route("/api/live/monitors/{id}", delete(delete_live_monitor))
+        .route("/api/live/recordings", get(get_recordings))
+        .route("/api/live/status", get(get_live_monitor_status))
         // 视频流API
         .route("/api/videos/stream/{video_id}", get(stream_video))
         // 新增在线播放API

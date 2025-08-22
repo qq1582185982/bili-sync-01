@@ -11,6 +11,7 @@ mod database;
 mod downloader;
 mod error;
 mod initialization;
+mod live;
 mod task;
 mod unified_downloader;
 mod utils;
@@ -21,7 +22,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 // 移除未使用的Lazy导入
-use task::{http_server, video_downloader};
+use task::{http_server, live_monitor_service, video_downloader};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -107,7 +108,8 @@ async fn main() -> Result<()> {
     let tracker = TaskTracker::new();
 
     spawn_task("HTTP 服务", http_server(connection.clone()), &tracker, token.clone());
-    spawn_task("定时下载", video_downloader(connection), &tracker, token.clone());
+    spawn_task("定时下载", video_downloader(connection.clone()), &tracker, token.clone());
+    spawn_task("直播监控", live_monitor_service(connection), &tracker, token.clone());
 
     tracker.close();
     handle_shutdown(tracker, token).await;

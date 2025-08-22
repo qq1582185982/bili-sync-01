@@ -688,3 +688,93 @@ pub struct NotificationStatusResponse {
     pub total_notifications_sent: u64,
     pub last_error: Option<String>,
 }
+
+// 直播监控相关响应结构体
+
+// 直播监控信息
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LiveMonitorInfo {
+    pub id: i32,
+    pub upper_id: i64,
+    pub upper_name: String,
+    pub room_id: i64,
+    pub short_room_id: Option<i64>,
+    pub path: String,
+    pub enabled: bool,
+    pub check_interval: i32,
+    pub quality: String,
+    pub format: String,
+    pub last_status: i32,
+    pub last_check_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// 录制记录信息
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RecordingInfo {
+    pub id: i32,
+    pub monitor_id: i32,
+    pub room_id: i64,
+    pub title: Option<String>,
+    pub start_time: String,
+    pub end_time: Option<String>,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub status: i32,
+    pub monitor: Option<LiveMonitorInfo>,
+}
+
+// 添加直播监控响应
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AddLiveMonitorResponse {
+    pub success: bool,
+    pub message: String,
+    pub monitor: Option<LiveMonitorInfo>,
+}
+
+// 直播监控列表响应
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LiveMonitorsResponse {
+    pub monitors: Vec<LiveMonitorInfo>,
+    pub total_count: u64,
+}
+
+// 更新直播监控响应
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UpdateLiveMonitorResponse {
+    pub success: bool,
+    pub message: String,
+    pub monitor: Option<LiveMonitorInfo>,
+}
+
+// 删除直播监控响应
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DeleteLiveMonitorResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+// 录制记录列表响应
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RecordingsResponse {
+    pub recordings: Vec<RecordingInfo>,
+    pub total_count: u64,
+}
+
+// 直播监控状态响应
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LiveMonitorStatusResponse {
+    pub running: bool,
+    pub total_monitors: usize,
+    pub enabled_monitors: usize,
+    pub active_recordings: usize,
+}
+
+// 控制直播监控响应
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LiveMonitorControlResponse {
+    pub success: bool,
+    pub message: String,
+    pub status: LiveMonitorStatusResponse,
+}

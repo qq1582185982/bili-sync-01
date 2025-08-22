@@ -317,3 +317,77 @@ pub struct QRGenerateRequest {
 pub struct QRPollRequest {
     pub session_id: String,
 }
+
+// 直播监控相关请求结构体
+
+// 添加直播监控请求
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AddLiveMonitorRequest {
+    /// UP主ID
+    pub upper_id: i64,
+    /// UP主名称
+    pub upper_name: String,
+    /// 房间ID
+    pub room_id: i64,
+    /// 短房间ID
+    pub short_room_id: Option<i64>,
+    /// 保存路径
+    pub path: String,
+    /// 检查间隔（秒）
+    #[serde(default = "default_check_interval")]
+    pub check_interval: u64,
+    /// 录制质量
+    #[serde(default = "default_quality")]
+    pub quality: String,
+    /// 录制格式
+    #[serde(default = "default_format")]
+    pub format: String,
+    /// 是否启用
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+// 更新直播监控请求
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateLiveMonitorRequest {
+    pub upper_name: Option<String>,
+    pub path: Option<String>,
+    pub check_interval: Option<u64>,
+    pub quality: Option<String>,
+    pub format: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+// 直播监控列表查询请求
+#[derive(Deserialize, IntoParams)]
+pub struct LiveMonitorsRequest {
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
+    pub enabled: Option<bool>,
+    pub upper_name: Option<String>,
+}
+
+// 录制记录查询请求
+#[derive(Deserialize, IntoParams)]
+pub struct RecordingsRequest {
+    pub monitor_id: Option<i32>,
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
+    pub status: Option<i32>,
+}
+
+fn default_check_interval() -> u64 {
+    60 // 默认60秒检查一次
+}
+
+fn default_quality() -> String {
+    "high".to_string() // 默认高清
+}
+
+fn default_format() -> String {
+    "flv".to_string() // 默认FLV格式
+}
+
+fn default_enabled() -> bool {
+    true // 默认启用
+}

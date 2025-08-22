@@ -1,7 +1,9 @@
 mod http_server;
+mod live_monitor;
 pub mod video_downloader;
 
 pub use http_server::http_server;
+pub use live_monitor::live_monitor_service;
 pub use video_downloader::video_downloader;
 
 use crate::utils::time_format::now_standard_string;

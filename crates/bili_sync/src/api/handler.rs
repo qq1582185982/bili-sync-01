@@ -23,18 +23,22 @@ use utoipa::OpenApi;
 use crate::api::auth::OpenAPIAuth;
 use crate::api::error::InnerApiError;
 use crate::api::request::{
-    AddVideoSourceRequest, BatchUpdateConfigRequest, ConfigHistoryRequest, QRGenerateRequest, QRPollRequest,
+    AddLiveMonitorRequest, AddVideoSourceRequest, BatchUpdateConfigRequest, ConfigHistoryRequest, 
+    LiveMonitorsRequest, QRGenerateRequest, QRPollRequest, RecordingsRequest,
     ResetSpecificTasksRequest, ResetVideoSourcePathRequest, SetupAuthTokenRequest, SubmissionVideosRequest,
-    UpdateConfigItemRequest, UpdateConfigRequest, UpdateCredentialRequest, UpdateVideoStatusRequest, VideosRequest,
+    UpdateConfigItemRequest, UpdateConfigRequest, UpdateCredentialRequest, UpdateLiveMonitorRequest, 
+    UpdateVideoStatusRequest, VideosRequest,
 };
 use crate::api::response::{
-    AddVideoSourceResponse, BangumiSeasonInfo, ConfigChangeInfo, ConfigHistoryResponse, ConfigItemResponse,
-    ConfigReloadResponse, ConfigResponse, ConfigValidationResponse, DashBoardResponse, DeleteVideoResponse,
-    DeleteVideoSourceResponse, HotReloadStatusResponse, InitialSetupCheckResponse, MonitoringStatus, PageInfo,
-    QRGenerateResponse, QRPollResponse, QRUserInfo, ResetAllVideosResponse, ResetVideoResponse,
-    ResetVideoSourcePathResponse, SetupAuthTokenResponse, SubmissionVideosResponse, UpdateConfigResponse,
-    UpdateCredentialResponse, UpdateVideoStatusResponse, VideoInfo, VideoResponse, VideoSource, VideoSourcesResponse,
-    VideosResponse,
+    AddLiveMonitorResponse, AddVideoSourceResponse, BangumiSeasonInfo, ConfigChangeInfo, ConfigHistoryResponse, 
+    ConfigItemResponse, ConfigReloadResponse, ConfigResponse, ConfigValidationResponse, DashBoardResponse, 
+    DeleteLiveMonitorResponse, DeleteVideoResponse, DeleteVideoSourceResponse, HotReloadStatusResponse, 
+    InitialSetupCheckResponse, LiveMonitorControlResponse, LiveMonitorInfo, LiveMonitorStatusResponse, 
+    LiveMonitorsResponse, MonitoringStatus, PageInfo, QRGenerateResponse, QRPollResponse, QRUserInfo, 
+    RecordingInfo, RecordingsResponse, ResetAllVideosResponse, ResetVideoResponse, ResetVideoSourcePathResponse, 
+    SetupAuthTokenResponse, SubmissionVideosResponse, UpdateConfigResponse, UpdateCredentialResponse, 
+    UpdateLiveMonitorResponse, UpdateVideoStatusResponse, VideoInfo, VideoResponse, VideoSource, 
+    VideoSourcesResponse, VideosResponse,
 };
 use crate::api::wrapper::{ApiError, ApiResponse};
 use crate::utils::status::{PageStatus, VideoStatus};
@@ -9808,3 +9812,363 @@ fn extract_bangumi_season_title(full_title: &str) -> String {
     full_title.to_string()
 }
 
+
+
+// ==================== 直播监控相关API处理函数 ====================
+
+/// 添加直播监控
+#[utoipa::path(
+    post,
+    path = "/api/live/monitors",
+    request_body = AddLiveMonitorRequest,
+    responses(
+        (status = 200, body = ApiResponse<AddLiveMonitorResponse>),
+    )
+)]
+pub async fn add_live_monitor(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    axum::Json(params): axum::Json<AddLiveMonitorRequest>,
+) -> Result<ApiResponse<AddLiveMonitorResponse>, ApiError> {
+    use bili_sync_entity::live_monitor;
+    use sea_orm::{ActiveModelTrait, Set};
+    
+    // 检查是否已存在相同的监控
+    let existing = live_monitor::Entity::find()
+        .filter(live_monitor::Column::UpperId.eq(params.upper_id))
+        .one(db.as_ref())
+        .await?;
+        
+    if existing.is_some() {
+        return Ok(ApiResponse::ok(AddLiveMonitorResponse {
+            success: false,
+            message: "该UP主的直播监控已存在".to_string(),
+            monitor: None,
+        }));
+    }
+    
+    // 创建新的监控
+    let new_monitor = live_monitor::ActiveModel {
+        id: sea_orm::NotSet,
+        upper_id: Set(params.upper_id),
+        upper_name: Set(params.upper_name),
+        room_id: Set(params.room_id),
+        short_room_id: Set(params.short_room_id),
+        path: Set(params.path),
+        enabled: Set(params.enabled),
+        check_interval: Set(params.check_interval as i32),
+        quality: Set(params.quality),
+        format: Set(params.format),
+        last_status: Set(0), // 默认未直播
+        last_check_at: sea_orm::NotSet,
+        created_at: Set(now_standard_string()),
+    };
+    
+    let inserted = new_monitor.insert(db.as_ref()).await?;
+    
+    let monitor_info = LiveMonitorInfo {
+        id: inserted.id,
+        upper_id: inserted.upper_id,
+        upper_name: inserted.upper_name,
+        room_id: inserted.room_id,
+        short_room_id: inserted.short_room_id,
+        path: inserted.path,
+        enabled: inserted.enabled,
+        check_interval: inserted.check_interval,
+        quality: inserted.quality,
+        format: inserted.format,
+        last_status: inserted.last_status,
+        last_check_at: inserted.last_check_at,
+        created_at: inserted.created_at.clone(),
+        updated_at: inserted.created_at,
+    };
+    
+    info!("直播监控添加成功: {} (房间ID: {}, UP主: {})", 
+          monitor_info.upper_name, monitor_info.room_id, monitor_info.upper_id);
+    
+    Ok(ApiResponse::ok(AddLiveMonitorResponse {
+        success: true,
+        message: "直播监控添加成功".to_string(),
+        monitor: Some(monitor_info),
+    }))
+}
+/// 获取直播监控列表
+#[utoipa::path(
+    get,
+    path = "/api/live/monitors",
+    params(
+        LiveMonitorsRequest
+    ),
+    responses(
+        (status = 200, body = ApiResponse<LiveMonitorsResponse>),
+    )
+)]
+pub async fn get_live_monitors(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Query(params): Query<LiveMonitorsRequest>,
+) -> Result<ApiResponse<LiveMonitorsResponse>, ApiError> {
+    use bili_sync_entity::live_monitor;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, PaginatorTrait};
+    
+    let mut query = live_monitor::Entity::find();
+    
+    // 应用过滤条件
+    if let Some(enabled) = params.enabled {
+        query = query.filter(live_monitor::Column::Enabled.eq(enabled));
+    }
+    
+    if let Some(ref upper_name) = params.upper_name {
+        query = query.filter(live_monitor::Column::UpperName.contains(upper_name));
+    }
+    
+    // 分页
+    let page = params.page.unwrap_or(1);
+    let page_size = params.page_size.unwrap_or(20);
+    
+    let paginator = query
+        .order_by_desc(live_monitor::Column::CreatedAt)
+        .paginate(db.as_ref(), page_size);
+        
+    let total_count = paginator.num_items().await?;
+    let monitors = paginator.fetch_page(page - 1).await?;
+    
+    let monitor_infos: Vec<LiveMonitorInfo> = monitors
+        .into_iter()
+        .map(|m| LiveMonitorInfo {
+            id: m.id,
+            upper_id: m.upper_id,
+            upper_name: m.upper_name,
+            room_id: m.room_id,
+            short_room_id: m.short_room_id,
+            path: m.path,
+            enabled: m.enabled,
+            check_interval: m.check_interval,
+            quality: m.quality,
+            format: m.format,
+            last_status: m.last_status,
+            last_check_at: m.last_check_at,
+            created_at: m.created_at.clone(),
+            updated_at: m.created_at,
+        })
+        .collect();
+    
+    Ok(ApiResponse::ok(LiveMonitorsResponse {
+        monitors: monitor_infos,
+        total_count,
+    }))
+}
+
+/// 更新直播监控
+#[utoipa::path(
+    put,
+    path = "/api/live/monitors/{id}",
+    request_body = UpdateLiveMonitorRequest,
+    responses(
+        (status = 200, body = ApiResponse<UpdateLiveMonitorResponse>),
+    )
+)]
+pub async fn update_live_monitor(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Path(id): Path<i32>,
+    axum::Json(params): axum::Json<UpdateLiveMonitorRequest>,
+) -> Result<ApiResponse<UpdateLiveMonitorResponse>, ApiError> {
+    use bili_sync_entity::live_monitor;
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set, Unchanged};
+    
+    let monitor = live_monitor::Entity::find_by_id(id)
+        .one(db.as_ref())
+        .await?
+        .ok_or_else(|| anyhow!("监控不存在"))?;
+    
+    let active_model = live_monitor::ActiveModel {
+        id: Unchanged(monitor.id),
+        upper_id: Unchanged(monitor.upper_id),
+        upper_name: if let Some(name) = params.upper_name {
+            Set(name)
+        } else {
+            Unchanged(monitor.upper_name)
+        },
+        room_id: Unchanged(monitor.room_id),
+        short_room_id: Unchanged(monitor.short_room_id),
+        path: if let Some(path) = params.path {
+            Set(path)
+        } else {
+            Unchanged(monitor.path)
+        },
+        enabled: if let Some(enabled) = params.enabled {
+            Set(enabled)
+        } else {
+            Unchanged(monitor.enabled)
+        },
+        check_interval: if let Some(interval) = params.check_interval {
+            Set(interval as i32)
+        } else {
+            Unchanged(monitor.check_interval)
+        },
+        quality: if let Some(quality) = params.quality {
+            Set(quality)
+        } else {
+            Unchanged(monitor.quality)
+        },
+        format: if let Some(format) = params.format {
+            Set(format)
+        } else {
+            Unchanged(monitor.format)
+        },
+        last_status: Unchanged(monitor.last_status),
+        last_check_at: Unchanged(monitor.last_check_at),
+        created_at: Unchanged(monitor.created_at),
+    };
+    
+    let updated = active_model.update(db.as_ref()).await?;
+    
+    let monitor_info = LiveMonitorInfo {
+        id: updated.id,
+        upper_id: updated.upper_id,
+        upper_name: updated.upper_name,
+        room_id: updated.room_id,
+        short_room_id: updated.short_room_id,
+        path: updated.path,
+        enabled: updated.enabled,
+        check_interval: updated.check_interval,
+        quality: updated.quality,
+        format: updated.format,
+        last_status: updated.last_status,
+        last_check_at: updated.last_check_at,
+        created_at: updated.created_at.clone(),
+        updated_at: updated.created_at,
+    };
+    
+    Ok(ApiResponse::ok(UpdateLiveMonitorResponse {
+        success: true,
+        message: "监控更新成功".to_string(),
+        monitor: Some(monitor_info),
+    }))
+}
+
+/// 删除直播监控
+#[utoipa::path(
+    delete,
+    path = "/api/live/monitors/{id}",
+    responses(
+        (status = 200, body = ApiResponse<DeleteLiveMonitorResponse>),
+    )
+)]
+pub async fn delete_live_monitor(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Path(id): Path<i32>,
+) -> Result<ApiResponse<DeleteLiveMonitorResponse>, ApiError> {
+    use bili_sync_entity::live_monitor;
+    use sea_orm::{EntityTrait, ModelTrait};
+    
+    let monitor = live_monitor::Entity::find_by_id(id)
+        .one(db.as_ref())
+        .await?
+        .ok_or_else(|| anyhow!("监控不存在"))?;
+    
+    let upper_name = monitor.upper_name.clone();
+    monitor.delete(db.as_ref()).await?;
+    
+    info!("直播监控删除成功: {} (ID: {})", upper_name, id);
+    
+    Ok(ApiResponse::ok(DeleteLiveMonitorResponse {
+        success: true,
+        message: "监控删除成功".to_string(),
+    }))
+}
+
+/// 获取录制记录列表
+#[utoipa::path(
+    get,
+    path = "/api/live/recordings",
+    params(
+        RecordingsRequest
+    ),
+    responses(
+        (status = 200, body = ApiResponse<RecordingsResponse>),
+    )
+)]
+pub async fn get_recordings(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Query(params): Query<RecordingsRequest>,
+) -> Result<ApiResponse<RecordingsResponse>, ApiError> {
+    use bili_sync_entity::{live_monitor, live_record};
+    use sea_orm::{ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait};
+    
+    let mut query = live_record::Entity::find()
+        .join(JoinType::LeftJoin, live_record::Relation::LiveMonitor.def());
+    
+    // 应用过滤条件
+    if let Some(monitor_id) = params.monitor_id {
+        query = query.filter(live_record::Column::MonitorId.eq(monitor_id));
+    }
+    
+    if let Some(status) = params.status {
+        query = query.filter(live_record::Column::Status.eq(status));
+    }
+    
+    // 分页
+    let page = params.page.unwrap_or(1);
+    let page_size = params.page_size.unwrap_or(20);
+    
+    let paginator = query
+        .order_by_desc(live_record::Column::StartTime)
+        .paginate(db.as_ref(), page_size);
+        
+    let total_count = paginator.num_items().await?;
+    let recordings = paginator.fetch_page(page - 1).await?;
+    
+    let recording_infos: Vec<RecordingInfo> = recordings
+        .into_iter()
+        .map(|r| RecordingInfo {
+            id: r.id,
+            monitor_id: r.monitor_id,
+            room_id: r.room_id,
+            title: r.title,
+            start_time: r.start_time,
+            end_time: r.end_time,
+            file_path: r.file_path,
+            file_size: r.file_size,
+            status: r.status,
+            monitor: None, // TODO: 可以后续实现关联查询
+        })
+        .collect();
+    
+    Ok(ApiResponse::ok(RecordingsResponse {
+        recordings: recording_infos,
+        total_count,
+    }))
+}
+
+/// 获取直播监控状态
+#[utoipa::path(
+    get,
+    path = "/api/live/status",
+    responses(
+        (status = 200, body = ApiResponse<LiveMonitorStatusResponse>),
+    )
+)]
+pub async fn get_live_monitor_status(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+) -> Result<ApiResponse<LiveMonitorStatusResponse>, ApiError> {
+    use bili_sync_entity::live_monitor;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    
+    let total_monitors = live_monitor::Entity::find()
+        .count(db.as_ref())
+        .await? as usize;
+        
+    let enabled_monitors = live_monitor::Entity::find()
+        .filter(live_monitor::Column::Enabled.eq(true))
+        .count(db.as_ref())
+        .await? as usize;
+    
+    // TODO: 实际的监控状态需要从LiveMonitor服务获取
+    let status = LiveMonitorStatusResponse {
+        running: false, // 暂时返回false，需要集成LiveMonitor服务
+        total_monitors,
+        enabled_monitors,
+        active_recordings: 0, // 暂时返回0，需要集成LiveMonitor服务
+    };
+    
+    Ok(ApiResponse::ok(status))
+}

@@ -5,6 +5,8 @@ pub mod prelude;
 pub mod collection;
 pub mod config_item;
 pub mod favorite;
+pub mod live_monitor;
+pub mod live_record;
 pub mod page;
 pub mod submission;
 pub mod task_queue;
