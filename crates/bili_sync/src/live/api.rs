@@ -61,13 +61,15 @@ pub struct LiveRoomInfo {
     pub short_id: i64,
     /// 直播标题
     pub title: String,
-    /// 封面图片
-    pub cover: String,
+    /// 封面图片 (新API使用user_cover字段)
+    #[serde(alias = "cover")]
+    pub user_cover: String,
     /// 在线人数
     pub online: i32,
     /// UP主ID
     pub uid: i64,
-    /// UP主名称
+    /// UP主名称 (新API没有uname字段，使用空字符串默认值)
+    #[serde(default)]
     pub uname: String,
 }
 
@@ -196,6 +198,34 @@ impl<'a> LiveApiClient<'a> {
             }
             Err(_) => {
                 // 请求失败，可能是网络问题或者UP主没有直播间
+                Ok((LiveStatus::NotLive, None))
+            }
+        }
+    }
+
+    /// 根据房间ID获取直播间状态（更准确的API）
+    /// 
+    /// # Arguments  
+    /// * `room_id` - 房间ID
+    pub async fn get_live_status_by_room_id(&self, room_id: i64) -> Result<(LiveStatus, Option<LiveRoomInfo>)> {
+        use tracing::debug;
+        let url = format!("https://api.live.bilibili.com/room/v1/Room/get_info?room_id={}", room_id);
+        debug!("请求直播API: {}", url);
+        
+        match self.client.get_json::<ApiResponse<LiveRoomInfo>>(&url).await {
+            Ok(response) => {
+                debug!("API响应: code={}, message={}", response.code, response.message);
+                if response.code == 0 {
+                    let status = LiveStatus::from(response.data.live_status);
+                    debug!("解析的直播状态: live_status={} -> {:?}", response.data.live_status, status);
+                    Ok((status, Some(response.data)))
+                } else {
+                    debug!("API返回错误: {} - {}", response.code, response.message);
+                    Ok((LiveStatus::NotLive, None))
+                }
+            }
+            Err(e) => {
+                debug!("请求失败: {}", e);
                 Ok((LiveStatus::NotLive, None))
             }
         }

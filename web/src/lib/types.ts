@@ -739,3 +739,98 @@ export interface TaskStatus {
 	last_finish?: string;
 	next_run?: string;
 }
+
+// 直播监控相关类型
+
+// 直播画质枚举
+export type LiveQuality = 'fluent' | 'high' | 'super_clear' | 'blue_ray' | 'original';
+
+// 直播格式枚举
+export type LiveFormat = 'flv' | 'mp4';
+
+// 直播状态枚举
+export type LiveStatus = 0 | 1 | 2; // 0: 未开播, 1: 直播中, 2: 轮播中
+
+// 录制状态枚举
+export type RecordStatus = 0 | 1 | 2 | 3; // 0: 未开始, 1: 录制中, 2: 已完成, 3: 错误
+
+// 直播监控配置
+export interface LiveMonitorConfig {
+	id: number;
+	upper_id: number;
+	upper_name: string;
+	room_id: number;
+	short_room_id?: number;
+	path: string;
+	enabled: boolean;
+	check_interval: number;
+	quality: LiveQuality;
+	format: LiveFormat;
+	last_status: LiveStatus;
+	last_check_at?: string;
+	created_at: string;
+}
+
+// 录制记录
+export interface LiveRecord {
+	id: number;
+	monitor_id: number;
+	room_id: number;
+	title?: string;
+	start_time: string;
+	end_time?: string;
+	file_path?: string;
+	file_size?: number;
+	status: RecordStatus;
+}
+
+// 创建直播监控请求
+export interface CreateLiveMonitorRequest {
+	upper_id: number;
+	upper_name: string;
+	room_id: number;
+	short_room_id?: number;
+	path: string;
+	enabled?: boolean;
+	check_interval?: number;
+	quality?: LiveQuality;
+	format?: LiveFormat;
+}
+
+// 更新直播监控请求
+export interface UpdateLiveMonitorRequest {
+	upper_name?: string;
+	room_id?: number;
+	short_room_id?: number;
+	path?: string;
+	enabled?: boolean;
+	check_interval?: number;
+	quality?: LiveQuality;
+	format?: LiveFormat;
+}
+
+// 直播监控列表响应
+export interface LiveMonitorsResponse {
+	monitors: LiveMonitorConfig[];
+	total_count: number;
+}
+
+// 录制记录列表响应
+export interface LiveRecordsResponse {
+	recordings: LiveRecord[];
+	total_count: number;
+}
+
+// 直播监控状态响应
+export interface LiveMonitorStatusResponse {
+	running: boolean;
+	total_monitors: number;
+	enabled_monitors: number;
+	active_recordings: number;
+}
+
+// 直播监控操作响应
+export interface LiveMonitorOperationResponse {
+	success: boolean;
+	message: string;
+}

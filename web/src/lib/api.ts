@@ -39,7 +39,15 @@ import type {
 	SysInfo,
 	TaskStatus,
 	BangumiSeasonsResponse,
-	VideoBvidResponse
+	VideoBvidResponse,
+	LiveMonitorConfig,
+	LiveRecord,
+	CreateLiveMonitorRequest,
+	UpdateLiveMonitorRequest,
+	LiveMonitorsResponse,
+	LiveRecordsResponse,
+	LiveMonitorStatusResponse,
+	LiveMonitorOperationResponse
 } from './types';
 import { ErrorType } from './types';
 import { wsManager } from './ws';
@@ -615,6 +623,63 @@ class ApiClient {
 			message: string;
 		}>('/notification/test', { message });
 	}
+
+	// 直播监控 API 方法
+
+	/**
+	 * 获取直播监控列表
+	 * @param page 页码
+	 * @param pageSize 每页数量
+	 */
+	async getLiveMonitors(page: number = 1, pageSize: number = 20): Promise<ApiResponse<LiveMonitorsResponse>> {
+		return this.get<LiveMonitorsResponse>('/live/monitors', { page, page_size: pageSize });
+	}
+
+	/**
+	 * 创建直播监控
+	 * @param params 监控配置参数
+	 */
+	async createLiveMonitor(params: CreateLiveMonitorRequest): Promise<ApiResponse<LiveMonitorConfig>> {
+		return this.post<LiveMonitorConfig>('/live/monitors', params);
+	}
+
+	/**
+	 * 更新直播监控
+	 * @param id 监控ID
+	 * @param params 更新参数
+	 */
+	async updateLiveMonitor(id: number, params: UpdateLiveMonitorRequest): Promise<ApiResponse<LiveMonitorConfig>> {
+		return this.put<LiveMonitorConfig>(`/live/monitors/${id}`, params);
+	}
+
+	/**
+	 * 删除直播监控
+	 * @param id 监控ID
+	 */
+	async deleteLiveMonitor(id: number): Promise<ApiResponse<LiveMonitorOperationResponse>> {
+		return this.delete<LiveMonitorOperationResponse>(`/live/monitors/${id}`);
+	}
+
+	/**
+	 * 获取录制记录列表
+	 * @param monitorId 监控ID（可选）
+	 * @param page 页码
+	 * @param pageSize 每页数量
+	 */
+	async getLiveRecords(monitorId?: number, page: number = 1, pageSize: number = 20): Promise<ApiResponse<LiveRecordsResponse>> {
+		const params: Record<string, unknown> = { page, page_size: pageSize };
+		if (monitorId !== undefined) {
+			params.monitor_id = monitorId;
+		}
+		return this.get<LiveRecordsResponse>('/live/recordings', params);
+	}
+
+	/**
+	 * 获取直播监控状态
+	 */
+	async getLiveMonitorStatus(): Promise<ApiResponse<LiveMonitorStatusResponse>> {
+		return this.get<LiveMonitorStatusResponse>('/live/status');
+	}
 }
 
 // 创建默认的 API 客户端实例
@@ -847,6 +912,36 @@ export const api = {
 	 * 测试推送通知
 	 */
 	testNotification: (message?: string) => apiClient.testNotification(message),
+
+	/**
+	 * 获取直播监控列表
+	 */
+	getLiveMonitors: (page?: number, pageSize?: number) => apiClient.getLiveMonitors(page, pageSize),
+
+	/**
+	 * 创建直播监控
+	 */
+	createLiveMonitor: (params: CreateLiveMonitorRequest) => apiClient.createLiveMonitor(params),
+
+	/**
+	 * 更新直播监控
+	 */
+	updateLiveMonitor: (id: number, params: UpdateLiveMonitorRequest) => apiClient.updateLiveMonitor(id, params),
+
+	/**
+	 * 删除直播监控
+	 */
+	deleteLiveMonitor: (id: number) => apiClient.deleteLiveMonitor(id),
+
+	/**
+	 * 获取录制记录列表
+	 */
+	getLiveRecords: (monitorId?: number, page?: number, pageSize?: number) => apiClient.getLiveRecords(monitorId, page, pageSize),
+
+	/**
+	 * 获取直播监控状态
+	 */
+	getLiveMonitorStatus: () => apiClient.getLiveMonitorStatus(),
 
 	/**
 	 * 订阅系统信息WebSocket事件

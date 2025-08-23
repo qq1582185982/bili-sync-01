@@ -149,9 +149,40 @@ impl LiveMonitor {
         let configs: Vec<MonitorConfig> = models.into_iter().map(MonitorConfig::from).collect();
         
         info!("加载了 {} 个直播监控配置", configs.len());
-        debug!("监控配置: {:?}", configs);
+        
+        // 详细显示每个监控配置的状态
+        for config in &configs {
+            debug!(
+                "监控配置 - ID: {}, UP主: {}, 房间: {}, 当前状态: {:?}", 
+                config.id, config.upper_name, config.room_id, config.last_status
+            );
+        }
 
         *self.configs.write().await = configs;
+        Ok(())
+    }
+
+    /// 静态方法：重新加载监控配置（用于spawned task中）
+    async fn reload_configs_static(
+        db: &DatabaseConnection, 
+        configs: &Arc<RwLock<Vec<MonitorConfig>>>
+    ) -> Result<()> {
+        let models = live_monitor::Entity::find()
+            .filter(live_monitor::Column::Enabled.eq(true))
+            .all(db)
+            .await?;
+
+        let new_configs: Vec<MonitorConfig> = models.into_iter().map(MonitorConfig::from).collect();
+        
+        // 详细显示每个监控配置的状态
+        for config in &new_configs {
+            debug!(
+                "重新加载配置 - ID: {}, UP主: {}, 房间: {}, 当前状态: {:?}", 
+                config.id, config.upper_name, config.room_id, config.last_status
+            );
+        }
+
+        *configs.write().await = new_configs;
         Ok(())
     }
 
@@ -194,8 +225,12 @@ impl LiveMonitor {
                         error!("检查房间 {} 状态失败: {}", config.room_id, e);
                     }
                 }
-
+                
+                // 每次检查完所有房间后，重新加载配置以同步状态变化
                 drop(configs_guard);
+                if let Err(e) = Self::reload_configs_static(&db, &configs).await {
+                    error!("重新加载监控配置失败: {}", e);
+                }
             }
 
             info!("直播监控循环已停止");
@@ -211,8 +246,10 @@ impl LiveMonitor {
     ) -> Result<()> {
         debug!("检查房间 {} ({}) 的状态", config.room_id, config.upper_name);
 
-        // 获取当前直播状态
-        let (current_status, room_info) = live_client.get_live_status_by_uid(config.upper_id).await?;
+        // 获取当前直播状态（使用房间ID获取更准确的状态）
+        debug!("调用新的API获取房间 {} 状态", config.room_id);
+        let (current_status, room_info) = live_client.get_live_status_by_room_id(config.room_id).await?;
+        debug!("房间 {} 当前状态: {:?}, room_info存在: {}", config.room_id, current_status, room_info.is_some());
 
         if current_status != config.last_status {
             info!(
