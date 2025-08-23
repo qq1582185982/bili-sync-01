@@ -33,7 +33,7 @@ use crate::api::response::{
     AddLiveMonitorResponse, AddVideoSourceResponse, BangumiSeasonInfo, ConfigChangeInfo, ConfigHistoryResponse, 
     ConfigItemResponse, ConfigReloadResponse, ConfigResponse, ConfigValidationResponse, DashBoardResponse, 
     DeleteLiveMonitorResponse, DeleteVideoResponse, DeleteVideoSourceResponse, HotReloadStatusResponse, 
-    InitialSetupCheckResponse, LiveMonitorControlResponse, LiveMonitorInfo, LiveMonitorStatusResponse, 
+    InitialSetupCheckResponse, LiveMonitorInfo, LiveMonitorStatusResponse, 
     LiveMonitorsResponse, MonitoringStatus, PageInfo, QRGenerateResponse, QRPollResponse, QRUserInfo, 
     RecordingInfo, RecordingsResponse, ResetAllVideosResponse, ResetVideoResponse, ResetVideoSourcePathResponse, 
     SetupAuthTokenResponse, SubmissionVideosResponse, UpdateConfigResponse, UpdateCredentialResponse, 
@@ -9880,6 +9880,10 @@ pub async fn add_live_monitor(
         last_check_at: inserted.last_check_at,
         created_at: inserted.created_at.clone(),
         updated_at: inserted.created_at,
+        // 添加新字段
+        cover_url: None, // TODO: 从直播API获取封面
+        room_url: Some(format!("https://live.bilibili.com/{}", inserted.room_id)),
+        current_title: None, // TODO: 从直播API获取当前标题
     };
     
     info!("直播监控添加成功: {} (房间ID: {}, UP主: {})", 
@@ -9948,6 +9952,10 @@ pub async fn get_live_monitors(
             last_check_at: m.last_check_at,
             created_at: m.created_at.clone(),
             updated_at: m.created_at,
+            // 添加新字段
+            cover_url: None, // TODO: 从直播API获取封面
+            room_url: Some(format!("https://live.bilibili.com/{}", m.room_id)),
+            current_title: None, // TODO: 从直播API获取当前标题
         })
         .collect();
     
@@ -10036,6 +10044,10 @@ pub async fn update_live_monitor(
         last_check_at: updated.last_check_at,
         created_at: updated.created_at.clone(),
         updated_at: updated.created_at,
+        // 添加新字段
+        cover_url: None, // TODO: 从直播API获取封面
+        room_url: Some(format!("https://live.bilibili.com/{}", updated.room_id)),
+        current_title: None, // TODO: 从直播API获取当前标题
     };
     
     Ok(ApiResponse::ok(UpdateLiveMonitorResponse {
@@ -10091,7 +10103,7 @@ pub async fn get_recordings(
     Extension(db): Extension<Arc<DatabaseConnection>>,
     Query(params): Query<RecordingsRequest>,
 ) -> Result<ApiResponse<RecordingsResponse>, ApiError> {
-    use bili_sync_entity::{live_monitor, live_record};
+    use bili_sync_entity::live_record;
     use sea_orm::{ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait};
     
     let mut query = live_record::Entity::find()
@@ -10177,4 +10189,16 @@ pub async fn get_live_monitor_status(
     };
     
     Ok(ApiResponse::ok(status))
+}
+
+/// 健康检查接口
+#[utoipa::path(
+    head,
+    path = "/api/health",
+    responses(
+        (status = 200, description = "服务正常运行")
+    )
+)]
+pub async fn health_check() -> Result<ApiResponse<()>, ApiError> {
+    Ok(ApiResponse::ok(()))
 }

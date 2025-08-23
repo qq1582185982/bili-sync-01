@@ -1003,9 +1003,9 @@ impl BiliClient {
         self.get_json(&url).await
     }
 
-    /// 发起HEAD请求
+    /// 发起HEAD请求，用于健康检查
+    #[allow(dead_code)] // HEAD请求方法，暂时只在健康检查接口中使用
     pub async fn head(&self, url: &str) -> Result<reqwest::Response, anyhow::Error> {
-        let token = CancellationToken::new();
         let builder = self.request(reqwest::Method::HEAD, url).await;
         let response = builder.send().await?;
         Ok(response)

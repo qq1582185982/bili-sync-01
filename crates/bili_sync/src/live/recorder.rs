@@ -48,6 +48,7 @@ pub struct LiveRecorder {
 }
 
 impl LiveRecorder {
+    #[allow(dead_code)] // 录制器方法，部分暂时未使用但需要保留
     /// 创建新的录制器
     /// 
     /// # Arguments
@@ -380,9 +381,11 @@ impl Drop for LiveRecorder {
 
 /// 录制器工厂，用于创建不同配置的录制器
 #[derive(Debug)]
+#[allow(dead_code)] // 录制器工厂，暂时未使用但需要保留
 pub struct RecorderFactory;
 
 impl RecorderFactory {
+    #[allow(dead_code)] // 工厂方法，暂时未使用但需要保留
     /// 创建FLV格式录制器
     pub fn create_flv_recorder<P: AsRef<Path>>(output_path: P) -> LiveRecorder {
         LiveRecorder::new(output_path)

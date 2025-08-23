@@ -10,9 +10,8 @@ pub mod api;
 pub mod monitor;
 pub mod recorder;
 
-pub use api::{LiveApiClient, LiveStatus, Quality};
-pub use monitor::{LiveMonitor, MonitorConfig};
-pub use recorder::{LiveRecorder, RecordStatus};
+// 只导出实际使用的类型
+pub use monitor::LiveMonitor;
 
 /// 直播录制相关的错误类型
 #[derive(Debug, thiserror::Error)]
@@ -23,15 +22,9 @@ pub enum LiveError {
     #[error("录制器启动失败: {0}")]
     RecorderStartError(String),
     
-    #[error("录制器停止失败: {0}")]
-    RecorderStopError(String),
-    
     #[error("文件操作失败: {0}")]
     FileError(#[from] std::io::Error),
     
     #[error("数据库操作失败: {0}")]
     DatabaseError(#[from] sea_orm::DbErr),
-    
-    #[error("配置错误: {0}")]
-    ConfigError(String),
 }

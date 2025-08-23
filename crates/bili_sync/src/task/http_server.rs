@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use axum::extract::{Path, Request};
 use axum::http::{header, Uri};
 use axum::response::IntoResponse;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, head, post, put};
 use axum::{middleware, Extension, Router, ServiceExt};
 use reqwest::StatusCode;
 use rust_embed::Embed;
@@ -52,6 +52,7 @@ use crate::api::handler::{
     get_video_play_info,
     get_video_sources,
     get_videos,
+    health_check,
     pause_scanning_endpoint,
     poll_qr_status,
     proxy_image,
@@ -234,6 +235,8 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
         .route("/api/live/monitors/{id}", delete(delete_live_monitor))
         .route("/api/live/recordings", get(get_recordings))
         .route("/api/live/status", get(get_live_monitor_status))
+        // 健康检查API
+        .route("/api/health", head(health_check))
         // 视频流API
         .route("/api/videos/stream/{video_id}", get(stream_video))
         // 新增在线播放API

@@ -13,11 +13,11 @@ use crate::bilibili::BiliClient;
 use crate::utils::time_format::now_standard_string;
 
 use super::api::{LiveApiClient, LiveStatus, Quality};
-use super::recorder::{LiveRecorder, RecordStatus};
-use super::LiveError;
+use super::recorder::LiveRecorder;
 
 /// 监控配置
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // 配置结构体，部分字段暂时未使用但需要保留
 pub struct MonitorConfig {
     pub id: i32,
     pub upper_id: i64,
@@ -52,6 +52,7 @@ impl From<live_monitor::Model> for MonitorConfig {
 
 /// 录制器状态信息
 #[derive(Debug)]
+#[allow(dead_code)] // 录制器信息结构体，部分字段暂时未使用但需要保留
 pub struct RecorderInfo {
     pub recorder: LiveRecorder,
     pub record_id: i32,
@@ -61,6 +62,7 @@ pub struct RecorderInfo {
 }
 
 /// 直播监控管理器
+#[allow(dead_code)] // 监控器结构体，部分字段暂时未使用但需要保留
 pub struct LiveMonitor {
     /// 数据库连接
     db: DatabaseConnection,
@@ -562,6 +564,7 @@ impl LiveMonitor {
 
 /// 监控状态信息
 #[derive(Debug)]
+#[allow(dead_code)] // 状态结构体，暂时未使用但需要保留
 pub struct MonitorStatus {
     pub running: bool,
     pub total_monitors: usize,

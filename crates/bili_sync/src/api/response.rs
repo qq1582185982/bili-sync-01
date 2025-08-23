@@ -708,6 +708,10 @@ pub struct LiveMonitorInfo {
     pub last_check_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    // 新增字段：直播间信息
+    pub cover_url: Option<String>,
+    pub room_url: Option<String>,
+    pub current_title: Option<String>,
 }
 
 // 录制记录信息

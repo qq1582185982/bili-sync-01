@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::bilibili::BiliClient;
@@ -52,6 +52,7 @@ impl From<&str> for Quality {
 
 /// 直播间基本信息
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // API响应结构体，部分字段暂时未使用但需要保留
 pub struct LiveRoomInfo {
     /// 直播状态
     pub live_status: i32,
@@ -75,6 +76,7 @@ pub struct LiveRoomInfo {
 
 /// 房间初始化信息
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // API响应结构体，部分字段暂时未使用但需要保留
 pub struct RoomInitInfo {
     /// 真实房间ID
     pub room_id: i64,
@@ -98,6 +100,7 @@ pub struct RoomInitInfo {
 
 /// 直播流信息
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // API响应结构体，部分字段暂时未使用但需要保留
 pub struct PlayUrlInfo {
     /// 流列表
     pub durl: Vec<StreamUrl>,
@@ -107,6 +110,7 @@ pub struct PlayUrlInfo {
 
 /// 流URL信息
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // API响应结构体，部分字段暂时未使用但需要保留
 pub struct StreamUrl {
     /// 流地址
     pub url: String,
@@ -118,6 +122,7 @@ pub struct StreamUrl {
 
 /// 质量描述
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // API响应结构体，部分字段暂时未使用但需要保留
 pub struct QualityDesc {
     /// 质量代码
     pub qn: i32,
@@ -139,6 +144,7 @@ pub struct LiveApiClient<'a> {
 }
 
 impl<'a> LiveApiClient<'a> {
+    #[allow(dead_code)] // API客户端方法，部分暂时未使用但需要保留
     /// 创建新的直播API客户端
     pub fn new(client: &'a BiliClient) -> Self {
         Self { client }
