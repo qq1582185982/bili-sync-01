@@ -384,10 +384,18 @@
 				<div class="text-center p-8 text-muted-foreground">
 					<Video class="mx-auto h-12 w-12 mb-4" />
 					<p>暂无监控配置</p>
-					<Button.Root class="mt-4" on:click={openCreateDialog}>
+					<button 
+						class="mt-4 inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium outline-none transition-all focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 h-9 px-4 py-2"
+						on:click={(e) => {
+							console.log('Add first monitor button clicked, event:', e);
+							e.preventDefault();
+							e.stopPropagation();
+							openCreateDialog();
+						}}
+					>
 						<Plus class="mr-2 h-4 w-4" />
 						添加第一个监控
-					</Button.Root>
+					</button>
 				</div>
 			{:else}
 				<div class="grid gap-4">
@@ -516,7 +524,7 @@
 
 <!-- 编辑/创建监控对话框 -->
 {#if editDialogOpen}
-	<div class="fixed inset-0 z-[9999] bg-black/80" on:click={closeEditDialog} role="presentation">
+	<div class="fixed inset-0 z-[9999] bg-black/80" role="presentation">
 		<div class="fixed left-[50%] top-[50%] z-[10000] grid w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg" on:click|stopPropagation on:keydown={(e) => e.key === 'Escape' && closeEditDialog()} role="dialog" tabindex="-1">
 			<div class="flex flex-col space-y-1.5 text-center sm:text-left">
 				<h2 class="text-lg font-semibold leading-none tracking-tight">
