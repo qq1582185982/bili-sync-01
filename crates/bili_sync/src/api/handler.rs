@@ -10162,12 +10162,18 @@ pub async fn get_live_monitor_status(
         .count(db.as_ref())
         .await? as usize;
     
-    // TODO: 实际的监控状态需要从LiveMonitor服务获取
+    // 直播监控服务始终在运行（通过main.rs中的live_monitor_service启动）
+    // 检查是否有启用的监控来确定运行状态
+    let running = enabled_monitors > 0;
+    
+    // TODO: 获取实际的录制中视频数量，暂时设为0
+    let active_recordings = 0;
+    
     let status = LiveMonitorStatusResponse {
-        running: false, // 暂时返回false，需要集成LiveMonitor服务
+        running,
         total_monitors,
         enabled_monitors,
-        active_recordings: 0, // 暂时返回0，需要集成LiveMonitor服务
+        active_recordings,
     };
     
     Ok(ApiResponse::ok(status))

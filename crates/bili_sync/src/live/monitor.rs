@@ -56,6 +56,8 @@ pub struct RecorderInfo {
     pub recorder: LiveRecorder,
     pub record_id: i32,
     pub start_time: Instant,
+    pub retry_count: u32,
+    pub last_failure_time: Option<Instant>,
 }
 
 /// 直播监控管理器
@@ -216,6 +218,9 @@ impl LiveMonitor {
                     continue;
                 }
 
+                // 首先检查活跃录制器状态
+                Self::check_recorder_status(&db, &recorders).await;
+
                 for config in configs_guard.iter() {
                     if !config.enabled {
                         continue;
@@ -251,6 +256,9 @@ impl LiveMonitor {
         let (current_status, room_info) = live_client.get_live_status_by_room_id(config.room_id).await?;
         debug!("房间 {} 当前状态: {:?}, room_info存在: {}", config.room_id, current_status, room_info.is_some());
 
+        // 检查是否有活跃录制
+        let has_active_recorder = recorders.lock().await.contains_key(&config.id);
+
         if current_status != config.last_status {
             info!(
                 "房间 {} 状态变化: {:?} -> {:?}",
@@ -272,6 +280,14 @@ impl LiveMonitor {
 
             // 更新数据库中的状态
             Self::update_monitor_status(db, config.id, current_status).await?;
+        } else if current_status == LiveStatus::Live && !has_active_recorder {
+            // 特殊情况：检测到直播中但没有活跃录制，可能是之前的录制进程意外终止
+            warn!("检测到直播中但没有活跃录制，重新启动录制进程");
+            if let Some(room_info) = room_info {
+                if let Err(e) = Self::start_recording(db, live_client, config, &room_info, recorders).await {
+                    error!("重新启动录制失败: {}", e);
+                }
+            }
         }
 
         Ok(())
@@ -286,29 +302,53 @@ impl LiveMonitor {
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
     ) -> Result<()> {
         info!("开始录制 {} 的直播: {}", config.upper_name, room_info.title);
+        debug!("录制配置 - 房间ID: {}, 质量: {:?}, 格式: {}", config.room_id, config.quality, config.format);
 
         // 获取直播流地址
-        let play_info = live_client.get_play_url(config.room_id, config.quality).await?;
+        debug!("正在获取直播流地址...");
+        let play_info = match live_client.get_play_url(config.room_id, config.quality).await {
+            Ok(info) => {
+                debug!("成功获取直播流信息，流数量: {}", info.durl.len());
+                info
+            }
+            Err(e) => {
+                error!("获取直播流地址失败: {}", e);
+                return Err(anyhow!("获取直播流地址失败: {}", e));
+            }
+        };
         
         if play_info.durl.is_empty() {
+            error!("直播流地址列表为空");
             return Err(anyhow!("无法获取直播流地址"));
         }
 
         let stream_url = &play_info.durl[0].url;
+        debug!("直播流地址: {}", stream_url);
 
         // 生成输出文件名
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
         let safe_title = crate::utils::filenamify::filenamify(&room_info.title);
         let filename = format!("{}_{}_{}_{}.{}", 
             config.upper_name, config.room_id, timestamp, safe_title, config.format);
-        let output_path = config.path.join(filename);
+        let mut output_path = config.path.join(filename);
+        
+        // 规范化路径分隔符，确保在Windows下使用反斜杠
+        if cfg!(windows) {
+            let path_str = output_path.to_string_lossy().replace("/", "\\");
+            output_path = PathBuf::from(path_str);
+        }
 
         // 确保输出目录存在
         if let Some(parent) = output_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
+            debug!("创建输出目录: {:?}", parent);
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                error!("创建输出目录失败: {}", e);
+                anyhow!("创建输出目录失败: {}", e)
+            })?;
         }
 
         // 创建录制记录
+        debug!("创建录制记录到数据库");
         let record = live_record::ActiveModel {
             id: ActiveValue::NotSet,
             monitor_id: ActiveValue::Set(config.id),
@@ -321,17 +361,36 @@ impl LiveMonitor {
             status: ActiveValue::Set(0), // 录制中
         };
 
-        let record_result = record.insert(db).await?;
+        let record_result = match record.insert(db).await {
+            Ok(result) => {
+                debug!("录制记录已创建，ID: {}", result.id);
+                result
+            }
+            Err(e) => {
+                error!("创建录制记录失败: {}", e);
+                return Err(anyhow!("创建录制记录失败: {}", e));
+            }
+        };
 
         // 启动录制器
+        debug!("启动录制器，输出文件: {:?}", output_path);
         let mut recorder = LiveRecorder::new(output_path.clone());
-        recorder.start(stream_url.clone()).await?;
+        if let Err(e) = recorder.start(stream_url.clone()).await {
+            error!("启动录制器失败: {}", e);
+            // 启动失败时，更新录制记录状态为错误
+            if let Err(db_err) = Self::update_record_status(db, record_result.id, 3).await {
+                error!("更新录制记录状态失败: {}", db_err);
+            }
+            return Err(anyhow!("启动录制器失败: {}", e));
+        }
 
         // 保存录制器信息
         let recorder_info = RecorderInfo {
             recorder,
             record_id: record_result.id,
             start_time: Instant::now(),
+            retry_count: 0,
+            last_failure_time: None,
         };
 
         recorders.lock().await.insert(config.id, recorder_info);
@@ -422,6 +481,68 @@ impl LiveMonitor {
 
         model.update(db).await?;
         Ok(())
+    }
+
+    /// 更新录制记录状态
+    async fn update_record_status(
+        db: &DatabaseConnection,
+        record_id: i32,
+        status: i32,
+    ) -> Result<()> {
+        let mut model: live_record::ActiveModel = live_record::Entity::find_by_id(record_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| anyhow!("录制记录不存在"))?
+            .into();
+
+        model.status = ActiveValue::Set(status);
+        if status != 0 { // 如果不是录制中状态，设置结束时间
+            model.end_time = ActiveValue::Set(Some(now_standard_string()));
+        }
+
+        model.update(db).await?;
+        Ok(())
+    }
+
+    /// 检查录制器进程状态
+    async fn check_recorder_status(
+        db: &DatabaseConnection,
+        recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
+    ) {
+        let mut failed_recorders = Vec::new();
+
+        // 检查所有活跃的录制器
+        {
+            let mut recorders_guard = recorders.lock().await;
+            
+            for (monitor_id, recorder_info) in recorders_guard.iter_mut() {
+                match recorder_info.recorder.check_process_status() {
+                    Ok(is_running) => {
+                        if !is_running {
+                            warn!("录制器进程已停止，监控ID: {}", monitor_id);
+                            failed_recorders.push((*monitor_id, recorder_info.record_id));
+                        }
+                    }
+                    Err(e) => {
+                        error!("检查录制器进程状态失败，监控ID: {}, 错误: {}", monitor_id, e);
+                        failed_recorders.push((*monitor_id, recorder_info.record_id));
+                    }
+                }
+            }
+
+            // 移除失败的录制器
+            for (monitor_id, _) in &failed_recorders {
+                recorders_guard.remove(monitor_id);
+            }
+        }
+
+        // 更新数据库中失败录制的状态
+        for (monitor_id, record_id) in failed_recorders {
+            debug!("更新失败录制记录状态，监控ID: {}, 录制记录ID: {}", monitor_id, record_id);
+            if let Err(e) = Self::update_record_status(db, record_id, 3).await {
+                error!("更新录制记录状态失败: {}", e);
+            }
+        }
     }
 
     /// 获取监控状态统计

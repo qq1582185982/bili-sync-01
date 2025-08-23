@@ -12,7 +12,7 @@
 	import api from '$lib/api';
 	import type { LiveMonitorConfig, LiveMonitorStatusResponse } from '$lib/types';
 	// import LiveMonitorForm from './components/LiveMonitorForm.svelte';
-	// import LiveRecordsDialog from './components/LiveRecordsDialog.svelte';
+	import LiveRecordsDialog from './components/LiveRecordsDialog.svelte';
 
 	// 状态管理
 	let monitors: LiveMonitorConfig[] = [];
@@ -62,6 +62,7 @@
 	}
 
 	function openEditDialog(monitor: LiveMonitorConfig) {
+		console.log('openEditDialog called with monitor:', monitor);
 		editMonitor = monitor;
 		// 填充表单数据
 		formData = {
@@ -76,6 +77,7 @@
 			enabled: monitor.enabled
 		};
 		editDialogOpen = true;
+		console.log('editDialogOpen set to:', editDialogOpen);
 	}
 
 	function openDeleteDialog(monitorId: number) {
@@ -84,8 +86,10 @@
 	}
 
 	function openRecordsDialog(monitorId: number) {
+		console.log('openRecordsDialog called with monitorId:', monitorId);
 		recordsMonitorId = monitorId;
 		recordsDialogOpen = true;
+		console.log('recordsDialogOpen set to:', recordsDialogOpen);
 	}
 
 	function closeEditDialog() {
@@ -435,10 +439,14 @@
 
 									<!-- 操作按钮 -->
 									<div class="flex items-center gap-2">
-										<Button.Root
-											variant="ghost"
-											size="sm"
-											on:click={() => toggleEnabled(monitor)}
+										<button
+											class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 px-2.5"
+											on:click={(e) => {
+												console.log('Toggle button clicked for monitor:', monitor.id);
+												e.preventDefault();
+												e.stopPropagation();
+												toggleEnabled(monitor);
+											}}
 											title={monitor.enabled ? '暂停监控' : '启用监控'}
 										>
 											{#if monitor.enabled}
@@ -446,31 +454,43 @@
 											{:else}
 												<Play class="h-4 w-4" />
 											{/if}
-										</Button.Root>
-										<Button.Root
-											variant="ghost"
-											size="sm"
-											on:click={() => openRecordsDialog(monitor.id)}
+										</button>
+										<button
+											class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 px-2.5"
+											on:click={(e) => {
+												console.log('Records button clicked for monitor:', monitor.id);
+												e.preventDefault();
+												e.stopPropagation();
+												openRecordsDialog(monitor.id);
+											}}
 											title="查看录制记录"
 										>
 											<Video class="h-4 w-4" />
-										</Button.Root>
-										<Button.Root
-											variant="ghost"
-											size="sm"
-											on:click={() => openEditDialog(monitor)}
+										</button>
+										<button
+											class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 px-2.5"
+											on:click={(e) => {
+												console.log('Edit button clicked for monitor:', monitor.id);
+												e.preventDefault();
+												e.stopPropagation();
+												openEditDialog(monitor);
+											}}
 											title="编辑监控"
 										>
 											<Edit class="h-4 w-4" />
-										</Button.Root>
-										<Button.Root
-											variant="ghost"
-											size="sm"
-											on:click={() => openDeleteDialog(monitor.id)}
+										</button>
+										<button
+											class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 px-2.5"
+											on:click={(e) => {
+												console.log('Delete button clicked for monitor:', monitor.id);
+												e.preventDefault();
+												e.stopPropagation();
+												openDeleteDialog(monitor.id);
+											}}
 											title="删除监控"
 										>
 											<Trash2 class="h-4 w-4" />
-										</Button.Root>
+										</button>
 									</div>
 								</div>
 							</Card.Content>
@@ -496,7 +516,7 @@
 
 <!-- 编辑/创建监控对话框 -->
 {#if editDialogOpen}
-	<div class="fixed inset-0 z-[9999] bg-black/80" on:click|stopPropagation={closeEditDialog} role="presentation">
+	<div class="fixed inset-0 z-[9999] bg-black/80" on:click={closeEditDialog} role="presentation">
 		<div class="fixed left-[50%] top-[50%] z-[10000] grid w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg" on:click|stopPropagation on:keydown={(e) => e.key === 'Escape' && closeEditDialog()} role="dialog" tabindex="-1">
 			<div class="flex flex-col space-y-1.5 text-center sm:text-left">
 				<h2 class="text-lg font-semibold leading-none tracking-tight">
@@ -510,8 +530,9 @@
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 					<!-- UP主信息 -->
 					<div>
-						<label class="block text-sm font-medium mb-2">UP主名称</label>
+						<label for="upper-name" class="block text-sm font-medium mb-2">UP主名称</label>
 						<input 
+							id="upper-name"
 							type="text" 
 							bind:value={formData.upper_name}
 							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
@@ -521,8 +542,9 @@
 					</div>
 					
 					<div>
-						<label class="block text-sm font-medium mb-2">UP主ID</label>
+						<label for="upper-id" class="block text-sm font-medium mb-2">UP主ID</label>
 						<input 
+							id="upper-id"
 							type="number" 
 							bind:value={formData.upper_id}
 							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
@@ -534,8 +556,9 @@
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 					<!-- 直播间信息 -->
 					<div>
-						<label class="block text-sm font-medium mb-2">直播间ID</label>
+						<label for="room-id" class="block text-sm font-medium mb-2">直播间ID</label>
 						<input 
+							id="room-id"
 							type="number" 
 							bind:value={formData.room_id}
 							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
@@ -545,8 +568,9 @@
 					</div>
 					
 					<div>
-						<label class="block text-sm font-medium mb-2">直播间短号</label>
+						<label for="short-room-id" class="block text-sm font-medium mb-2">直播间短号</label>
 						<input 
+							id="short-room-id"
 							type="number" 
 							bind:value={formData.short_room_id}
 							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
@@ -557,8 +581,9 @@
 
 				<!-- 录制设置 -->
 				<div>
-					<label class="block text-sm font-medium mb-2">保存路径</label>
+					<label for="save-path" class="block text-sm font-medium mb-2">保存路径</label>
 					<input 
+						id="save-path"
 						type="text" 
 						bind:value={formData.path}
 						class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
@@ -569,8 +594,9 @@
 
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium mb-2">录制画质</label>
+						<label for="quality" class="block text-sm font-medium mb-2">录制画质</label>
 						<select 
+							id="quality"
 							bind:value={formData.quality}
 							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
 						>
@@ -583,8 +609,9 @@
 					</div>
 					
 					<div>
-						<label class="block text-sm font-medium mb-2">录制格式</label>
+						<label for="format" class="block text-sm font-medium mb-2">录制格式</label>
 						<select 
+							id="format"
 							bind:value={formData.format}
 							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
 						>
@@ -596,8 +623,9 @@
 
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium mb-2">检查间隔（秒）</label>
+						<label for="check-interval" class="block text-sm font-medium mb-2">检查间隔（秒）</label>
 						<input 
+							id="check-interval"
 							type="number" 
 							bind:value={formData.check_interval}
 							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
@@ -649,14 +677,34 @@
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
-			<AlertDialog.Cancel>取消</AlertDialog.Cancel>
-			<AlertDialog.Action on:click={handleDelete}>删除</AlertDialog.Action>
+			<button 
+				class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2"
+				on:click={(e) => {
+					console.log('Cancel button clicked');
+					e.preventDefault();
+					e.stopPropagation();
+					deleteDialogOpen = false;
+					deleteMonitorId = null;
+				}}
+			>
+				取消
+			</button>
+			<button 
+				class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-10 px-4 py-2"
+				on:click={(e) => {
+					console.log('Delete confirmation button clicked');
+					e.preventDefault();
+					e.stopPropagation();
+					handleDelete();
+				}}
+			>
+				删除
+			</button>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
 
 <!-- 录制记录对话框 -->
-<!-- 暂时注释掉，等修复组件问题
 {#if recordsDialogOpen && recordsMonitorId}
 	<LiveRecordsDialog 
 		monitorId={recordsMonitorId}
@@ -664,4 +712,3 @@
 		onClose={closeRecordsDialog}
 	/>
 {/if}
--->

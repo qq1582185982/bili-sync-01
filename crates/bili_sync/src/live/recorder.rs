@@ -91,13 +91,42 @@ impl LiveRecorder {
         debug!("FFmpeg命令参数: {:?}", args);
 
         // 启动FFmpeg进程
-        let process = Command::new("ffmpeg")
+        let mut process = Command::new("ffmpeg")
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| LiveError::RecorderStartError(format!("启动FFmpeg失败: {}", e)))?;
+
+        // 异步读取stderr输出以便记录错误信息
+        if let Some(stderr) = process.stderr.take() {
+            tokio::spawn(async move {
+                use std::io::{BufRead, BufReader};
+                let reader = BufReader::new(stderr);
+                
+                for line in reader.lines() {
+                    match line {
+                        Ok(line) => {
+                            let line = line.trim();
+                            if !line.is_empty() {
+                                if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
+                                    error!("FFmpeg错误: {}", line);
+                                } else if line.contains("warning") || line.contains("Warning") || line.contains("WARNING") {
+                                    warn!("FFmpeg警告: {}", line);
+                                } else {
+                                    debug!("FFmpeg输出: {}", line);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            debug!("读取FFmpeg stderr失败: {}", e);
+                            break;
+                        }
+                    }
+                }
+            });
+        }
 
         self.ffmpeg_process = Some(process);
         self.status = RecordStatus::Recording;
@@ -217,22 +246,59 @@ impl LiveRecorder {
     fn build_ffmpeg_args(&self, stream_url: &str) -> Result<Vec<String>> {
         let mut args = Vec::new();
 
-        // 输入选项
-        args.extend_from_slice(&[
-            "-y".to_string(),                                    // 覆盖输出文件
-            "-i".to_string(), stream_url.to_string(),            // 输入流
-            "-c".to_string(), "copy".to_string(),                // 直接复制流，不重编码
-            "-avoid_negative_ts".to_string(), "make_zero".to_string(), // 避免负时间戳
-            "-f".to_string(), "flv".to_string(),                 // 输出格式
-        ]);
-
-        // 添加重连选项以应对网络波动
+        // 输入重连选项（应该放在-i之前）
         args.extend_from_slice(&[
             "-reconnect".to_string(), "1".to_string(),           // 启用重连
             "-reconnect_at_eof".to_string(), "1".to_string(),    // 在EOF时重连
             "-reconnect_streamed".to_string(), "1".to_string(),  // 流式重连
             "-reconnect_delay_max".to_string(), "10".to_string(), // 最大重连延迟
         ]);
+
+        // 输入选项
+        args.extend_from_slice(&[
+            "-y".to_string(),                                    // 覆盖输出文件
+            "-i".to_string(), stream_url.to_string(),            // 输入流
+            "-c".to_string(), "copy".to_string(),                // 直接复制流，不重编码
+            "-avoid_negative_ts".to_string(), "make_zero".to_string(), // 避免负时间戳
+        ]);
+
+        // 根据输出文件扩展名决定格式
+        let output_ext = self.output_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("flv")
+            .to_lowercase();
+
+        match output_ext.as_str() {
+            "mp4" => {
+                args.extend_from_slice(&[
+                    "-f".to_string(), "mp4".to_string(),
+                    // 移除 faststart，因为它与直播流录制不兼容
+                    // faststart 需要完整文件才能工作，而直播流是实时的
+                ]);
+            }
+            "flv" => {
+                args.extend_from_slice(&[
+                    "-f".to_string(), "flv".to_string(),
+                ]);
+            }
+            "mkv" => {
+                args.extend_from_slice(&[
+                    "-f".to_string(), "matroska".to_string(),
+                ]);
+            }
+            "ts" => {
+                args.extend_from_slice(&[
+                    "-f".to_string(), "mpegts".to_string(),
+                ]);
+            }
+            _ => {
+                // 默认使用FLV格式，最适合直播流录制
+                args.extend_from_slice(&[
+                    "-f".to_string(), "flv".to_string(),
+                ]);
+            }
+        }
 
         // 输出文件
         args.push(self.output_path.to_string_lossy().to_string());
@@ -246,11 +312,30 @@ impl LiveRecorder {
             match process.try_wait() {
                 Ok(Some(status)) => {
                     // 进程已退出
-                    self.status = if status.success() {
-                        RecordStatus::Stopped
+                    if status.success() {
+                        info!("FFmpeg进程正常退出");
+                        self.status = RecordStatus::Stopped;
                     } else {
-                        RecordStatus::Error
-                    };
+                        // 获取退出码和详细错误信息
+                        let exit_info = if let Some(code) = status.code() {
+                            format!("退出码: {}", code)
+                        } else {
+                            "进程被信号终止".to_string()
+                        };
+                        
+                        error!("FFmpeg进程异常退出: {}", exit_info);
+                        
+                        // 根据退出码提供更具体的错误信息
+                        match status.code() {
+                            Some(1) => error!("FFmpeg错误: 一般性错误，可能是输入文件问题或参数错误"),
+                            Some(2) => error!("FFmpeg错误: 参数解析失败"),
+                            Some(69) => error!("FFmpeg错误: 无法打开输入文件或网络连接失败"),
+                            Some(code) if code < 0 => error!("FFmpeg错误: 进程被信号终止"),
+                            _ => error!("FFmpeg错误: 未知错误"),
+                        }
+                        
+                        self.status = RecordStatus::Error;
+                    }
                     self.stats.is_recording = false;
                     Ok(false)
                 }
