@@ -248,6 +248,9 @@ impl LiveMonitor {
             
             // 创建URL池刷新定时器（每5分钟刷新一次）
             let mut url_refresh_interval = interval(Duration::from_secs(300));
+            
+            // 创建直播状态验证定时器（每3分钟验证一次）
+            let mut status_verify_interval = interval(Duration::from_secs(180));
 
             loop {
                 // 检查是否应该停止运行
@@ -321,6 +324,16 @@ impl LiveMonitor {
                         drop(recorders_guard);
                         
                         debug!("URL池定期刷新任务完成");
+                    }
+                    
+                    // 直播状态验证任务
+                    _ = status_verify_interval.tick() => {
+                        if !*running.read().await {
+                            break;
+                        }
+
+                        // 验证所有监控房间的直播状态
+                        Self::verify_all_live_status(&db, &live_client, &configs, &recorders).await;
                     }
                 }
             }
@@ -978,6 +991,37 @@ impl LiveMonitor {
                     info!("房间 {} WebSocket 连接已建立", room_id);
                 } else {
                     warn!("房间 {} WebSocket 连接断开: {:?}", room_id, error);
+                    
+                    // WebSocket断开时立即检查实际直播状态
+                    let configs_guard = configs.read().await;
+                    if let Some(config) = configs_guard.iter().find(|c| c.room_id == room_id && c.enabled) {
+                        debug!("WebSocket断开，检查房间 {} 的实际直播状态", room_id);
+                        match live_client.get_live_status_by_room_id(room_id).await {
+                            Ok((actual_status, _)) => {
+                                // 检查状态是否与数据库中的不一致
+                                if config.last_status != actual_status {
+                                    info!("检测到状态不一致，房间 {}: 数据库={:?}, 实际={:?}, 更新数据库", 
+                                        room_id, config.last_status, actual_status);
+                                    
+                                    if let Err(e) = Self::update_monitor_status(db, config.id, actual_status).await {
+                                        error!("更新监控状态失败: {}", e);
+                                    }
+                                    
+                                    // 如果实际已经停播但数据库显示直播中，停止录制
+                                    if config.last_status == LiveStatus::Live && actual_status == LiveStatus::NotLive {
+                                        debug!("房间 {} 实际已停播，停止录制", room_id);
+                                        if let Err(e) = Self::stop_recording(db, config.id, recorders).await {
+                                            error!("停止录制失败: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!("检查房间 {} 状态失败: {}", room_id, e);
+                            }
+                        }
+                    }
+                    drop(configs_guard);
                 }
             }
             WebSocketEvent::PopularityChanged { room_id, popularity } => {
@@ -987,6 +1031,75 @@ impl LiveMonitor {
         }
 
         Ok(())
+    }
+
+    /// 验证所有监控房间的直播状态
+    async fn verify_all_live_status(
+        db: &DatabaseConnection,
+        live_client: &LiveApiClient<'static>,
+        configs: &Arc<RwLock<Vec<MonitorConfig>>>,
+        recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
+    ) {
+        debug!("开始验证所有监控房间的直播状态");
+        
+        let configs_guard = configs.read().await;
+        let mut status_updates = Vec::new();
+        
+        for config in configs_guard.iter() {
+            if !config.enabled {
+                continue;
+            }
+            
+            match live_client.get_live_status_by_room_id(config.room_id).await {
+                Ok((actual_status, _)) => {
+                    // 检查状态是否与数据库中的不一致
+                    if config.last_status != actual_status {
+                        info!("检测到状态不一致，房间 {} ({}): 数据库={:?}, 实际={:?}", 
+                            config.room_id, config.upper_name, config.last_status, actual_status);
+                        
+                        status_updates.push((config.id, config.room_id, config.last_status, actual_status));
+                    }
+                }
+                Err(e) => {
+                    debug!("验证房间 {} ({}) 状态失败: {}", config.room_id, config.upper_name, e);
+                }
+            }
+            
+            // 添加小延迟避免API频率限制
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        
+        drop(configs_guard);
+        
+        // 批量更新状态不一致的房间
+        let mut updated_count = 0;
+        let mut stopped_recordings = 0;
+        
+        for (monitor_id, room_id, old_status, new_status) in status_updates {
+            // 更新数据库状态
+            if let Err(e) = Self::update_monitor_status(db, monitor_id, new_status).await {
+                error!("更新监控器 {} 状态失败: {}", monitor_id, e);
+                continue;
+            }
+            
+            updated_count += 1;
+            
+            // 如果从直播中变为停播，停止录制
+            if old_status == LiveStatus::Live && new_status == LiveStatus::NotLive {
+                info!("房间 {} 已停播，停止录制", room_id);
+                if let Err(e) = Self::stop_recording(db, monitor_id, recorders).await {
+                    error!("停止录制失败，监控ID {}: {}", monitor_id, e);
+                } else {
+                    stopped_recordings += 1;
+                }
+            }
+        }
+        
+        if updated_count > 0 {
+            info!("状态验证完成，更新了 {} 个房间状态，停止了 {} 个录制", updated_count, stopped_recordings);
+        } else {
+            debug!("状态验证完成，所有房间状态一致");
+        }
     }
 
 }
