@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
+use tokio::time::{Duration, Instant};
+use tracing::{debug, warn};
 
 use crate::bilibili::BiliClient;
 
@@ -109,7 +111,7 @@ pub struct PlayUrlInfo {
 }
 
 /// 流URL信息
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[allow(dead_code)] // API响应结构体，部分字段暂时未使用但需要保留
 pub struct StreamUrl {
     /// 流地址
@@ -118,6 +120,291 @@ pub struct StreamUrl {
     pub length: i32,
     /// 备用地址列表
     pub backup_url: Option<Vec<String>>,
+}
+
+/// 增强型流URL信息（用于URL池管理）
+#[derive(Debug, Clone)]
+pub struct EnhancedStreamUrl {
+    /// 流地址
+    pub url: String,
+    /// CDN节点标识符
+    pub cdn_node: String,
+    /// URL过期时间
+    pub expires_at: Instant,
+    /// 质量等级
+    pub quality: Quality,
+    /// 使用次数统计
+    pub usage_count: u32,
+    /// 最后使用时间
+    pub last_used: Option<Instant>,
+    /// 连接成功率（成功次数/总次数）
+    pub success_rate: f32,
+    /// 是否为主要URL
+    pub is_primary: bool,
+}
+
+impl EnhancedStreamUrl {
+    /// 从基础StreamUrl创建增强版本
+    pub fn from_stream_url(stream_url: StreamUrl, quality: Quality) -> Self {
+        let cdn_node = Self::extract_cdn_node(&stream_url.url);
+        let expires_at = Self::extract_expire_time(&stream_url.url);
+        
+        Self {
+            url: stream_url.url,
+            cdn_node,
+            expires_at,
+            quality,
+            usage_count: 0,
+            last_used: None,
+            success_rate: 1.0, // 初始假设100%成功率
+            is_primary: false,
+        }
+    }
+    
+    /// 检查URL是否即将过期（2分钟内）
+    pub fn is_expiring_soon(&self) -> bool {
+        self.expires_at.saturating_duration_since(Instant::now()) < Duration::from_secs(120)
+    }
+    
+    /// 检查URL是否已过期
+    pub fn is_expired(&self) -> bool {
+        Instant::now() > self.expires_at
+    }
+    
+    /// 记录使用情况
+    pub fn record_usage(&mut self, success: bool) {
+        self.usage_count += 1;
+        self.last_used = Some(Instant::now());
+        
+        // 更新成功率（指数移动平均）
+        let alpha = 0.1; // 平滑因子
+        if success {
+            self.success_rate = self.success_rate * (1.0 - alpha) + alpha;
+        } else {
+            self.success_rate = self.success_rate * (1.0 - alpha);
+        }
+    }
+    
+    /// 从URL中提取CDN节点信息
+    fn extract_cdn_node(url: &str) -> String {
+        // 从URL中提取CDN节点，例如: cn-gddg-ct-01-08.bilivideo.com
+        if let Some(start) = url.find("://") {
+            let after_protocol = &url[start + 3..];
+            if let Some(end) = after_protocol.find('/') {
+                let host = &after_protocol[..end];
+                if let Some(dot_pos) = host.find('.') {
+                    return host[..dot_pos].to_string();
+                }
+                return host.to_string();
+            }
+        }
+        "unknown".to_string()
+    }
+    
+    /// 从URL中提取过期时间
+    fn extract_expire_time(url: &str) -> Instant {
+        // 从URL参数中提取expires时间戳
+        if let Some(expires_start) = url.find("expires=") {
+            let after_expires = &url[expires_start + 8..];
+            if let Some(expires_end) = after_expires.find('&') {
+                let expires_str = &after_expires[..expires_end];
+                if let Ok(timestamp) = expires_str.parse::<u64>() {
+                    // 转换Unix时间戳为Instant
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let duration_until_expire = Duration::from_secs(timestamp.saturating_sub(now));
+                    return Instant::now() + duration_until_expire;
+                }
+            } else {
+                // 如果没有&结尾，取到字符串末尾
+                if let Ok(timestamp) = after_expires.parse::<u64>() {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let duration_until_expire = Duration::from_secs(timestamp.saturating_sub(now));
+                    return Instant::now() + duration_until_expire;
+                }
+            }
+        }
+        
+        // 如果无法解析过期时间，默认20分钟后过期
+        Instant::now() + Duration::from_secs(1200)
+    }
+}
+
+/// URL池管理器
+#[derive(Debug, Clone)]
+pub struct StreamUrlPool {
+    /// URL池
+    urls: Vec<EnhancedStreamUrl>,
+    /// 当前使用的URL索引
+    current_index: usize,
+    /// 最大URL数量
+    max_urls: usize,
+    /// 上次刷新时间
+    last_refresh: Instant,
+    /// 刷新间隔
+    refresh_interval: Duration,
+}
+
+impl StreamUrlPool {
+    /// 创建新的URL池
+    pub fn new() -> Self {
+        Self {
+            urls: Vec::new(),
+            current_index: 0,
+            max_urls: 5, // 最多保持5个备用URL
+            last_refresh: Instant::now(),
+            refresh_interval: Duration::from_secs(300), // 5分钟刷新一次
+        }
+    }
+    
+    /// 添加URL到池中
+    pub fn add_url(&mut self, url: EnhancedStreamUrl) {
+        // 检查是否已存在相同的URL
+        if !self.urls.iter().any(|u| u.url == url.url) {
+            let cdn_node = url.cdn_node.clone(); // 在移动前克隆需要用的字段
+            self.urls.push(url);
+            
+            // 如果超过最大数量，移除最旧的URL
+            if self.urls.len() > self.max_urls {
+                // 按最后使用时间排序，移除最久未使用的
+                self.urls.sort_by(|a, b| {
+                    a.last_used.unwrap_or(Instant::now() - Duration::from_secs(3600))
+                        .cmp(&b.last_used.unwrap_or(Instant::now() - Duration::from_secs(3600)))
+                });
+                self.urls.remove(0);
+                
+                // 调整当前索引
+                if self.current_index > 0 {
+                    self.current_index -= 1;
+                }
+            }
+            
+            debug!("URL池添加新URL，CDN: {}, 总数: {}", cdn_node, self.urls.len());
+        }
+    }
+    
+    /// 获取当前URL
+    pub fn current_url(&self) -> Option<&EnhancedStreamUrl> {
+        self.urls.get(self.current_index)
+    }
+    
+    /// 获取当前URL的可变引用
+    pub fn current_url_mut(&mut self) -> Option<&mut EnhancedStreamUrl> {
+        self.urls.get_mut(self.current_index)
+    }
+    
+    /// 切换到下一个可用的URL
+    pub fn switch_to_next(&mut self) -> Option<&EnhancedStreamUrl> {
+        if self.urls.is_empty() {
+            return None;
+        }
+        
+        let start_index = self.current_index;
+        
+        // 尝试找到下一个未过期的URL
+        loop {
+            self.current_index = (self.current_index + 1) % self.urls.len();
+            
+            if let Some(url) = self.urls.get(self.current_index) {
+                if !url.is_expired() {
+                    debug!("切换到URL: CDN={}, 索引={}", url.cdn_node, self.current_index);
+                    return Some(url);
+                }
+            }
+            
+            // 如果遍历了所有URL都过期了，返回当前的（即使过期）
+            if self.current_index == start_index {
+                warn!("所有URL都已过期，使用当前URL");
+                return self.urls.get(self.current_index);
+            }
+        }
+    }
+    
+    /// 获取最佳URL（综合考虑过期时间和成功率）
+    pub fn get_best_url(&mut self) -> Option<&EnhancedStreamUrl> {
+        if self.urls.is_empty() {
+            return None;
+        }
+        
+        // 过滤掉已过期的URL
+        let mut valid_urls: Vec<(usize, &EnhancedStreamUrl)> = self.urls
+            .iter()
+            .enumerate()
+            .filter(|(_, url)| !url.is_expired())
+            .collect();
+        
+        if valid_urls.is_empty() {
+            warn!("没有有效的URL，使用第一个URL");
+            self.current_index = 0;
+            return self.urls.get(0);
+        }
+        
+        // 按成功率和剩余时间排序
+        valid_urls.sort_by(|(_, a), (_, b)| {
+            let score_a = a.success_rate * (a.expires_at.saturating_duration_since(Instant::now()).as_secs() as f32);
+            let score_b = b.success_rate * (b.expires_at.saturating_duration_since(Instant::now()).as_secs() as f32);
+            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        
+        if let Some((index, _)) = valid_urls.first() {
+            self.current_index = *index;
+            debug!("选择最佳URL: CDN={}, 成功率={:.2}", 
+                self.urls[*index].cdn_node, self.urls[*index].success_rate);
+        }
+        
+        self.urls.get(self.current_index)
+    }
+    
+    /// 清理过期的URL
+    pub fn cleanup_expired(&mut self) {
+        let original_len = self.urls.len();
+        self.urls.retain(|url| !url.is_expired());
+        
+        if self.urls.len() != original_len {
+            debug!("清理过期URL: {} -> {}", original_len, self.urls.len());
+            
+            // 调整当前索引
+            if self.current_index >= self.urls.len() && !self.urls.is_empty() {
+                self.current_index = 0;
+            }
+        }
+    }
+    
+    /// 检查是否需要刷新
+    pub fn should_refresh(&self) -> bool {
+        self.last_refresh.elapsed() >= self.refresh_interval
+    }
+    
+    /// 标记已刷新
+    pub fn mark_refreshed(&mut self) {
+        self.last_refresh = Instant::now();
+    }
+    
+    /// 获取URL数量
+    pub fn len(&self) -> usize {
+        self.urls.len()
+    }
+    
+    /// 检查是否为空
+    pub fn is_empty(&self) -> bool {
+        self.urls.is_empty()
+    }
+    
+    /// 获取即将过期的URL数量
+    pub fn expiring_soon_count(&self) -> usize {
+        self.urls.iter().filter(|url| url.is_expiring_soon()).count()
+    }
+}
+
+impl Default for StreamUrlPool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// 质量描述
@@ -263,6 +550,81 @@ impl<'a> LiveApiClient<'a> {
         }
 
         Ok(response.data)
+    }
+
+    /// 获取多个CDN节点的直播流地址（用于URL池）
+    /// 
+    /// # Arguments
+    /// * `room_id` - 房间ID
+    /// * `quality` - 画质质量
+    pub async fn get_play_urls_multi(&self, room_id: i64, quality: Quality) -> Result<Vec<EnhancedStreamUrl>> {
+        debug!("获取房间 {} 的多个CDN节点URL，质量: {:?}", room_id, quality);
+        
+        let play_info = self.get_play_url(room_id, quality).await?;
+        let mut enhanced_urls = Vec::new();
+        
+        // 处理主要流URL列表
+        for stream_url in play_info.durl {
+            let enhanced_url = EnhancedStreamUrl::from_stream_url(stream_url.clone(), quality);
+            enhanced_urls.push(enhanced_url);
+            
+            // 处理备用URL
+            if let Some(backup_urls) = stream_url.backup_url {
+                for backup_url in backup_urls {
+                    let backup_stream = StreamUrl {
+                        url: backup_url,
+                        length: stream_url.length,
+                        backup_url: None,
+                    };
+                    let enhanced_backup = EnhancedStreamUrl::from_stream_url(backup_stream, quality);
+                    enhanced_urls.push(enhanced_backup);
+                }
+            }
+        }
+        
+        // 标记第一个URL为主要URL
+        if let Some(first_url) = enhanced_urls.get_mut(0) {
+            first_url.is_primary = true;
+        }
+        
+        debug!("获取到 {} 个CDN节点URL", enhanced_urls.len());
+        for (i, url) in enhanced_urls.iter().enumerate() {
+            debug!("  {}. CDN: {}, 主要: {}, 过期时间: {:?}", 
+                i + 1, url.cdn_node, url.is_primary, 
+                url.expires_at.saturating_duration_since(Instant::now()));
+        }
+        
+        Ok(enhanced_urls)
+    }
+    
+    /// 刷新URL池（获取新的URL并更新池）
+    /// 
+    /// # Arguments
+    /// * `room_id` - 房间ID
+    /// * `quality` - 画质质量
+    /// * `pool` - URL池
+    pub async fn refresh_url_pool(&self, room_id: i64, quality: Quality, pool: &mut StreamUrlPool) -> Result<()> {
+        debug!("刷新房间 {} 的URL池", room_id);
+        
+        let new_urls = self.get_play_urls_multi(room_id, quality).await?;
+        
+        let mut added_count = 0;
+        for url in new_urls {
+            // 只添加还未过期且不存在的URL
+            if !url.is_expired() {
+                pool.add_url(url);
+                added_count += 1;
+            }
+        }
+        
+        // 清理过期的URL
+        pool.cleanup_expired();
+        pool.mark_refreshed();
+        
+        debug!("URL池刷新完成，新增: {}, 当前总数: {}, 即将过期: {}", 
+            added_count, pool.len(), pool.expiring_soon_count());
+        
+        Ok(())
     }
 
     /// 批量获取多个直播间的状态

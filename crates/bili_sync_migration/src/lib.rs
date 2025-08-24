@@ -31,6 +31,7 @@ mod m20250722_000001_add_bangumi_cache_fields;
 mod m20250726_000001_unify_time_format;
 mod m20250807_000001_add_video_cid;
 mod m20250822_000001_create_live_monitor;
+mod m20250824_000001_add_segmented_recording_fields;
 
 pub struct Migrator;
 

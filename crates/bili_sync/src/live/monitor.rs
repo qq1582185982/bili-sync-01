@@ -12,7 +12,7 @@ use bili_sync_entity::{live_monitor, live_record};
 use crate::bilibili::BiliClient;
 use crate::utils::time_format::now_standard_string;
 
-use super::api::{LiveApiClient, LiveStatus, Quality};
+use super::api::{LiveApiClient, LiveStatus, Quality, StreamUrlPool};
 use super::recorder::LiveRecorder;
 use super::ws_client::{WebSocketEvent, WebSocketManager};
 
@@ -60,6 +60,7 @@ pub struct RecorderInfo {
     pub start_time: Instant,
     pub retry_count: u32,
     pub last_failure_time: Option<Instant>,
+    pub url_pool: StreamUrlPool,  // URL池用于无缝切换
 }
 
 /// 直播监控管理器
@@ -81,6 +82,8 @@ pub struct LiveMonitor {
     running: Arc<RwLock<bool>>,
     /// WebSocket 管理器
     ws_manager: Arc<Mutex<WebSocketManager>>,
+    /// URL池管理器（按监控ID映射）
+    url_pools: Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
 }
 
 impl LiveMonitor {
@@ -103,6 +106,7 @@ impl LiveMonitor {
             monitor_handle: Arc::new(Mutex::new(None)),
             running: Arc::new(RwLock::new(false)),
             ws_manager: Arc::new(Mutex::new(WebSocketManager::new())),
+            url_pools: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -226,6 +230,7 @@ impl LiveMonitor {
         let recorders = Arc::clone(&self.recorders);
         let running = Arc::clone(&self.running);
         let ws_manager = Arc::clone(&self.ws_manager);
+        let url_pools = Arc::clone(&self.url_pools);
 
         tokio::spawn(async move {
             // 在spawned task中创建LiveApiClient
@@ -240,6 +245,9 @@ impl LiveMonitor {
 
             // 创建定期检查任务（检查录制器状态和配置变化）
             let mut check_interval = interval(Duration::from_secs(60)); // 每分钟检查一次
+            
+            // 创建URL池刷新定时器（每5分钟刷新一次）
+            let mut url_refresh_interval = interval(Duration::from_secs(300));
 
             loop {
                 // 检查是否应该停止运行
@@ -259,6 +267,7 @@ impl LiveMonitor {
                                 &live_client,
                                 &configs,
                                 &recorders,
+                                &url_pools,
                                 event
                             ).await {
                                 error!("处理WebSocket事件失败: {}", e);
@@ -272,8 +281,8 @@ impl LiveMonitor {
                             break;
                         }
 
-                        // 检查录制器状态
-                        Self::check_recorder_status(&db, &recorders).await;
+                        // 检查录制器状态和URL池管理
+                        Self::check_recorder_status_with_pools(&db, &recorders, &url_pools).await;
                         
                         // 重新加载配置并更新WebSocket连接
                         match Self::reload_configs_static(&db, &configs).await {
@@ -288,6 +297,31 @@ impl LiveMonitor {
                             }
                         }
                     }
+                    
+                    // URL池刷新任务
+                    _ = url_refresh_interval.tick() => {
+                        if !*running.read().await {
+                            break;
+                        }
+
+                        // 获取当前的配置和录制器列表
+                        let configs_guard = configs.read().await;
+                        let recorders_guard = recorders.lock().await;
+                        
+                        // 为每个活跃的录制器刷新URL池
+                        for (monitor_id, _recorder_info) in recorders_guard.iter() {
+                            if let Some(config) = configs_guard.iter().find(|c| c.id == *monitor_id) {
+                                if let Err(e) = Self::refresh_url_pool_for_monitor(&live_client, config, &url_pools).await {
+                                    error!("刷新监控器 {} 的URL池失败: {}", monitor_id, e);
+                                }
+                            }
+                        }
+                        
+                        drop(configs_guard);
+                        drop(recorders_guard);
+                        
+                        debug!("URL池定期刷新任务完成");
+                    }
                 }
             }
 
@@ -301,6 +335,7 @@ impl LiveMonitor {
         live_client: &LiveApiClient<'static>,
         config: &MonitorConfig,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
+        url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
     ) -> Result<()> {
         debug!("检查房间 {} ({}) 的状态", config.room_id, config.upper_name);
 
@@ -322,7 +357,7 @@ impl LiveMonitor {
                 LiveStatus::Live => {
                     // 开播，启动录制
                     if let Some(room_info) = room_info {
-                        Self::start_recording(db, live_client, config, &room_info, recorders).await?;
+                        Self::start_recording(db, live_client, config, &room_info, recorders, url_pools).await?;
                     }
                 }
                 LiveStatus::NotLive => {
@@ -337,7 +372,7 @@ impl LiveMonitor {
             // 特殊情况：检测到直播中但没有活跃录制，可能是之前的录制进程意外终止
             warn!("检测到直播中但没有活跃录制，重新启动录制进程");
             if let Some(room_info) = room_info {
-                if let Err(e) = Self::start_recording(db, live_client, config, &room_info, recorders).await {
+                if let Err(e) = Self::start_recording(db, live_client, config, &room_info, recorders, url_pools).await {
                     error!("重新启动录制失败: {}", e);
                 }
             }
@@ -353,30 +388,39 @@ impl LiveMonitor {
         config: &MonitorConfig,
         room_info: &super::api::LiveRoomInfo,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
+        url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
     ) -> Result<()> {
         info!("开始录制 {} 的直播: {}", config.upper_name, room_info.title);
         debug!("录制配置 - 房间ID: {}, 质量: {:?}, 格式: {}", config.room_id, config.quality, config.format);
 
-        // 获取直播流地址
-        debug!("正在获取直播流地址...");
-        let play_info = match live_client.get_play_url(config.room_id, config.quality).await {
-            Ok(info) => {
-                debug!("成功获取直播流信息，流数量: {}", info.durl.len());
-                info
-            }
-            Err(e) => {
-                error!("获取直播流地址失败: {}", e);
-                return Err(anyhow!("获取直播流地址失败: {}", e));
-            }
-        };
+        // 初始化或获取URL池
+        let mut url_pools_guard = url_pools.lock().await;
+        let url_pool = url_pools_guard.entry(config.id).or_insert_with(StreamUrlPool::new);
         
-        if play_info.durl.is_empty() {
-            error!("直播流地址列表为空");
-            return Err(anyhow!("无法获取直播流地址"));
+        // 如果URL池为空或需要刷新，获取新的URL列表
+        if url_pool.is_empty() || url_pool.should_refresh() {
+            debug!("初始化URL池，获取多个CDN节点地址...");
+            if let Err(e) = live_client.refresh_url_pool(config.room_id, config.quality, url_pool).await {
+                error!("刷新URL池失败: {}", e);
+                // 作为后备，尝试使用旧的单URL方式
+                match live_client.get_play_url(config.room_id, config.quality).await {
+                    Ok(play_info) if !play_info.durl.is_empty() => {
+                        let enhanced_url = super::api::EnhancedStreamUrl::from_stream_url(
+                            play_info.durl[0].clone(), config.quality
+                        );
+                        url_pool.add_url(enhanced_url);
+                    }
+                    _ => return Err(anyhow!("无法获取任何可用的直播流地址")),
+                }
+            }
         }
-
-        let stream_url = &play_info.durl[0].url;
-        debug!("直播流地址: {}", stream_url);
+        
+        // 获取最佳URL
+        let current_url = url_pool.get_best_url()
+            .ok_or_else(|| anyhow!("URL池为空，无法开始录制"))?;
+            
+        let stream_url = &current_url.url;
+        debug!("选择录制URL: CDN={}, URL={}", current_url.cdn_node, stream_url);
 
         // 生成输出文件名
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
@@ -442,6 +486,12 @@ impl LiveMonitor {
             error!("更新录制状态为录制中失败: {}", e);
         }
 
+        // 克隆URL池以保存到录制器信息中
+        let url_pool_clone = url_pool.clone();
+        
+        // 释放URL池锁
+        drop(url_pools_guard);
+        
         // 保存录制器信息
         let recorder_info = RecorderInfo {
             recorder,
@@ -449,6 +499,7 @@ impl LiveMonitor {
             start_time: Instant::now(),
             retry_count: 0,
             last_failure_time: None,
+            url_pool: url_pool_clone,
         };
 
         recorders.lock().await.insert(config.id, recorder_info);
@@ -474,7 +525,21 @@ impl LiveMonitor {
                 error!("停止录制器失败: {}", e);
             }
 
-            // 获取文件大小
+            // 合并分段文件（如果是分段模式）
+            if let Err(e) = recorder.merge_segments().await {
+                error!("监控ID {} 合并分段文件失败: {}", monitor_id, e);
+            } else {
+                info!("监控ID {} 分段文件合并完成", monitor_id);
+            }
+
+            // 清理临时分段文件
+            if let Err(e) = recorder.cleanup_segments().await {
+                warn!("监控ID {} 清理分段文件失败: {}", monitor_id, e);
+            } else {
+                debug!("监控ID {} 分段文件清理完成", monitor_id);
+            }
+
+            // 获取最终文件大小
             let file_size = if let Some(ref path) = recorder.output_path() {
                 match tokio::fs::metadata(path).await {
                     Ok(metadata) => Some(metadata.len() as i64),
@@ -519,6 +584,9 @@ impl LiveMonitor {
             }
         }
 
+        // 清理所有URL池
+        self.url_pools.lock().await.clear();
+
         Ok(())
     }
 
@@ -562,12 +630,23 @@ impl LiveMonitor {
         Ok(())
     }
 
-    /// 检查录制器进程状态
+    /// 检查录制器进程状态和URL池管理
     async fn check_recorder_status(
         db: &DatabaseConnection,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
     ) {
+        Self::check_recorder_status_with_pools(db, recorders, &Arc::new(Mutex::new(HashMap::new()))).await;
+    }
+    
+    /// 检查录制器进程状态（带URL池管理）
+    async fn check_recorder_status_with_pools(
+        db: &DatabaseConnection,
+        recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
+        url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
+    ) {
         let mut failed_recorders = Vec::new();
+        let mut switch_candidates = Vec::new();
+        let mut failed_recorder_infos = Vec::new();
 
         // 检查所有活跃的录制器
         {
@@ -579,6 +658,12 @@ impl LiveMonitor {
                         if !is_running {
                             warn!("录制器进程已停止，监控ID: {}", monitor_id);
                             failed_recorders.push((*monitor_id, recorder_info.record_id));
+                        } else {
+                            // 进程正常运行，检查是否需要切换URL
+                            if recorder_info.recorder.should_switch_url() {
+                                debug!("录制器 {} 需要进行URL切换", monitor_id);
+                                switch_candidates.push(*monitor_id);
+                            }
                         }
                     }
                     Err(e) => {
@@ -588,19 +673,172 @@ impl LiveMonitor {
                 }
             }
 
-            // 移除失败的录制器
+            // 移除失败的录制器，但先保存recorder_info以便后续处理
             for (monitor_id, _) in &failed_recorders {
-                recorders_guard.remove(monitor_id);
+                if let Some(recorder_info) = recorders_guard.remove(monitor_id) {
+                    failed_recorder_infos.push((*monitor_id, recorder_info));
+                }
             }
         }
 
-        // 更新数据库中失败录制的状态
-        for (monitor_id, record_id) in failed_recorders {
-            debug!("更新失败录制记录状态，监控ID: {}, 录制记录ID: {}", monitor_id, record_id);
-            if let Err(e) = Self::update_record_status(db, record_id, 3).await {
+        // 处理失败录制器的文件合并和清理
+        for (monitor_id, recorder_info) in failed_recorder_infos {
+            let recorder = recorder_info.recorder;
+            
+            // 尝试合并现有的分段文件
+            if let Err(e) = recorder.merge_segments().await {
+                error!("监控ID {} 意外停止后合并分段文件失败: {}", monitor_id, e);
+            } else {
+                info!("监控ID {} 意外停止后分段文件合并完成", monitor_id);
+            }
+            
+            // 清理临时分段文件
+            if let Err(e) = recorder.cleanup_segments().await {
+                warn!("监控ID {} 意外停止后清理分段文件失败: {}", monitor_id, e);
+            } else {
+                debug!("监控ID {} 意外停止后分段文件清理完成", monitor_id);
+            }
+
+            // 获取最终文件大小并更新数据库
+            let file_size = if let Some(ref path) = recorder.output_path() {
+                match tokio::fs::metadata(path).await {
+                    Ok(metadata) => Some(metadata.len() as i64),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
+
+            // 更新录制记录状态，包含文件大小
+            let mut record: live_record::ActiveModel = match live_record::Entity::find_by_id(recorder_info.record_id)
+                .one(db)
+                .await {
+                    Ok(Some(record)) => record.into(),
+                    _ => {
+                        error!("监控ID {} 找不到对应的录制记录", monitor_id);
+                        continue;
+                    }
+            };
+
+            record.end_time = ActiveValue::Set(Some(now_standard_string()));
+            record.file_size = ActiveValue::Set(file_size);
+            record.status = ActiveValue::Set(3); // 3 = 失败状态
+
+            if let Err(e) = record.update(db).await {
                 error!("更新录制记录状态失败: {}", e);
             }
+
+            info!("监控ID {} 意外停止处理完成，录制记录ID: {}", monitor_id, recorder_info.record_id);
         }
+
+        // 处理需要切换URL的录制器
+        for monitor_id in switch_candidates {
+            if let Err(e) = Self::attempt_url_switch(monitor_id, recorders, url_pools).await {
+                error!("录制器 {} URL切换失败: {}", monitor_id, e);
+            }
+        }
+    }
+
+    /// 尝试为录制器切换URL
+    async fn attempt_url_switch(
+        monitor_id: i32,
+        recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
+        url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
+    ) -> Result<()> {
+        debug!("开始为录制器 {} 进行URL切换", monitor_id);
+
+        // 获取URL池并找到下一个最佳URL
+        let next_url = {
+            let mut url_pools_guard = url_pools.lock().await;
+            if let Some(url_pool) = url_pools_guard.get_mut(&monitor_id) {
+                // 清理过期的URL
+                url_pool.cleanup_expired();
+                
+                // 获取最佳URL
+                if let Some(best_url) = url_pool.get_best_url() {
+                    Some((best_url.url.clone(), best_url.cdn_node.clone()))
+                } else {
+                    warn!("录制器 {} 的URL池为空，无法切换", monitor_id);
+                    None
+                }
+            } else {
+                warn!("录制器 {} 没有对应的URL池", monitor_id);
+                None
+            }
+        };
+
+        if let Some((new_url, cdn_node)) = next_url {
+            // 执行无缝切换
+            let mut recorders_guard = recorders.lock().await;
+            if let Some(recorder_info) = recorders_guard.get_mut(&monitor_id) {
+                info!("录制器 {} 开始无缝切换到CDN: {}", monitor_id, cdn_node);
+                
+                match recorder_info.recorder.seamless_switch(new_url, &cdn_node).await {
+                    Ok(()) => {
+                        info!("录制器 {} 无缝切换成功", monitor_id);
+                        
+                        // 更新URL池中当前URL的使用记录
+                        let mut url_pools_guard = url_pools.lock().await;
+                        if let Some(url_pool) = url_pools_guard.get_mut(&monitor_id) {
+                            if let Some(current_url) = url_pool.current_url_mut() {
+                                current_url.record_usage(true);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("录制器 {} 无缝切换失败: {}", monitor_id, e);
+                        
+                        // 记录失败
+                        let mut url_pools_guard = url_pools.lock().await;
+                        if let Some(url_pool) = url_pools_guard.get_mut(&monitor_id) {
+                            if let Some(current_url) = url_pool.current_url_mut() {
+                                current_url.record_usage(false);
+                            }
+                        }
+                        
+                        return Err(e);
+                    }
+                }
+            } else {
+                return Err(anyhow!("录制器 {} 不存在", monitor_id));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 为特定监控器刷新URL池
+    async fn refresh_url_pool_for_monitor(
+        live_client: &LiveApiClient<'static>,
+        config: &MonitorConfig,
+        url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
+    ) -> Result<()> {
+        debug!("刷新监控器 {} ({}) 的URL池", config.id, config.upper_name);
+
+        let mut url_pools_guard = url_pools.lock().await;
+        let url_pool = url_pools_guard.entry(config.id).or_insert_with(StreamUrlPool::new);
+
+        // 检查是否需要刷新
+        if !url_pool.should_refresh() && url_pool.expiring_soon_count() == 0 {
+            debug!("监控器 {} 的URL池不需要刷新", config.id);
+            return Ok(());
+        }
+
+        debug!("监控器 {} 开始刷新URL池，当前URL数量: {}, 即将过期: {}", 
+            config.id, url_pool.len(), url_pool.expiring_soon_count());
+
+        // 刷新URL池
+        match live_client.refresh_url_pool(config.room_id, config.quality, url_pool).await {
+            Ok(()) => {
+                info!("监控器 {} URL池刷新成功，当前URL数量: {}", config.id, url_pool.len());
+            }
+            Err(e) => {
+                error!("监控器 {} URL池刷新失败: {}", config.id, e);
+                return Err(e);
+            }
+        }
+
+        Ok(())
     }
 
     /// 设置WebSocket连接
@@ -660,6 +898,7 @@ impl LiveMonitor {
         live_client: &LiveApiClient<'static>,
         configs: &Arc<RwLock<Vec<MonitorConfig>>>,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
+        url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
         event: WebSocketEvent,
     ) -> Result<()> {
         match event {
@@ -682,7 +921,7 @@ impl LiveMonitor {
                             debug!("房间 {} 开播，获取直播信息并启动录制", room_id);
                             if let Ok((_, room_info)) = live_client.get_live_status_by_room_id(room_id).await {
                                 if let Some(room_info) = room_info {
-                                    if let Err(e) = Self::start_recording(db, live_client, config, &room_info, recorders).await {
+                                    if let Err(e) = Self::start_recording(db, live_client, config, &room_info, recorders, url_pools).await {
                                         error!("启动录制失败: {}", e);
                                     }
                                 } else {
