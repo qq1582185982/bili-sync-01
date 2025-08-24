@@ -345,8 +345,9 @@ impl LiveRecorder {
             "-nostats".to_string(),                              // 禁用默认统计输出
         ]);
 
-        // 输入重连选项（应该放在-i之前）
+        // 复刻bililive-go的重连参数（应该放在-i之前）
         args.extend_from_slice(&[
+            "-rw_timeout".to_string(), "30000000".to_string(),   // 30秒超时 (单位:微秒)
             "-reconnect".to_string(), "1".to_string(),           // 启用重连
             "-reconnect_at_eof".to_string(), "1".to_string(),    // 在EOF时重连
             "-reconnect_streamed".to_string(), "1".to_string(),  // 流式重连
@@ -462,54 +463,8 @@ impl LiveRecorder {
     }
 
 
-    /// 无缝切换到新的流URL
-    /// 
-    /// # Arguments
-    /// * `new_stream_url` - 新的流地址
-    /// * `cdn_node` - CDN节点标识
-    /// 重启录制以使用新URL（替代无缝切换）
-    pub async fn seamless_switch(&mut self, new_stream_url: String, cdn_node: &str) -> Result<()> {
-        info!("使用新URL重启录制，CDN: {}", cdn_node);
-        
-        // 使用简单的重启策略替代复杂的无缝切换
-        self.restart_with_new_url(new_stream_url).await
-    }
 
 
-
-
-
-
-    /// 普通重启（非分段模式的后备方案）
-    async fn restart_with_new_url(&mut self, new_stream_url: String) -> Result<()> {
-        info!("使用普通重启方式切换URL");
-        
-        // 停止当前录制
-        self.stop().await?;
-        
-        // 重新开始录制
-        self.start(new_stream_url).await?;
-        
-        Ok(())
-    }
-
-
-    /// 检查是否需要切换URL（根据时间或错误情况）
-    pub fn should_switch_url(&self) -> bool {
-        // 如果主进程存在且正在运行，检查是否需要切换
-        if let Some(ref _process) = self.primary_process {
-            // 这里可以添加更复杂的切换逻辑
-            // 比如检查进程状态、录制时间、错误计数等
-            
-            // 简单的时间基准切换：每10分钟切换一次
-            if let Some(start_time) = self.stats.start_time {
-                let elapsed = start_time.elapsed();
-                // 每10分钟或发生错误时建议切换
-                return elapsed.as_secs() > 600; // 10分钟
-            }
-        }
-        false
-    }
 
     /// 合并分段文件（已禁用分段模式，此方法不执行任何操作）
     pub async fn merge_segments(&self) -> Result<()> {

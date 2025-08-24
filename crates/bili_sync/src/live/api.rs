@@ -134,8 +134,6 @@ pub struct EnhancedStreamUrl {
     /// 质量等级
     #[allow(dead_code)] // 质量等级字段，用于URL池分级管理
     pub quality: Quality,
-    /// 使用次数统计
-    pub usage_count: u32,
     /// 最后使用时间
     pub last_used: Option<Instant>,
     /// 连接成功率（成功次数/总次数）
@@ -155,7 +153,6 @@ impl EnhancedStreamUrl {
             cdn_node,
             expires_at,
             quality,
-            usage_count: 0,
             last_used: None,
             success_rate: 1.0, // 初始假设100%成功率
             is_primary: false,
@@ -172,19 +169,6 @@ impl EnhancedStreamUrl {
         Instant::now() > self.expires_at
     }
     
-    /// 记录使用情况
-    pub fn record_usage(&mut self, success: bool) {
-        self.usage_count += 1;
-        self.last_used = Some(Instant::now());
-        
-        // 更新成功率（指数移动平均）
-        let alpha = 0.1; // 平滑因子
-        if success {
-            self.success_rate = self.success_rate * (1.0 - alpha) + alpha;
-        } else {
-            self.success_rate = self.success_rate * (1.0 - alpha);
-        }
-    }
     
     /// 从URL中提取CDN节点信息
     fn extract_cdn_node(url: &str) -> String {
@@ -289,11 +273,6 @@ impl StreamUrlPool {
         }
     }
     
-    /// 获取当前URL
-    /// 获取当前URL的可变引用
-    pub fn current_url_mut(&mut self) -> Option<&mut EnhancedStreamUrl> {
-        self.urls.get_mut(self.current_index)
-    }
     
     /// 获取最佳URL（综合考虑过期时间和成功率）
     pub fn get_best_url(&mut self) -> Option<&EnhancedStreamUrl> {
