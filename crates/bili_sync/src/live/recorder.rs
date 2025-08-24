@@ -493,10 +493,6 @@ impl LiveRecorder {
         Ok(())
     }
 
-    /// 获取分段列表（已禁用分段模式，返回空列表）
-    pub fn get_segments(&self) -> &[String] {
-        &[]
-    }
 
     /// 检查是否需要切换URL（根据时间或错误情况）
     pub fn should_switch_url(&self) -> bool {

@@ -15,10 +15,6 @@ pub struct Model {
     pub file_path: Option<String>,
     pub file_size: Option<i64>,
     pub status: i32,
-    pub segment_mode: bool,
-    pub segment_count: i32,
-    pub url_switch_count: i32,
-    pub cdn_nodes: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -418,10 +418,6 @@ impl LiveMonitor {
             file_path: ActiveValue::Set(Some(output_path.to_string_lossy().to_string())),
             file_size: ActiveValue::NotSet,
             status: ActiveValue::Set(1), // 1=录制中
-            segment_mode: ActiveValue::Set(true), // 启用分段模式
-            segment_count: ActiveValue::Set(0), // 初始分段数
-            url_switch_count: ActiveValue::Set(0), // 初始切换次数
-            cdn_nodes: ActiveValue::Set(Some(current_url.cdn_node.clone())), // 初始CDN节点
         };
 
         let record_result = match record.insert(db).await {
@@ -529,11 +525,6 @@ impl LiveMonitor {
             record.file_size = ActiveValue::Set(file_size);
             record.status = ActiveValue::Set(1); // 完成
             
-            // 更新分段录制统计信息
-            let segment_count = recorder.get_segments().len() as i32;
-            record.segment_count = ActiveValue::Set(segment_count);
-            
-            // 分段模式已禁用，无需收集CDN节点信息
 
             record.update(db).await?;
 
@@ -602,40 +593,6 @@ impl LiveMonitor {
         Ok(())
     }
 
-    /// 增加URL切换计数
-    async fn increment_url_switch_count(
-        db: &DatabaseConnection,
-        monitor_id: i32,
-        recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
-    ) -> Result<()> {
-        // 获取当前录制记录ID
-        let record_id = {
-            let recorders_guard = recorders.lock().await;
-            recorders_guard.get(&monitor_id)
-                .map(|info| info.record_id)
-        };
-
-        if let Some(record_id) = record_id {
-            let mut model: live_record::ActiveModel = live_record::Entity::find_by_id(record_id)
-                .one(db)
-                .await?
-                .ok_or_else(|| anyhow!("录制记录不存在"))?
-                .into();
-
-            // 增加URL切换计数
-            let current_count = match &model.url_switch_count {
-                ActiveValue::Set(count) => *count,
-                ActiveValue::Unchanged(count) => *count,
-                ActiveValue::NotSet => 0,
-            };
-            model.url_switch_count = ActiveValue::Set(current_count + 1);
-
-            model.update(db).await?;
-            debug!("监控器 {} URL切换计数已更新为 {}", monitor_id, current_count + 1);
-        }
-
-        Ok(())
-    }
 
     /// 检查录制器进程状态和URL池管理
     #[allow(dead_code)] // 简化版录制器状态检查，暂由check_recorder_status_with_pools替代
@@ -732,11 +689,6 @@ impl LiveMonitor {
             record.file_size = ActiveValue::Set(file_size);
             record.status = ActiveValue::Set(3); // 3 = 失败状态
             
-            // 更新分段录制统计信息（即使失败也要记录）
-            let segment_count = recorder.get_segments().len() as i32;
-            record.segment_count = ActiveValue::Set(segment_count);
-            
-            // 分段模式已禁用，无需收集CDN节点信息
 
             if let Err(e) = record.update(db).await {
                 error!("更新录制记录状态失败: {}", e);
@@ -755,7 +707,7 @@ impl LiveMonitor {
 
     /// 尝试为录制器切换URL
     async fn attempt_url_switch(
-        db: &DatabaseConnection,
+        _db: &DatabaseConnection,
         monitor_id: i32,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
         url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
@@ -800,10 +752,6 @@ impl LiveMonitor {
                             }
                         }
                         
-                        // 更新数据库中的URL切换计数
-                        if let Err(e) = Self::increment_url_switch_count(db, monitor_id, recorders).await {
-                            error!("更新URL切换计数失败: {}", e);
-                        }
                     }
                     Err(e) => {
                         error!("录制器 {} 无缝切换失败: {}", monitor_id, e);
