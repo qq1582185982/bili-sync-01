@@ -34,23 +34,10 @@ pub struct RecordStats {
     pub is_recording: bool,
 }
 
-/// 分段录制信息
-#[derive(Debug, Clone)]
-pub struct RecordSegment {
-    /// 分段文件路径
-    pub path: PathBuf,
-    /// 开始时间
-    #[allow(dead_code)] // 开始时间字段，用于分段统计和调试
-    pub start_time: Instant,
-    /// 使用的CDN节点
-    pub cdn_node: String,
-}
 
 /// 直播录制器（支持分段录制）
 #[derive(Debug)]
 pub struct LiveRecorder {
-    /// 基础输出路径（不含扩展名）
-    base_output_path: PathBuf,
     /// 最终合并文件路径
     final_output_path: PathBuf,
     /// 主FFmpeg进程
@@ -63,12 +50,7 @@ pub struct LiveRecorder {
     stats: RecordStats,
     /// 当前使用的流URL
     current_stream_url: Option<String>,
-    /// 录制分段列表
-    segments: Vec<RecordSegment>,
-    /// 当前分段序号
-    current_segment: u32,
-    /// 是否启用分段模式
-    segment_mode: bool,
+    // 分段相关字段已移除，直接录制最终文件
 }
 
 impl LiveRecorder {
@@ -80,21 +62,13 @@ impl LiveRecorder {
     pub fn new<P: AsRef<Path>>(output_path: P) -> Self {
         let final_output_path = output_path.as_ref().to_path_buf();
         
-        // 创建基础路径（去掉扩展名）
-        let mut base_output_path = final_output_path.clone();
-        base_output_path.set_extension("");
-        
         Self {
-            base_output_path,
             final_output_path,
             primary_process: None,
             primary_stdin: None,
             status: RecordStatus::Idle,
             stats: RecordStats::default(),
             current_stream_url: None,
-            segments: Vec::new(),
-            current_segment: 0,
-            segment_mode: true, // 默认启用分段模式
         }
     }
     
@@ -130,41 +104,25 @@ impl LiveRecorder {
             return Err(anyhow!("FFmpeg不可用，请确保已安装FFmpeg"));
         }
 
-        // 启动第一个分段
-        self.start_new_segment(stream_url, cdn_node).await?;
+        // 启动录制进程
+        self.start_recording(stream_url, cdn_node).await?;
 
         self.status = RecordStatus::Recording;
         self.current_stream_url = Some(stream_url.to_string());
         self.stats.start_time = Some(Instant::now());
         self.stats.is_recording = true;
 
-        info!("录制已启动，分段模式: {}", self.segment_mode);
+        info!("录制已启动，直接录制模式");
         Ok(())
     }
     
-    /// 启动新的录制分段
-    async fn start_new_segment(&mut self, stream_url: &str, cdn_node: &str) -> Result<()> {
-        self.current_segment += 1;
+    /// 启动录制进程
+    async fn start_recording(&mut self, stream_url: &str, cdn_node: &str) -> Result<()> {
         
-        let segment_path = if self.segment_mode {
-            // 分段模式：创建临时分段文件
-            let extension = self.final_output_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("flv");
-            self.base_output_path
-                .with_file_name(format!("{}_segment_{:03}.{}", 
-                    self.base_output_path.file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy(), 
-                    self.current_segment, 
-                    extension))
-        } else {
-            // 非分段模式：直接使用最终路径
-            self.final_output_path.clone()
-        };
+        // 直接使用最终输出文件路径，不使用分段模式
+        let segment_path = self.final_output_path.clone();
 
-        debug!("启动新分段: {:?}, CDN: {}", segment_path, cdn_node);
+        debug!("启动录制: {:?}, CDN: {}", segment_path, cdn_node);
 
         // 构建FFmpeg命令参数
         let args = self.build_ffmpeg_args(stream_url, &segment_path)?;
@@ -270,19 +228,9 @@ impl LiveRecorder {
         // 保存进程到主进程槽
         self.primary_process = Some(process);
 
-        // 创建分段记录
-        if self.segment_mode {
-            let segment = RecordSegment {
-                path: segment_path,
-                start_time: Instant::now(),
-                cdn_node: cdn_node.to_string(),
-            };
-            
-            self.segments.push(segment);
-            debug!("已添加分段记录，总分段数: {}", self.segments.len());
-        }
+        // 不使用分段模式，直接录制到最终文件
 
-        info!("新分段已启动，PID: {:?}", self.primary_process.as_ref().map(|p| p.id()));
+        info!("录制已启动，PID: {:?}", self.primary_process.as_ref().map(|p| p.id()));
         Ok(())
     }
 
@@ -545,9 +493,9 @@ impl LiveRecorder {
         Ok(())
     }
 
-    /// 获取分段列表
-    pub fn get_segments(&self) -> &[RecordSegment] {
-        &self.segments
+    /// 获取分段列表（已禁用分段模式，返回空列表）
+    pub fn get_segments(&self) -> &[String] {
+        &[]
     }
 
     /// 检查是否需要切换URL（根据时间或错误情况）
@@ -567,150 +515,16 @@ impl LiveRecorder {
         false
     }
 
-    /// 合并所有分段文件为最终文件
+    /// 合并分段文件（已禁用分段模式，此方法不执行任何操作）
     pub async fn merge_segments(&self) -> Result<()> {
-        if !self.segment_mode || self.segments.is_empty() {
-            debug!("非分段模式或无分段文件，跳过合并");
-            return Ok(());
-        }
-
-        info!("开始合并 {} 个分段文件", self.segments.len());
-
-        // 检查所有分段文件是否存在
-        let mut existing_segments: Vec<&Path> = Vec::new();
-        for segment in &self.segments {
-            if tokio::fs::metadata(&segment.path).await.is_ok() {
-                existing_segments.push(segment.path.as_path());
-            } else {
-                warn!("分段文件不存在: {:?}", segment.path);
-            }
-        }
-
-        if existing_segments.is_empty() {
-            return Err(anyhow!("没有可用的分段文件进行合并"));
-        }
-
-        info!("找到 {} 个有效分段文件，开始合并", existing_segments.len());
-
-        // 使用FFmpeg合并文件
-        if existing_segments.len() == 1 {
-            // 只有一个分段，直接重命名
-            self.merge_single_segment(existing_segments[0]).await?;
-        } else {
-            // 多个分段，使用FFmpeg concat协议合并
-            self.merge_multiple_segments(&existing_segments).await?;
-        }
-
-        info!("分段文件合并完成，输出文件: {:?}", self.final_output_path);
+        debug!("分段模式已禁用，直接录制到最终文件，无需合并");
         Ok(())
     }
 
-    /// 合并单个分段文件（重命名）
-    async fn merge_single_segment(&self, segment_path: &Path) -> Result<()> {
-        debug!("单分段合并：重命名 {:?} -> {:?}", segment_path, self.final_output_path);
-        
-        tokio::fs::rename(segment_path, &self.final_output_path).await
-            .map_err(|e| anyhow!("重命名分段文件失败: {}", e))?;
-            
-        info!("单分段文件重命名完成");
-        Ok(())
-    }
 
-    /// 合并多个分段文件
-    async fn merge_multiple_segments(&self, segment_paths: &[&Path]) -> Result<()> {
-        debug!("多分段合并，分段数量: {}", segment_paths.len());
-
-        // 创建临时的concat文件列表
-        let concat_file_path = self.base_output_path.with_extension("txt");
-        let mut concat_content = String::new();
-        
-        for path in segment_paths {
-            // FFmpeg concat文件格式要求使用绝对路径并转义特殊字符
-            let abs_path = path.canonicalize()
-                .map_err(|e| anyhow!("无法获取分段文件的绝对路径: {}", e))?;
-                
-            let path_str = abs_path.to_string_lossy();
-            // 在Windows下，需要将反斜杠替换为正斜杠
-            let escaped_path = if cfg!(windows) {
-                path_str.replace("\\", "/")
-            } else {
-                path_str.to_string()
-            };
-            
-            concat_content.push_str(&format!("file '{}'\n", escaped_path));
-        }
-        
-        // 写入concat文件
-        tokio::fs::write(&concat_file_path, concat_content).await
-            .map_err(|e| anyhow!("创建concat文件失败: {}", e))?;
-
-        debug!("创建concat文件: {:?}", concat_file_path);
-
-        // 构建FFmpeg合并命令
-        let mut args = Vec::new();
-        args.extend_from_slice(&[
-            "-f".to_string(), "concat".to_string(),
-            "-safe".to_string(), "0".to_string(),  // 允许不安全的文件路径
-            "-i".to_string(), concat_file_path.to_string_lossy().to_string(),
-            "-c".to_string(), "copy".to_string(),   // 直接复制流，不重编码
-            "-y".to_string(),                       // 覆盖输出文件
-            self.final_output_path.to_string_lossy().to_string(),
-        ]);
-
-        debug!("FFmpeg合并参数: {:?}", args);
-
-        // 执行FFmpeg合并
-        let output = tokio::process::Command::new("ffmpeg")
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| anyhow!("执行FFmpeg合并失败: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            error!("FFmpeg合并失败: {}", stderr);
-            return Err(anyhow!("FFmpeg合并失败: {}", stderr));
-        }
-
-        // 清理concat文件
-        if let Err(e) = tokio::fs::remove_file(&concat_file_path).await {
-            warn!("删除concat文件失败: {}", e);
-        }
-
-        info!("多分段文件合并完成");
-        Ok(())
-    }
-
-    /// 清理分段文件
+    /// 清理分段文件（已禁用分段模式，此方法不执行任何操作）
     pub async fn cleanup_segments(&self) -> Result<()> {
-        if !self.segment_mode {
-            return Ok(());
-        }
-
-        info!("开始清理 {} 个分段文件", self.segments.len());
-        
-        let mut cleaned_count = 0;
-        let mut error_count = 0;
-
-        for segment in &self.segments {
-            match tokio::fs::remove_file(&segment.path).await {
-                Ok(()) => {
-                    debug!("删除分段文件: {:?}", segment.path);
-                    cleaned_count += 1;
-                }
-                Err(e) => {
-                    warn!("删除分段文件失败 {:?}: {}", segment.path, e);
-                    error_count += 1;
-                }
-            }
-        }
-
-        info!("分段文件清理完成，成功删除: {}, 失败: {}", cleaned_count, error_count);
-        
-        if error_count > 0 {
-            warn!("部分分段文件清理失败，请手动检查");
-        }
-
+        debug!("分段模式已禁用，无需清理分段文件");
         Ok(())
     }
 }

@@ -533,16 +533,7 @@ impl LiveMonitor {
             let segment_count = recorder.get_segments().len() as i32;
             record.segment_count = ActiveValue::Set(segment_count);
             
-            // 收集使用过的CDN节点信息
-            let cdn_nodes: Vec<String> = recorder.get_segments()
-                .iter()
-                .map(|s| s.cdn_node.clone())
-                .collect::<std::collections::HashSet<_>>() // 去重
-                .into_iter()
-                .collect();
-            if !cdn_nodes.is_empty() {
-                record.cdn_nodes = ActiveValue::Set(Some(cdn_nodes.join(",")));
-            }
+            // 分段模式已禁用，无需收集CDN节点信息
 
             record.update(db).await?;
 
@@ -745,16 +736,7 @@ impl LiveMonitor {
             let segment_count = recorder.get_segments().len() as i32;
             record.segment_count = ActiveValue::Set(segment_count);
             
-            // 收集使用过的CDN节点信息
-            let cdn_nodes: Vec<String> = recorder.get_segments()
-                .iter()
-                .map(|s| s.cdn_node.clone())
-                .collect::<std::collections::HashSet<_>>() // 去重
-                .into_iter()
-                .collect();
-            if !cdn_nodes.is_empty() {
-                record.cdn_nodes = ActiveValue::Set(Some(cdn_nodes.join(",")));
-            }
+            // 分段模式已禁用，无需收集CDN节点信息
 
             if let Err(e) = record.update(db).await {
                 error!("更新录制记录状态失败: {}", e);
