@@ -14,6 +14,7 @@ use crate::utils::time_format::now_standard_string;
 
 use super::api::{LiveApiClient, LiveStatus, Quality};
 use super::recorder::LiveRecorder;
+use super::ws_client::{WebSocketEvent, WebSocketManager};
 
 /// 监控配置
 #[derive(Debug, Clone)]
@@ -78,6 +79,8 @@ pub struct LiveMonitor {
     monitor_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// 是否正在运行
     running: Arc<RwLock<bool>>,
+    /// WebSocket 管理器
+    ws_manager: Arc<Mutex<WebSocketManager>>,
 }
 
 impl LiveMonitor {
@@ -99,6 +102,7 @@ impl LiveMonitor {
             recorders: Arc::new(Mutex::new(HashMap::new())),
             monitor_handle: Arc::new(Mutex::new(None)),
             running: Arc::new(RwLock::new(false)),
+            ws_manager: Arc::new(Mutex::new(WebSocketManager::new())),
         }
     }
 
@@ -139,6 +143,9 @@ impl LiveMonitor {
 
         // 停止所有录制
         self.stop_all_recordings().await?;
+
+        // 停止所有WebSocket连接
+        self.ws_manager.lock().await.stop_all().await;
 
         Ok(())
     }
@@ -190,13 +197,14 @@ impl LiveMonitor {
         Ok(())
     }
 
-    /// 启动监控循环
+    /// 启动监控循环 (基于WebSocket事件)
     async fn start_monitor_loop(&self) -> JoinHandle<()> {
         let db = self.db.clone();
         let bili_client = Arc::clone(&self.bili_client);
         let configs = Arc::clone(&self.configs);
         let recorders = Arc::clone(&self.recorders);
         let running = Arc::clone(&self.running);
+        let ws_manager = Arc::clone(&self.ws_manager);
 
         tokio::spawn(async move {
             // 在spawned task中创建LiveApiClient
@@ -205,38 +213,55 @@ impl LiveMonitor {
                     LiveApiClient::new(&*bili_client)
                 )
             };
-            
-            let mut interval = interval(Duration::from_secs(30)); // 默认30秒检查一次
+
+            // 首次设置WebSocket连接
+            Self::setup_websocket_connections(&db, &configs, &ws_manager).await;
+
+            // 创建定期检查任务（检查录制器状态和配置变化）
+            let mut check_interval = interval(Duration::from_secs(60)); // 每分钟检查一次
 
             loop {
-                interval.tick().await;
-
+                // 检查是否应该停止运行
                 if !*running.read().await {
                     break;
                 }
 
-                let configs_guard = configs.read().await;
-                if configs_guard.is_empty() {
-                    continue;
-                }
-
-                // 首先检查活跃录制器状态
-                Self::check_recorder_status(&db, &recorders).await;
-
-                for config in configs_guard.iter() {
-                    if !config.enabled {
-                        continue;
+                tokio::select! {
+                    // 处理WebSocket事件
+                    event = async {
+                        let mut manager = ws_manager.lock().await;
+                        manager.next_event().await
+                    } => {
+                        if let Some(event) = event {
+                            if let Err(e) = Self::handle_websocket_event(
+                                &db,
+                                &live_client,
+                                &configs,
+                                &recorders,
+                                event
+                            ).await {
+                                error!("处理WebSocket事件失败: {}", e);
+                            }
+                        }
                     }
+                    
+                    // 定期检查任务
+                    _ = check_interval.tick() => {
+                        if !*running.read().await {
+                            break;
+                        }
 
-                    if let Err(e) = Self::check_room_status(&db, &live_client, config, &recorders).await {
-                        error!("检查房间 {} 状态失败: {}", config.room_id, e);
+                        // 检查录制器状态
+                        Self::check_recorder_status(&db, &recorders).await;
+                        
+                        // 重新加载配置并更新WebSocket连接
+                        if let Err(e) = Self::reload_configs_static(&db, &configs).await {
+                            error!("重新加载监控配置失败: {}", e);
+                        } else {
+                            // 配置变化后重新设置WebSocket连接
+                            Self::setup_websocket_connections(&db, &configs, &ws_manager).await;
+                        }
                     }
-                }
-                
-                // 每次检查完所有房间后，重新加载配置以同步状态变化
-                drop(configs_guard);
-                if let Err(e) = Self::reload_configs_static(&db, &configs).await {
-                    error!("重新加载监控配置失败: {}", e);
                 }
             }
 
@@ -545,6 +570,108 @@ impl LiveMonitor {
                 error!("更新录制记录状态失败: {}", e);
             }
         }
+    }
+
+    /// 设置WebSocket连接
+    async fn setup_websocket_connections(
+        _db: &DatabaseConnection,
+        configs: &Arc<RwLock<Vec<MonitorConfig>>>,
+        ws_manager: &Arc<Mutex<WebSocketManager>>,
+    ) {
+        let configs_guard = configs.read().await;
+        let manager = ws_manager.lock().await;
+
+        // 获取当前需要监控的房间
+        let enabled_rooms: std::collections::HashSet<i64> = configs_guard
+            .iter()
+            .filter(|config| config.enabled)
+            .map(|config| config.room_id)
+            .collect();
+
+        debug!("需要监控的房间: {:?}", enabled_rooms);
+
+        // 移除不再需要的连接
+        // TODO: 实现移除逻辑（需要在WebSocketManager中添加获取当前连接房间的方法）
+
+        // 添加新的连接
+        for &room_id in &enabled_rooms {
+            if let Err(e) = manager.add_room(room_id).await {
+                error!("添加房间 {} 的WebSocket连接失败: {}", room_id, e);
+            }
+        }
+
+        info!("WebSocket连接设置完成，监控 {} 个房间", enabled_rooms.len());
+    }
+
+    /// 处理WebSocket事件
+    async fn handle_websocket_event(
+        db: &DatabaseConnection,
+        live_client: &LiveApiClient<'static>,
+        configs: &Arc<RwLock<Vec<MonitorConfig>>>,
+        recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
+        event: WebSocketEvent,
+    ) -> Result<()> {
+        match event {
+            WebSocketEvent::LiveStatusChanged { room_id, status, title } => {
+                info!(
+                    "房间 {} 状态变化: {:?}, 标题: {:?}",
+                    room_id, status, title
+                );
+
+                // 查找对应的监控配置
+                let configs_guard = configs.read().await;
+                let config = configs_guard
+                    .iter()
+                    .find(|c| c.room_id == room_id && c.enabled);
+
+                if let Some(config) = config {
+                    match status {
+                        LiveStatus::Live => {
+                            // 开播，启动录制
+                            debug!("房间 {} 开播，获取直播信息并启动录制", room_id);
+                            if let Ok((_, room_info)) = live_client.get_live_status_by_room_id(room_id).await {
+                                if let Some(room_info) = room_info {
+                                    if let Err(e) = Self::start_recording(db, live_client, config, &room_info, recorders).await {
+                                        error!("启动录制失败: {}", e);
+                                    }
+                                } else {
+                                    warn!("无法获取房间 {} 的详细信息", room_id);
+                                }
+                            } else {
+                                warn!("获取房间 {} 状态失败", room_id);
+                            }
+                        }
+                        LiveStatus::NotLive => {
+                            // 关播，停止录制
+                            debug!("房间 {} 关播，停止录制", room_id);
+                            if let Err(e) = Self::stop_recording(db, config.id, recorders).await {
+                                error!("停止录制失败: {}", e);
+                            }
+                        }
+                    }
+
+                    // 更新数据库中的状态
+                    if let Err(e) = Self::update_monitor_status(db, config.id, status).await {
+                        error!("更新监控状态失败: {}", e);
+                    }
+                } else {
+                    debug!("房间 {} 不在当前监控列表中或已禁用", room_id);
+                }
+            }
+            WebSocketEvent::ConnectionStatusChanged { room_id, connected, error } => {
+                if connected {
+                    info!("房间 {} WebSocket 连接已建立", room_id);
+                } else {
+                    warn!("房间 {} WebSocket 连接断开: {:?}", room_id, error);
+                }
+            }
+            WebSocketEvent::PopularityChanged { room_id, popularity } => {
+                debug!("房间 {} 人气值更新: {}", room_id, popularity);
+                // 暂时不处理人气值变化
+            }
+        }
+
+        Ok(())
     }
 
     /// 获取监控状态统计

@@ -65,6 +65,8 @@ tracing-subscriber = { workspace = true }
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
+flate2 = { workspace = true }
+byteorder = { workspace = true }
 
 [dev-dependencies]
 arc-swap.workspace = true

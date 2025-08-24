@@ -9,6 +9,7 @@
 pub mod api;
 pub mod monitor;
 pub mod recorder;
+pub mod ws_client;
 
 // 只导出实际使用的类型
 pub use monitor::LiveMonitor;
