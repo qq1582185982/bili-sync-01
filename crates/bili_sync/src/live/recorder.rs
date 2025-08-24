@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, Command};
 use tokio::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
@@ -44,7 +46,7 @@ pub struct RecordSegment {
     pub cdn_node: String,
 }
 
-/// 直播录制器（支持分段和无缝切换）
+/// 直播录制器（支持分段录制）
 #[derive(Debug)]
 pub struct LiveRecorder {
     /// 基础输出路径（不含扩展名）
@@ -53,8 +55,8 @@ pub struct LiveRecorder {
     final_output_path: PathBuf,
     /// 主FFmpeg进程
     primary_process: Option<Child>,
-    /// 备用FFmpeg进程（用于无缝切换）
-    secondary_process: Option<Child>,
+    /// 主FFmpeg进程的stdin（用于优雅停止）
+    primary_stdin: Option<ChildStdin>,
     /// 录制状态
     status: RecordStatus,
     /// 录制统计
@@ -86,7 +88,7 @@ impl LiveRecorder {
             base_output_path,
             final_output_path,
             primary_process: None,
-            secondary_process: None,
+            primary_stdin: None,
             status: RecordStatus::Idle,
             stats: RecordStats::default(),
             current_stream_url: None,
@@ -169,38 +171,96 @@ impl LiveRecorder {
         
         debug!("FFmpeg命令参数: {:?}", args);
 
-        // 启动FFmpeg进程
+        // 启动FFmpeg进程（使用tokio异步进程）
         let mut process = Command::new("ffmpeg")
             .args(&args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdin(std::process::Stdio::piped())  // 改为piped以便发送停止命令
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| LiveError::RecorderStartError(format!("启动FFmpeg失败: {}", e)))?;
+
+        // 保存stdin句柄用于优雅停止
+        self.primary_stdin = process.stdin.take();
+
+        // 异步读取stdout进度信息
+        if let Some(stdout) = process.stdout.take() {
+            tokio::spawn(async move {
+                let reader = BufReader::new(stdout);
+                let mut lines = reader.lines();
+                let mut progress_data = HashMap::new();
+                
+                while let Ok(Some(line)) = lines.next_line().await {
+                    // FFmpeg进度格式: key=value
+                    if line.contains("=") {
+                        let parts: Vec<&str> = line.splitn(2, '=').collect();
+                        if parts.len() == 2 {
+                            progress_data.insert(parts[0].to_string(), parts[1].to_string());
+                        }
+                    }
+                    
+                    // 当收到 progress=continue 时，处理这批数据
+                    if line == "progress=continue" {
+                        // 监控录制速度
+                        if let Some(speed) = progress_data.get("speed") {
+                            // 解析速度（如 "0.998x"）
+                            if let Some(speed_str) = speed.strip_suffix('x') {
+                                if let Ok(speed_val) = speed_str.parse::<f64>() {
+                                    if speed_val < 0.95 {
+                                        warn!("录制速度过慢: {}x，可能丢帧", speed_val);
+                                    } else if speed_val > 1.05 {
+                                        debug!("录制速度: {}x", speed_val);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 监控帧率
+                        if let Some(fps) = progress_data.get("fps") {
+                            if let Ok(fps_val) = fps.parse::<f64>() {
+                                if fps_val < 20.0 {
+                                    warn!("当前FPS过低: {}", fps_val);
+                                } else {
+                                    debug!("当前FPS: {}", fps_val);
+                                }
+                            }
+                        }
+                        
+                        // 监控比特率
+                        if let Some(bitrate) = progress_data.get("bitrate") {
+                            debug!("当前比特率: {}", bitrate);
+                        }
+                        
+                        // 监控录制时长
+                        if let Some(time) = progress_data.get("out_time_ms") {
+                            if let Ok(time_ms) = time.parse::<u64>() {
+                                let duration_sec = time_ms / 1_000_000;
+                                debug!("已录制: {}秒", duration_sec);
+                            }
+                        }
+                        
+                        // 清空数据准备下一批
+                        progress_data.clear();
+                    }
+                }
+            });
+        }
 
         // 异步读取stderr输出
         if let Some(stderr) = process.stderr.take() {
             tokio::spawn(async move {
-                use std::io::{BufRead, BufReader};
                 let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
                 
-                for line in reader.lines() {
-                    match line {
-                        Ok(line) => {
-                            let line = line.trim();
-                            if !line.is_empty() {
-                                if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
-                                    error!("FFmpeg错误: {}", line);
-                                } else if line.contains("warning") || line.contains("Warning") || line.contains("WARNING") {
-                                    warn!("FFmpeg警告: {}", line);
-                                } else {
-                                    debug!("FFmpeg输出: {}", line);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            debug!("读取FFmpeg stderr失败: {}", e);
-                            break;
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
+                            error!("FFmpeg错误: {}", line);
+                        } else if line.contains("warning") || line.contains("Warning") || line.contains("WARNING") {
+                            warn!("FFmpeg警告: {}", line);
+                        } else {
+                            debug!("FFmpeg输出: {}", line);
                         }
                     }
                 }
@@ -234,69 +294,62 @@ impl LiveRecorder {
 
         info!("停止录制");
 
-        if let Some(process) = self.primary_process.take() {
+        if let Some(mut process) = self.primary_process.take() {
             let pid = process.id();
             
-            #[cfg(windows)]
-            {
-                // Windows：使用taskkill强制终止
-                let output = tokio::process::Command::new("taskkill")
-                    .args(&["/F", "/PID", &pid.to_string()])
-                    .output()
-                    .await;
-                    
-                match output {
-                    Ok(output) if output.status.success() => {
-                        info!("FFmpeg进程 {} 已终止", pid);
-                    }
-                    Ok(output) => {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        warn!("终止FFmpeg进程失败: {}", stderr);
+            // 优先尝试优雅停止
+            if let Some(mut stdin) = self.primary_stdin.take() {
+                match stdin.write_all(b"q").await {
+                    Ok(_) => {
+                        if let Err(e) = stdin.flush().await {
+                            warn!("flush stdin失败: {}", e);
+                        }
+                        info!("已发送优雅停止命令到FFmpeg进程 {:?}", pid);
+                        
+                        // 等待进程自然退出（最多10秒）
+                        let timeout = Duration::from_secs(10);
+                        let start = Instant::now();
+                        
+                        loop {
+                            match process.try_wait() {
+                                Ok(Some(status)) => {
+                                    info!("FFmpeg优雅退出，PID: {:?}，状态: {:?}", pid, status);
+                                    break;
+                                }
+                                Ok(None) => {
+                                    if start.elapsed() > timeout {
+                                        warn!("FFmpeg未在{}秒内响应停止命令，强制终止", timeout.as_secs());
+                                        if let Err(e) = process.kill().await {
+                                            error!("强制终止进程失败: {}", e);
+                                        }
+                                        break;
+                                    }
+                                    tokio::time::sleep(Duration::from_millis(100)).await;
+                                }
+                                Err(e) => {
+                                    error!("等待进程退出时出错: {}", e);
+                                    break;
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
-                        warn!("执行taskkill失败: {}", e);
+                        warn!("发送优雅停止命令失败: {}，强制终止进程", e);
+                        if let Err(e) = process.kill().await {
+                            error!("强制终止进程失败: {}", e);
+                        }
                     }
+                }
+            } else {
+                warn!("stdin不可用，强制终止FFmpeg进程 {:?}", pid);
+                if let Err(e) = process.kill().await {
+                    error!("强制终止进程失败: {}", e);
                 }
             }
             
-            #[cfg(unix)]
-            {
-                // 发送SIGTERM信号
-                unsafe {
-                    libc::kill(process.id() as i32, libc::SIGTERM);
-                }
-                
-                // 等待进程结束，最多等待10秒
-                let timeout = Duration::from_secs(10);
-                let start = Instant::now();
-                
-                loop {
-                    match process.try_wait() {
-                        Ok(Some(_)) => break,
-                        Ok(None) => {
-                            if start.elapsed() > timeout {
-                                warn!("进程未在超时时间内结束，强制终止");
-                                if let Err(e) = process.kill() {
-                                    error!("强制终止进程失败: {}", e);
-                                }
-                                break;
-                            }
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                        Err(e) => {
-                            error!("等待进程结束时出错: {}", e);
-                            if let Err(e) = process.kill() {
-                                error!("强制终止进程失败: {}", e);
-                            }
-                            break;
-                        }
-                    }
-                }
-                
-                // 等待进程完全退出
-                if let Err(e) = process.wait() {
-                    warn!("等待FFmpeg进程退出失败: {}", e);
-                }
+            // 确保进程完全退出
+            if let Err(e) = process.wait().await {
+                warn!("等待FFmpeg进程退出失败: {}", e);
             }
         }
 
@@ -327,6 +380,7 @@ impl LiveRecorder {
         match Command::new("ffmpeg")
             .arg("-version")
             .output()
+            .await
         {
             Ok(output) => output.status.success(),
             Err(_) => false,
@@ -336,6 +390,12 @@ impl LiveRecorder {
     /// 构建FFmpeg命令参数
     fn build_ffmpeg_args(&self, stream_url: &str, output_path: &Path) -> Result<Vec<String>> {
         let mut args = Vec::new();
+
+        // 进度监控参数（放在最前面）
+        args.extend_from_slice(&[
+            "-progress".to_string(), "-".to_string(),            // 输出进度信息到stdout
+            "-nostats".to_string(),                              // 禁用默认统计输出
+        ]);
 
         // 输入重连选项（应该放在-i之前）
         args.extend_from_slice(&[
@@ -459,51 +519,12 @@ impl LiveRecorder {
     /// # Arguments
     /// * `new_stream_url` - 新的流地址
     /// * `cdn_node` - CDN节点标识
+    /// 重启录制以使用新URL（替代无缝切换）
     pub async fn seamless_switch(&mut self, new_stream_url: String, cdn_node: &str) -> Result<()> {
-        if !self.segment_mode {
-            warn!("非分段模式下无法进行无缝切换，使用普通重启");
-            return self.restart_with_new_url(new_stream_url).await;
-        }
-
-        info!("开始无缝切换到新URL，CDN: {}", cdn_node);
-
-        // 完全禁用备用进程和所有切换操作，避免系统假死问题
-        // TODO: 重新设计无缝切换逻辑或采用分片下载方案
-        /*
-        // 1. 启动备用进程开始录制下一个分段
-        if self.secondary_process.is_some() {
-            warn!("备用进程已存在，先停止备用进程");
-            self.stop_secondary_process().await?;
-        }
-
-        self.start_secondary_segment(&new_stream_url, cdn_node).await?;
-
-        // 2. 等待短暂时间确保备用进程开始录制（改为500ms）
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
-        // 3. 停止主进程，如果失败则清理备用进程
-        if let Err(e) = self.stop_primary_process().await {
-            error!("停止主进程失败: {}，清理备用进程", e);
-            let _ = self.stop_secondary_process().await;
-            return Err(anyhow!("无缝切换失败: {}", e));
-        }
-
-        // 4. 将备用进程提升为主进程
-        self.promote_secondary_to_primary();
-
-        // 5. 更新当前使用的URL
-        self.current_stream_url = Some(new_stream_url);
-
-        // 6. 完成当前分段记录
-        self.finalize_current_segment().await;
-        */
-
-        // 仅更新URL记录，让主进程的FFmpeg自己处理URL变化
-        self.current_stream_url = Some(new_stream_url);
+        info!("使用新URL重启录制，CDN: {}", cdn_node);
         
-        warn!("无缝切换已完全禁用，仅更新了URL记录");
-        info!("URL已更新为CDN: {}，主进程继续录制", cdn_node);
-        Ok(())
+        // 使用简单的重启策略替代复杂的无缝切换
+        self.restart_with_new_url(new_stream_url).await
     }
 
 
@@ -698,15 +719,8 @@ impl Drop for LiveRecorder {
     fn drop(&mut self) {
         // 确保在录制器被销毁时停止录制进程
         if let Some(mut process) = self.primary_process.take() {
-            if let Err(e) = process.kill() {
+            if let Err(e) = process.start_kill() {
                 error!("销毁录制器时终止主进程失败: {}", e);
-            }
-        }
-        
-        // 也要停止备用进程
-        if let Some(mut process) = self.secondary_process.take() {
-            if let Err(e) = process.kill() {
-                error!("销毁录制器时终止备用进程失败: {}", e);
             }
         }
     }
