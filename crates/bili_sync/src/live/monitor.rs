@@ -329,57 +329,6 @@ impl LiveMonitor {
         })
     }
 
-    /// 检查单个房间状态
-    async fn check_room_status(
-        db: &DatabaseConnection,
-        live_client: &LiveApiClient<'static>,
-        config: &MonitorConfig,
-        recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
-        url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
-    ) -> Result<()> {
-        debug!("检查房间 {} ({}) 的状态", config.room_id, config.upper_name);
-
-        // 获取当前直播状态（使用房间ID获取更准确的状态）
-        debug!("调用新的API获取房间 {} 状态", config.room_id);
-        let (current_status, room_info) = live_client.get_live_status_by_room_id(config.room_id).await?;
-        debug!("房间 {} 当前状态: {:?}, room_info存在: {}", config.room_id, current_status, room_info.is_some());
-
-        // 检查是否有活跃录制
-        let has_active_recorder = recorders.lock().await.contains_key(&config.id);
-
-        if current_status != config.last_status {
-            info!(
-                "房间 {} 状态变化: {:?} -> {:?}",
-                config.room_id, config.last_status, current_status
-            );
-
-            match current_status {
-                LiveStatus::Live => {
-                    // 开播，启动录制
-                    if let Some(room_info) = room_info {
-                        Self::start_recording(db, live_client, config, &room_info, recorders, url_pools).await?;
-                    }
-                }
-                LiveStatus::NotLive => {
-                    // 关播，停止录制
-                    Self::stop_recording(db, config.id, recorders).await?;
-                }
-            }
-
-            // 更新数据库中的状态
-            Self::update_monitor_status(db, config.id, current_status).await?;
-        } else if current_status == LiveStatus::Live && !has_active_recorder {
-            // 特殊情况：检测到直播中但没有活跃录制，可能是之前的录制进程意外终止
-            warn!("检测到直播中但没有活跃录制，重新启动录制进程");
-            if let Some(room_info) = room_info {
-                if let Err(e) = Self::start_recording(db, live_client, config, &room_info, recorders, url_pools).await {
-                    error!("重新启动录制失败: {}", e);
-                }
-            }
-        }
-
-        Ok(())
-    }
 
     /// 启动录制
     async fn start_recording(
@@ -520,7 +469,7 @@ impl LiveMonitor {
     ) -> Result<()> {
         let mut recorders_guard = recorders.lock().await;
         
-        if let Some(mut recorder_info) = recorders_guard.remove(&monitor_id) {
+        if let Some(recorder_info) = recorders_guard.remove(&monitor_id) {
             info!("停止录制，监控ID: {}", monitor_id);
 
             // 停止录制器
@@ -685,6 +634,7 @@ impl LiveMonitor {
     }
 
     /// 检查录制器进程状态和URL池管理
+    #[allow(dead_code)] // 简化版录制器状态检查，暂由check_recorder_status_with_pools替代
     async fn check_recorder_status(
         db: &DatabaseConnection,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
@@ -1039,19 +989,6 @@ impl LiveMonitor {
         Ok(())
     }
 
-    /// 获取监控状态统计
-    pub async fn get_status(&self) -> Result<MonitorStatus> {
-        let configs = self.configs.read().await;
-        let recorders = self.recorders.lock().await;
-        let running = *self.running.read().await;
-
-        Ok(MonitorStatus {
-            running,
-            total_monitors: configs.len(),
-            enabled_monitors: configs.iter().filter(|c| c.enabled).count(),
-            active_recordings: recorders.len(),
-        })
-    }
 }
 
 /// 监控状态信息

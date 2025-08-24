@@ -132,6 +132,7 @@ pub struct EnhancedStreamUrl {
     /// URL过期时间
     pub expires_at: Instant,
     /// 质量等级
+    #[allow(dead_code)] // 质量等级字段，用于URL池分级管理
     pub quality: Quality,
     /// 使用次数统计
     pub usage_count: u32,
@@ -289,40 +290,9 @@ impl StreamUrlPool {
     }
     
     /// 获取当前URL
-    pub fn current_url(&self) -> Option<&EnhancedStreamUrl> {
-        self.urls.get(self.current_index)
-    }
-    
     /// 获取当前URL的可变引用
     pub fn current_url_mut(&mut self) -> Option<&mut EnhancedStreamUrl> {
         self.urls.get_mut(self.current_index)
-    }
-    
-    /// 切换到下一个可用的URL
-    pub fn switch_to_next(&mut self) -> Option<&EnhancedStreamUrl> {
-        if self.urls.is_empty() {
-            return None;
-        }
-        
-        let start_index = self.current_index;
-        
-        // 尝试找到下一个未过期的URL
-        loop {
-            self.current_index = (self.current_index + 1) % self.urls.len();
-            
-            if let Some(url) = self.urls.get(self.current_index) {
-                if !url.is_expired() {
-                    debug!("切换到URL: CDN={}, 索引={}", url.cdn_node, self.current_index);
-                    return Some(url);
-                }
-            }
-            
-            // 如果遍历了所有URL都过期了，返回当前的（即使过期）
-            if self.current_index == start_index {
-                warn!("所有URL都已过期，使用当前URL");
-                return self.urls.get(self.current_index);
-            }
-        }
     }
     
     /// 获取最佳URL（综合考虑过期时间和成功率）
@@ -437,27 +407,12 @@ impl<'a> LiveApiClient<'a> {
         Self { client }
     }
 
-    /// 获取真实房间ID
-    /// 
-    /// # Arguments
-    /// * `room_id` - 房间ID（可以是短ID或长ID）
-    pub async fn get_room_init(&self, room_id: i64) -> Result<RoomInitInfo> {
-        let url = format!("https://api.live.bilibili.com/room/v1/Room/room_init?id={}", room_id);
-        
-        let response: ApiResponse<RoomInitInfo> = self.client.get_json(&url).await
-            .map_err(|e| anyhow!("获取房间初始化信息失败: {}", e))?;
-
-        if response.code != 0 {
-            return Err(anyhow!("API返回错误: {} - {}", response.code, response.message));
-        }
-
-        Ok(response.data)
-    }
 
     /// 获取直播间状态和基本信息
     /// 
     /// # Arguments
     /// * `room_id` - 房间ID
+    #[allow(dead_code)] // 方法被batch_get_room_status调用，但编译器未检测到
     pub async fn get_room_info(&self, room_id: i64) -> Result<LiveRoomInfo> {
         let url = format!("https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid={}", room_id);
         
@@ -471,30 +426,6 @@ impl<'a> LiveApiClient<'a> {
         Ok(response.data)
     }
 
-    /// 根据UP主ID获取直播间状态
-    /// 
-    /// # Arguments  
-    /// * `upper_id` - UP主ID
-    pub async fn get_live_status_by_uid(&self, upper_id: i64) -> Result<(LiveStatus, Option<LiveRoomInfo>)> {
-        // 首先尝试通过UP主ID获取直播间信息
-        let url = format!("https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid={}", upper_id);
-        
-        match self.client.get_json::<ApiResponse<LiveRoomInfo>>(&url).await {
-            Ok(response) => {
-                if response.code == 0 {
-                    let status = LiveStatus::from(response.data.live_status);
-                    Ok((status, Some(response.data)))
-                } else {
-                    // 如果API返回错误，可能是该UP主没有开通直播间
-                    Ok((LiveStatus::NotLive, None))
-                }
-            }
-            Err(_) => {
-                // 请求失败，可能是网络问题或者UP主没有直播间
-                Ok((LiveStatus::NotLive, None))
-            }
-        }
-    }
 
     /// 根据房间ID获取直播间状态（更准确的API）
     /// 
@@ -631,6 +562,7 @@ impl<'a> LiveApiClient<'a> {
     /// 
     /// # Arguments
     /// * `room_ids` - 房间ID列表
+    #[allow(dead_code)] // 批量状态获取方法，暂未使用但为完整API保留
     pub async fn batch_get_room_status(&self, room_ids: &[i64]) -> Result<Vec<(i64, LiveStatus)>> {
         let mut results = Vec::new();
         
@@ -655,14 +587,4 @@ impl<'a> LiveApiClient<'a> {
         Ok(results)
     }
 
-    /// 检查直播流是否可用
-    /// 
-    /// # Arguments
-    /// * `stream_url` - 流地址
-    pub async fn check_stream_availability(&self, stream_url: &str) -> Result<bool> {
-        match self.client.head(stream_url).await {
-            Ok(response) => Ok(response.status().is_success()),
-            Err(_) => Ok(false),
-        }
-    }
 }

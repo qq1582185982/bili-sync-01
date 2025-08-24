@@ -38,6 +38,7 @@ pub struct RecordSegment {
     /// 分段文件路径
     pub path: PathBuf,
     /// 开始时间
+    #[allow(dead_code)] // 开始时间字段，用于分段统计和调试
     pub start_time: Instant,
     /// 结束时间（录制中为None）
     pub end_time: Option<Instant>,
@@ -101,12 +102,6 @@ impl LiveRecorder {
         }
     }
     
-    /// 创建非分段模式的录制器（兼容旧版本）
-    pub fn new_legacy<P: AsRef<Path>>(output_path: P) -> Self {
-        let mut recorder = Self::new(output_path);
-        recorder.segment_mode = false;
-        recorder
-    }
 
     /// 开始录制
     /// 
@@ -313,24 +308,9 @@ impl LiveRecorder {
         Ok(())
     }
 
-    /// 检查录制状态
-    pub fn is_recording(&self) -> bool {
-        self.status == RecordStatus::Recording
-    }
-
-    /// 获取录制状态
-    pub fn status(&self) -> RecordStatus {
-        self.status
-    }
-
     /// 获取输出文件路径
     pub fn output_path(&self) -> Option<&Path> {
         Some(&self.final_output_path)
-    }
-
-    /// 获取录制统计信息
-    pub fn stats(&self) -> &RecordStats {
-        &self.stats
     }
 
     /// 检查FFmpeg是否可用
@@ -464,16 +444,6 @@ impl LiveRecorder {
         }
     }
 
-    /// 获取当前文件大小（如果文件存在）
-    pub async fn current_file_size(&self) -> Result<u64> {
-        match tokio::fs::metadata(&self.final_output_path).await {
-            Ok(metadata) => Ok(metadata.len()),
-            Err(e) => {
-                debug!("无法获取文件大小: {}", e);
-                Ok(0)
-            }
-        }
-    }
 
     /// 无缝切换到新的流URL
     /// 
@@ -914,10 +884,4 @@ impl RecorderFactory {
         LiveRecorder::new(output_path)
     }
 
-    /// 创建MP4格式录制器（需要重编码，质量更高但占用更多CPU）
-    pub fn create_mp4_recorder<P: AsRef<Path>>(output_path: P) -> LiveRecorder {
-        let recorder = LiveRecorder::new(output_path);
-        // TODO: 在未来版本中添加对不同格式的支持
-        recorder
-    }
 }

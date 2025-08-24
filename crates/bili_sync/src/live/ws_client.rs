@@ -32,6 +32,7 @@ struct DanmuConfigData {
 #[derive(Debug, Deserialize)]
 struct HostInfo {
     host: String,
+    #[allow(dead_code)] // port字段，API响应中包含但目前使用wss_port
     port: u16,
     #[serde(rename = "wss_port")]
     wss_port: u16,
@@ -703,17 +704,6 @@ impl WebSocketManager {
         Ok(())
     }
 
-    /// 移除房间监控
-    pub async fn remove_room(&self, room_id: i64) -> Result<()> {
-        let mut clients = self.clients.write().await;
-        
-        if let Some(mut client) = clients.remove(&room_id) {
-            client.stop().await;
-            info!("已移除房间 {} 的 WebSocket 监控", room_id);
-        }
-
-        Ok(())
-    }
 
     /// 获取事件接收器
     pub async fn next_event(&mut self) -> Option<WebSocketEvent> {
