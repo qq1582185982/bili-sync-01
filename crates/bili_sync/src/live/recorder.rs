@@ -244,10 +244,32 @@ impl LiveRecorder {
         info!("停止录制");
 
         if let Some(mut process) = self.primary_process.take() {
-            // 尝试优雅地终止进程
+            let pid = process.id();
+            
+            #[cfg(windows)]
+            {
+                // Windows：使用taskkill强制终止
+                let output = tokio::process::Command::new("taskkill")
+                    .args(&["/F", "/PID", &pid.to_string()])
+                    .output()
+                    .await;
+                    
+                match output {
+                    Ok(output) if output.status.success() => {
+                        info!("FFmpeg进程 {} 已终止", pid);
+                    }
+                    Ok(output) => {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        warn!("终止FFmpeg进程失败: {}", stderr);
+                    }
+                    Err(e) => {
+                        warn!("执行taskkill失败: {}", e);
+                    }
+                }
+            }
+            
             #[cfg(unix)]
             {
-                use std::os::unix::process::CommandExt;
                 // 发送SIGTERM信号
                 unsafe {
                     libc::kill(process.id() as i32, libc::SIGTERM);
@@ -263,31 +285,27 @@ impl LiveRecorder {
                         Ok(None) => {
                             if start.elapsed() > timeout {
                                 warn!("进程未在超时时间内结束，强制终止");
-                                let _ = process.kill();
+                                if let Err(e) = process.kill() {
+                                    error!("强制终止进程失败: {}", e);
+                                }
                                 break;
                             }
                             tokio::time::sleep(Duration::from_millis(100)).await;
                         }
                         Err(e) => {
                             error!("等待进程结束时出错: {}", e);
-                            let _ = process.kill();
+                            if let Err(e) = process.kill() {
+                                error!("强制终止进程失败: {}", e);
+                            }
                             break;
                         }
                     }
                 }
-            }
-
-            #[cfg(windows)]
-            {
-                // Windows下直接终止进程
-                if let Err(e) = process.kill() {
-                    warn!("终止FFmpeg进程失败: {}", e);
+                
+                // 等待进程完全退出
+                if let Err(e) = process.wait() {
+                    warn!("等待FFmpeg进程退出失败: {}", e);
                 }
-            }
-
-            // 等待进程完全退出
-            if let Err(e) = process.wait() {
-                warn!("等待FFmpeg进程退出失败: {}", e);
             }
         }
 
@@ -466,11 +484,15 @@ impl LiveRecorder {
 
         self.start_secondary_segment(&new_stream_url, cdn_node).await?;
 
-        // 2. 等待短暂时间确保备用进程开始录制
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // 2. 等待短暂时间确保备用进程开始录制（改为500ms）
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // 3. 停止主进程
-        self.stop_primary_process().await?;
+        // 3. 停止主进程，如果失败则清理备用进程
+        if let Err(e) = self.stop_primary_process().await {
+            error!("停止主进程失败: {}，清理备用进程", e);
+            let _ = self.stop_secondary_process().await;
+            return Err(anyhow!("无缝切换失败: {}", e));
+        }
 
         // 4. 将备用进程提升为主进程
         self.promote_secondary_to_primary();
@@ -556,7 +578,24 @@ impl LiveRecorder {
     /// 停止主进程
     async fn stop_primary_process(&mut self) -> Result<()> {
         if let Some(mut process) = self.primary_process.take() {
-            info!("停止主录制进程");
+            let pid = process.id();
+            info!("停止主录制进程 PID: {}", pid);
+            
+            #[cfg(windows)]
+            {
+                // Windows：使用taskkill强制终止
+                let output = tokio::process::Command::new("taskkill")
+                    .args(&["/F", "/PID", &pid.to_string()])
+                    .output()
+                    .await?;
+                    
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(anyhow!("终止进程 {} 失败: {}", pid, stderr));
+                }
+                
+                info!("主进程 {} 已终止", pid);
+            }
             
             #[cfg(unix)]
             {
@@ -575,29 +614,19 @@ impl LiveRecorder {
                         Ok(None) => {
                             if start.elapsed() > timeout {
                                 warn!("主进程未在超时时间内结束，强制终止");
-                                let _ = process.kill();
+                                process.kill()?;
+                                process.wait()?;
                                 break;
                             }
                             tokio::time::sleep(Duration::from_millis(100)).await;
                         }
                         Err(e) => {
                             error!("等待主进程结束时出错: {}", e);
-                            let _ = process.kill();
-                            break;
+                            process.kill()?;
+                            return Err(anyhow!("等待进程失败: {}", e));
                         }
                     }
                 }
-            }
-
-            #[cfg(windows)]
-            {
-                if let Err(e) = process.kill() {
-                    warn!("终止主FFmpeg进程失败: {}", e);
-                }
-            }
-
-            if let Err(e) = process.wait() {
-                warn!("等待主FFmpeg进程退出失败: {}", e);
             }
         }
         Ok(())
@@ -606,14 +635,29 @@ impl LiveRecorder {
     /// 停止备用进程
     async fn stop_secondary_process(&mut self) -> Result<()> {
         if let Some(mut process) = self.secondary_process.take() {
-            info!("停止备用录制进程");
+            let pid = process.id();
+            info!("停止备用录制进程 PID: {}", pid);
             
-            if let Err(e) = process.kill() {
-                warn!("终止备用FFmpeg进程失败: {}", e);
+            #[cfg(windows)]
+            {
+                // Windows：使用taskkill强制终止
+                let output = tokio::process::Command::new("taskkill")
+                    .args(&["/F", "/PID", &pid.to_string()])
+                    .output()
+                    .await?;
+                    
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(anyhow!("终止备用进程 {} 失败: {}", pid, stderr));
+                }
+                
+                info!("备用进程 {} 已终止", pid);
             }
             
-            if let Err(e) = process.wait() {
-                warn!("等待备用FFmpeg进程退出失败: {}", e);
+            #[cfg(unix)]
+            {
+                process.kill()?;
+                process.wait()?;
             }
         }
         Ok(())
