@@ -10174,8 +10174,7 @@ pub async fn get_live_monitor_status(
         .count(db.as_ref())
         .await? as usize;
     
-    // 直播监控服务始终在运行（通过main.rs中的live_monitor_service启动）
-    // 检查是否有启用的监控来确定运行状态
+    // 直播监控服务在程序运行时始终启用，检查是否有启用的监控来确定活跃状态
     let running = enabled_monitors > 0;
     
     // TODO: 获取实际的录制中视频数量，暂时设为0
@@ -10185,6 +10184,7 @@ pub async fn get_live_monitor_status(
         running,
         total_monitors,
         enabled_monitors,
+        active_monitors: enabled_monitors, // 暂时设为启用的监控数量
         active_recordings,
     };
     

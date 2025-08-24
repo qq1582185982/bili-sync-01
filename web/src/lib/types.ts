@@ -763,7 +763,6 @@ export interface LiveMonitorConfig {
 	short_room_id?: number;
 	path: string;
 	enabled: boolean;
-	check_interval: number;
 	quality: LiveQuality;
 	format: LiveFormat;
 	last_status: LiveStatus;
@@ -792,7 +791,6 @@ export interface CreateLiveMonitorRequest {
 	short_room_id?: number;
 	path: string;
 	enabled?: boolean;
-	check_interval?: number;
 	quality?: LiveQuality;
 	format?: LiveFormat;
 }
@@ -804,7 +802,6 @@ export interface UpdateLiveMonitorRequest {
 	short_room_id?: number;
 	path?: string;
 	enabled?: boolean;
-	check_interval?: number;
 	quality?: LiveQuality;
 	format?: LiveFormat;
 }
@@ -826,6 +823,7 @@ export interface LiveMonitorStatusResponse {
 	running: boolean;
 	total_monitors: number;
 	enabled_monitors: number;
+	active_monitors: number;  // 实际活跃连接数
 	active_recordings: number;
 }
 

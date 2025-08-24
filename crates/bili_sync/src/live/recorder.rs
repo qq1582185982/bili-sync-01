@@ -255,6 +255,13 @@ impl LiveRecorder {
             "-reconnect_delay_max".to_string(), "10".to_string(), // 最大重连延迟
         ]);
 
+        // 添加HTTP头部选项来解决403错误
+        // FFmpeg的headers参数格式是多个头用\r\n分隔
+        args.extend_from_slice(&[
+            "-headers".to_string(), 
+            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\r\nReferer: https://live.bilibili.com/".to_string(),
+        ]);
+
         // 输入选项
         args.extend_from_slice(&[
             "-y".to_string(),                                    // 覆盖输出文件

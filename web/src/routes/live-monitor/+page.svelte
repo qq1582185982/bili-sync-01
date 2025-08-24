@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Plus, RefreshCw, Trash2, Edit, Play, Pause, Settings, Video, Eye } from '@lucide/svelte';
+	import { Plus, RefreshCw, Trash2, Edit, Play, Pause, Settings, Video, Eye, Wifi, WifiOff, AlertTriangle } from '@lucide/svelte';
 	import * as Card from '$lib/components/ui/card';
 	import * as Button from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
@@ -44,7 +44,6 @@
 		path: '',
 		quality: 'super_clear',
 		format: 'flv',
-		check_interval: 30,
 		enabled: true
 	};
 
@@ -73,7 +72,6 @@
 			path: monitor.path,
 			quality: monitor.quality,
 			format: monitor.format,
-			check_interval: monitor.check_interval,
 			enabled: monitor.enabled
 		};
 		editDialogOpen = true;
@@ -104,7 +102,6 @@
 			path: '',
 			quality: 'super_clear',
 			format: 'flv',
-			check_interval: 30,
 			enabled: true
 		};
 	}
@@ -202,7 +199,6 @@
 				short_room_id: monitor.short_room_id,
 				path: monitor.path,
 				enabled: monitor.enabled,
-				check_interval: monitor.check_interval,
 				quality: monitor.quality,
 				format: monitor.format
 			});
@@ -253,6 +249,42 @@
 		}
 	}
 
+	// 获取连接状态标签
+	function getConnectionStatusBadge() {
+		if (!monitorStatus?.running) {
+			return {
+				text: '服务未运行',
+				variant: 'secondary' as const,
+				showWifiOff: true
+			};
+		}
+
+		const activeCount = monitorStatus.active_monitors || 0;
+		const totalCount = monitorStatus.total_monitors || 0;
+		
+		if (totalCount === 0) {
+			return {
+				text: 'WebSocket 已连接（无监控）',
+				variant: 'outline' as const,
+				showWifi: true
+			};
+		}
+
+		if (activeCount === totalCount) {
+			return {
+				text: `WebSocket 已连接（${activeCount}/${totalCount}）`,
+				variant: 'default' as const,
+				showWifi: true
+			};
+		}
+
+		return {
+			text: `WebSocket 部分连接（${activeCount}/${totalCount}）`,
+			variant: 'outline' as const,
+			showAlert: true
+		};
+	}
+
 	// 获取画质文本
 	function getQualityText(quality: string) {
 		const qualityMap: Record<string, string> = {
@@ -285,9 +317,21 @@
 	<div class="flex items-center justify-between">
 		<div>
 			<h1 class="text-3xl font-bold tracking-tight">直播监控</h1>
-			<p class="text-muted-foreground">管理直播间监控，自动录制直播内容</p>
+			<p class="text-muted-foreground">WebSocket 实时监控，即时检测开播并自动录制</p>
 		</div>
 		<div class="flex items-center gap-3">
+			<Badge variant={getConnectionStatusBadge().variant} class="gap-1">
+				{#snippet children()}
+					{#if getConnectionStatusBadge().showWifiOff}
+						<WifiOff class="h-3 w-3" />
+					{:else if getConnectionStatusBadge().showWifi}
+						<Wifi class="h-3 w-3" />
+					{:else if getConnectionStatusBadge().showAlert}
+						<AlertTriangle class="h-3 w-3" />
+					{/if}
+					{getConnectionStatusBadge().text}
+				{/snippet}
+			</Badge>
 			<Button.Root on:click={loadMonitors} disabled={loading}>
 				<RefreshCw class="mr-2 h-4 w-4 {loading ? 'animate-spin' : ''}" />
 				刷新
@@ -312,8 +356,12 @@
 		<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
 			<Card.Root>
 				<Card.Header class="flex flex-row items-center justify-between space-y-0 pb-2">
-					<Card.Title class="text-sm font-medium">服务状态</Card.Title>
-					<Settings class="h-4 w-4 text-muted-foreground" />
+					<Card.Title class="text-sm font-medium">监控模式</Card.Title>
+					{#if monitorStatus.running}
+						<Wifi class="h-4 w-4 text-green-500" />
+					{:else}
+						<WifiOff class="h-4 w-4 text-muted-foreground" />
+					{/if}
 				</Card.Header>
 				<Card.Content>
 					<div class="text-2xl font-bold">
@@ -322,11 +370,14 @@
 						{:else}
 							<Badge variant={monitorStatus.running ? "default" : "destructive"}>
 								{#snippet children()}
-									{monitorStatus.running ? '运行中' : '已停止'}
+									{monitorStatus.running ? 'WebSocket 实时' : '服务停止'}
 								{/snippet}
 							</Badge>
 						{/if}
 					</div>
+					<p class="text-xs text-muted-foreground mt-1">
+						{monitorStatus.running ? '实时监控，无延迟检测' : '监控服务未运行'}
+					</p>
 				</Card.Content>
 			</Card.Root>
 
@@ -629,28 +680,14 @@
 					</div>
 				</div>
 
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-					<div>
-						<label for="check-interval" class="block text-sm font-medium mb-2">检查间隔（秒）</label>
-						<input 
-							id="check-interval"
-							type="number" 
-							bind:value={formData.check_interval}
-							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-							min="10"
-							placeholder="检查间隔时间"
-						/>
-					</div>
-					
-					<div class="flex items-center space-x-2 mt-6">
-						<input 
-							type="checkbox" 
-							bind:checked={formData.enabled}
-							class="w-4 h-4"
-							id="enabled"
-						/>
-						<label for="enabled" class="text-sm font-medium">启用监控</label>
-					</div>
+				<div class="flex items-center space-x-2">
+					<input 
+						type="checkbox" 
+						bind:checked={formData.enabled}
+						class="w-4 h-4"
+						id="enabled"
+					/>
+					<label for="enabled" class="text-sm font-medium">启用监控</label>
 				</div>
 
 				<!-- 按钮组 -->

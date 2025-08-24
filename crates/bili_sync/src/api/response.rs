@@ -772,6 +772,7 @@ pub struct LiveMonitorStatusResponse {
     pub running: bool,
     pub total_monitors: usize,
     pub enabled_monitors: usize,
+    pub active_monitors: usize,  // 实际活跃连接数
     pub active_recordings: usize,
 }
 

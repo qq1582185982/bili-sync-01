@@ -173,11 +173,11 @@ impl LiveMonitor {
         Ok(())
     }
 
-    /// 静态方法：重新加载监控配置（用于spawned task中）
+    /// 静态方法：重新加载监控配置（用于spawned task中），返回是否有变化
     async fn reload_configs_static(
         db: &DatabaseConnection, 
         configs: &Arc<RwLock<Vec<MonitorConfig>>>
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let models = live_monitor::Entity::find()
             .filter(live_monitor::Column::Enabled.eq(true))
             .all(db)
@@ -185,16 +185,37 @@ impl LiveMonitor {
 
         let new_configs: Vec<MonitorConfig> = models.into_iter().map(MonitorConfig::from).collect();
         
-        // 详细显示每个监控配置的状态
-        for config in &new_configs {
-            debug!(
-                "重新加载配置 - ID: {}, UP主: {}, 房间: {}, 当前状态: {:?}", 
-                config.id, config.upper_name, config.room_id, config.last_status
+        // 检查配置是否有变化
+        let mut configs_guard = configs.write().await;
+        let old_configs = &*configs_guard;
+        
+        // 比较配置是否相同（通过房间ID集合比较）
+        let old_rooms: std::collections::HashSet<i64> = old_configs.iter().map(|c| c.room_id).collect();
+        let new_rooms: std::collections::HashSet<i64> = new_configs.iter().map(|c| c.room_id).collect();
+        
+        let has_changes = old_rooms != new_rooms;
+        
+        if has_changes {
+            info!(
+                "监控配置发生变化 - 旧房间: {:?}, 新房间: {:?}", 
+                old_rooms, new_rooms
             );
+            
+            // 详细显示每个监控配置的状态
+            for config in &new_configs {
+                debug!(
+                    "更新配置 - ID: {}, UP主: {}, 房间: {}, 当前状态: {:?}", 
+                    config.id, config.upper_name, config.room_id, config.last_status
+                );
+            }
+        } else {
+            debug!("监控配置无变化，跳过WebSocket连接更新");
         }
 
-        *configs.write().await = new_configs;
-        Ok(())
+        *configs_guard = new_configs;
+        drop(configs_guard);
+        
+        Ok(has_changes)
     }
 
     /// 启动监控循环 (基于WebSocket事件)
@@ -255,11 +276,16 @@ impl LiveMonitor {
                         Self::check_recorder_status(&db, &recorders).await;
                         
                         // 重新加载配置并更新WebSocket连接
-                        if let Err(e) = Self::reload_configs_static(&db, &configs).await {
-                            error!("重新加载监控配置失败: {}", e);
-                        } else {
-                            // 配置变化后重新设置WebSocket连接
-                            Self::setup_websocket_connections(&db, &configs, &ws_manager).await;
+                        match Self::reload_configs_static(&db, &configs).await {
+                            Ok(has_changes) => {
+                                if has_changes {
+                                    // 配置变化后重新设置WebSocket连接
+                                    Self::setup_websocket_connections(&db, &configs, &ws_manager).await;
+                                }
+                            }
+                            Err(e) => {
+                                error!("重新加载监控配置失败: {}", e);
+                            }
                         }
                     }
                 }
@@ -385,7 +411,7 @@ impl LiveMonitor {
             end_time: ActiveValue::NotSet,
             file_path: ActiveValue::Set(Some(output_path.to_string_lossy().to_string())),
             file_size: ActiveValue::NotSet,
-            status: ActiveValue::Set(0), // 录制中
+            status: ActiveValue::Set(1), // 1=录制中
         };
 
         let record_result = match record.insert(db).await {
@@ -409,6 +435,11 @@ impl LiveMonitor {
                 error!("更新录制记录状态失败: {}", db_err);
             }
             return Err(anyhow!("启动录制器失败: {}", e));
+        }
+
+        // 录制器启动成功，确保状态为录制中
+        if let Err(e) = Self::update_record_status(db, record_result.id, 1).await {
+            error!("更新录制状态为录制中失败: {}", e);
         }
 
         // 保存录制器信息
@@ -590,17 +621,37 @@ impl LiveMonitor {
 
         debug!("需要监控的房间: {:?}", enabled_rooms);
 
-        // 移除不再需要的连接
-        // TODO: 实现移除逻辑（需要在WebSocketManager中添加获取当前连接房间的方法）
+        // 获取当前已连接的房间数量
+        let current_connections = manager.connection_count().await;
+        debug!("当前WebSocket连接数: {}", current_connections);
+
+        // 如果房间数量相同，可能不需要更新（但这里仍然尝试添加，因为add_room有防重复逻辑）
+        let mut added_count = 0;
+        let mut failed_count = 0;
 
         // 添加新的连接
         for &room_id in &enabled_rooms {
-            if let Err(e) = manager.add_room(room_id).await {
-                error!("添加房间 {} 的WebSocket连接失败: {}", room_id, e);
+            match manager.add_room(room_id).await {
+                Ok(_) => {
+                    added_count += 1;
+                }
+                Err(e) => {
+                    error!("添加房间 {} 的WebSocket连接失败: {}", room_id, e);
+                    failed_count += 1;
+                }
             }
         }
 
-        info!("WebSocket连接设置完成，监控 {} 个房间", enabled_rooms.len());
+        let final_connections = manager.connection_count().await;
+        
+        if added_count > 0 || failed_count > 0 {
+            info!(
+                "WebSocket连接更新完成 - 目标房间: {}, 最终连接数: {}, 新增: {}, 失败: {}", 
+                enabled_rooms.len(), final_connections, added_count, failed_count
+            );
+        } else {
+            debug!("WebSocket连接无需更新，当前监控 {} 个房间", final_connections);
+        }
     }
 
     /// 处理WebSocket事件
