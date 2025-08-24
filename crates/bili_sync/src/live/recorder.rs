@@ -40,12 +40,6 @@ pub struct RecordSegment {
     /// 开始时间
     #[allow(dead_code)] // 开始时间字段，用于分段统计和调试
     pub start_time: Instant,
-    /// 结束时间（录制中为None）
-    pub end_time: Option<Instant>,
-    /// 文件大小（字节）
-    pub file_size: Option<u64>,
-    /// 分段序号
-    pub sequence: u32,
     /// 使用的CDN节点
     pub cdn_node: String,
 }
@@ -221,9 +215,6 @@ impl LiveRecorder {
             let segment = RecordSegment {
                 path: segment_path,
                 start_time: Instant::now(),
-                end_time: None,
-                file_size: None,
-                sequence: self.current_segment,
                 cdn_node: cdn_node.to_string(),
             };
             
@@ -243,7 +234,7 @@ impl LiveRecorder {
 
         info!("停止录制");
 
-        if let Some(mut process) = self.primary_process.take() {
+        if let Some(process) = self.primary_process.take() {
             let pid = process.id();
             
             #[cfg(windows)]
@@ -476,6 +467,9 @@ impl LiveRecorder {
 
         info!("开始无缝切换到新URL，CDN: {}", cdn_node);
 
+        // 完全禁用备用进程和所有切换操作，避免系统假死问题
+        // TODO: 重新设计无缝切换逻辑或采用分片下载方案
+        /*
         // 1. 启动备用进程开始录制下一个分段
         if self.secondary_process.is_some() {
             warn!("备用进程已存在，先停止备用进程");
@@ -502,218 +496,20 @@ impl LiveRecorder {
 
         // 6. 完成当前分段记录
         self.finalize_current_segment().await;
+        */
 
-        info!("无缝切换完成，新CDN: {}", cdn_node);
-        Ok(())
-    }
-
-    /// 启动备用进程录制新分段
-    async fn start_secondary_segment(&mut self, stream_url: &str, _cdn_node: &str) -> Result<()> {
-        let next_segment_num = self.current_segment + 1;
+        // 仅更新URL记录，让主进程的FFmpeg自己处理URL变化
+        self.current_stream_url = Some(new_stream_url);
         
-        let extension = self.final_output_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("flv");
-        
-        let segment_path = self.base_output_path
-            .with_file_name(format!("{}_segment_{:03}.{}", 
-                self.base_output_path.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(), 
-                next_segment_num, 
-                extension));
-
-        debug!("启动备用进程录制分段: {:?}", segment_path);
-
-        // 构建FFmpeg命令参数
-        let args = self.build_ffmpeg_args(stream_url, &segment_path)?;
-        
-        // 启动备用FFmpeg进程
-        let mut process = Command::new("ffmpeg")
-            .args(&args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| LiveError::RecorderStartError(format!("启动备用FFmpeg失败: {}", e)))?;
-
-        // 异步读取stderr输出
-        if let Some(stderr) = process.stderr.take() {
-            tokio::spawn(async move {
-                use std::io::{BufRead, BufReader};
-                let reader = BufReader::new(stderr);
-                
-                for line in reader.lines() {
-                    match line {
-                        Ok(line) => {
-                            let line = line.trim();
-                            if !line.is_empty() {
-                                if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
-                                    error!("备用FFmpeg错误: {}", line);
-                                } else if line.contains("warning") || line.contains("Warning") || line.contains("WARNING") {
-                                    warn!("备用FFmpeg警告: {}", line);
-                                } else {
-                                    debug!("备用FFmpeg输出: {}", line);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            debug!("读取备用FFmpeg stderr失败: {}", e);
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-
-        // 保存备用进程
-        self.secondary_process = Some(process);
-
-        // 创建新分段记录（但暂时不添加到segments列表，等切换成功后再添加）
-        info!("备用进程已启动，准备录制分段: {}", next_segment_num);
+        warn!("无缝切换已完全禁用，仅更新了URL记录");
+        info!("URL已更新为CDN: {}，主进程继续录制", cdn_node);
         Ok(())
     }
 
-    /// 停止主进程
-    async fn stop_primary_process(&mut self) -> Result<()> {
-        if let Some(mut process) = self.primary_process.take() {
-            let pid = process.id();
-            info!("停止主录制进程 PID: {}", pid);
-            
-            #[cfg(windows)]
-            {
-                // Windows：使用taskkill强制终止
-                let output = tokio::process::Command::new("taskkill")
-                    .args(&["/F", "/PID", &pid.to_string()])
-                    .output()
-                    .await?;
-                    
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(anyhow!("终止进程 {} 失败: {}", pid, stderr));
-                }
-                
-                info!("主进程 {} 已终止", pid);
-            }
-            
-            #[cfg(unix)]
-            {
-                // 发送SIGTERM信号优雅退出
-                unsafe {
-                    libc::kill(process.id() as i32, libc::SIGTERM);
-                }
-                
-                // 等待进程结束，最多等待5秒
-                let timeout = Duration::from_secs(5);
-                let start = Instant::now();
-                
-                loop {
-                    match process.try_wait() {
-                        Ok(Some(_)) => break,
-                        Ok(None) => {
-                            if start.elapsed() > timeout {
-                                warn!("主进程未在超时时间内结束，强制终止");
-                                process.kill()?;
-                                process.wait()?;
-                                break;
-                            }
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                        Err(e) => {
-                            error!("等待主进程结束时出错: {}", e);
-                            process.kill()?;
-                            return Err(anyhow!("等待进程失败: {}", e));
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
 
-    /// 停止备用进程
-    async fn stop_secondary_process(&mut self) -> Result<()> {
-        if let Some(mut process) = self.secondary_process.take() {
-            let pid = process.id();
-            info!("停止备用录制进程 PID: {}", pid);
-            
-            #[cfg(windows)]
-            {
-                // Windows：使用taskkill强制终止
-                let output = tokio::process::Command::new("taskkill")
-                    .args(&["/F", "/PID", &pid.to_string()])
-                    .output()
-                    .await?;
-                    
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(anyhow!("终止备用进程 {} 失败: {}", pid, stderr));
-                }
-                
-                info!("备用进程 {} 已终止", pid);
-            }
-            
-            #[cfg(unix)]
-            {
-                process.kill()?;
-                process.wait()?;
-            }
-        }
-        Ok(())
-    }
 
-    /// 将备用进程提升为主进程
-    fn promote_secondary_to_primary(&mut self) {
-        if let Some(secondary) = self.secondary_process.take() {
-            self.primary_process = Some(secondary);
-            self.current_segment += 1;
-            info!("备用进程已提升为主进程，当前分段: {}", self.current_segment);
-            
-            // 在分段模式下，添加新的分段记录
-            if self.segment_mode {
-                let extension = self.final_output_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("flv");
-                
-                let segment_path = self.base_output_path
-                    .with_file_name(format!("{}_segment_{:03}.{}", 
-                        self.base_output_path.file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy(), 
-                        self.current_segment, 
-                        extension));
-                
-                let segment = RecordSegment {
-                    path: segment_path,
-                    start_time: Instant::now(),
-                    end_time: None,
-                    file_size: None,
-                    sequence: self.current_segment,
-                    cdn_node: "switched".to_string(), // 临时标记，实际应从参数传入
-                };
-                
-                self.segments.push(segment);
-            }
-        } else {
-            warn!("尝试提升备用进程为主进程，但备用进程不存在");
-        }
-    }
 
-    /// 完成当前分段记录
-    async fn finalize_current_segment(&mut self) {
-        if let Some(last_segment) = self.segments.last_mut() {
-            last_segment.end_time = Some(Instant::now());
-            
-            // 尝试获取分段文件大小
-            if let Ok(metadata) = tokio::fs::metadata(&last_segment.path).await {
-                last_segment.file_size = Some(metadata.len());
-                debug!("分段 {} 完成，大小: {} bytes", 
-                    last_segment.sequence, metadata.len());
-            }
-        }
-    }
+
 
     /// 普通重启（非分段模式的后备方案）
     async fn restart_with_new_url(&mut self, new_stream_url: String) -> Result<()> {
