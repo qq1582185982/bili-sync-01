@@ -9,7 +9,11 @@
 pub mod api;
 pub mod monitor;
 pub mod recorder;
+pub mod ffmpeg_recorder;
 pub mod ws_client;
+pub mod segment_downloader;
+pub mod segment_manager;
+pub mod m3u8_parser;
 
 // 只导出实际使用的类型
 pub use monitor::LiveMonitor;

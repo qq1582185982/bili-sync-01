@@ -1003,6 +1003,33 @@ impl BiliClient {
         self.get_json(&url).await
     }
 
+    /// 发起带参数的GET请求并获取文本响应
+    pub async fn get_text_with_params(
+        &self,
+        url: &str,
+        params: &std::collections::HashMap<String, String>,
+    ) -> Result<String, anyhow::Error> {
+        let mut url = url.to_string();
+        if !params.is_empty() {
+            let query_string: String = params
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("&");
+            url = format!("{}?{}", url, query_string);
+        }
+        
+        let builder = self.request(reqwest::Method::GET, &url).await;
+        let response = builder.send().await?;
+        
+        if !response.status().is_success() {
+            return Err(anyhow!("HTTP请求失败: {}", response.status()));
+        }
+        
+        let text = response.text().await?;
+        Ok(text)
+    }
+
     /// 发起HEAD请求，用于健康检查
     #[allow(dead_code)] // HEAD请求方法，暂时只在健康检查接口中使用
     pub async fn head(&self, url: &str) -> Result<reqwest::Response, anyhow::Error> {

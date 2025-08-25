@@ -308,6 +308,16 @@ impl ConfigManager {
         Ok(())
     }
 
+    /// 检查配置项是否存在
+    pub async fn config_item_exists(&self, key: &str) -> Result<bool> {
+        let existing = ConfigItem::find()
+            .filter(config_item::Column::KeyName.eq(key))
+            .one(&self.db)
+            .await?;
+        
+        Ok(existing.is_some())
+    }
+
     /// 获取配置变更历史 (使用原生SQL)
     pub async fn get_config_history(
         &self,

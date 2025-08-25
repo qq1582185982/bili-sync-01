@@ -192,10 +192,17 @@ pub struct Config {
     // 启动时填充缺失视频CID功能开关（默认关闭）
     #[serde(default)]
     pub enable_cid_population: bool,
+    // 直播录制模式配置
+    #[serde(default = "default_live_recording_mode")]
+    pub live_recording_mode: String,
 }
 
 fn default_skip_bangumi_preview() -> bool {
     true // 默认跳过预告片
+}
+
+fn default_live_recording_mode() -> String {
+    "ffmpeg".to_string() // 默认使用FFmpeg模式
 }
 
 fn default_aria2_health_check_interval() -> u64 {
@@ -334,6 +341,7 @@ impl Clone for Config {
             notification: self.notification.clone(),
             enable_startup_data_fix: self.enable_startup_data_fix,
             enable_cid_population: self.enable_cid_population,
+            live_recording_mode: self.live_recording_mode.clone(),
         }
     }
 }
@@ -373,6 +381,7 @@ impl Default for Config {
             notification: NotificationConfig::default(),
             enable_startup_data_fix: false, // 默认关闭，减少不必要的日志
             enable_cid_population: false, // 默认关闭，减少不必要的日志
+            live_recording_mode: default_live_recording_mode(),
         }
     }
 }

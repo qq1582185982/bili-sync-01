@@ -9,6 +9,7 @@ use tracing::{info, warn};
 
 use crate::config::clap::Args;
 use crate::config::{Config, ConfigBundle};
+use serde_json::Value;
 
 /// 全局的配置包，使用 ArcSwap 支持热重载
 /// 包含配置、模板引擎、限流器等所有需要热重载的组件
@@ -281,10 +282,16 @@ pub async fn init_config_with_database(db: sea_orm::DatabaseConnection) -> Resul
     let new_bundle = manager.load_config_bundle().await?;
 
     // 设置全局配置管理器
-    set_config_manager(manager);
+    set_config_manager(manager.clone());
+    
+    // 确保默认的直播录制模式配置存在
+    if let Err(e) = ensure_default_live_recording_config(&manager).await {
+        warn!("设置默认直播录制模式配置失败: {}", e);
+    }
 
-    // 更新全局配置包
-    CONFIG_BUNDLE.store(Arc::new(new_bundle));
+    // 更新全局配置包（重新加载以包含新添加的配置）
+    let updated_bundle = manager.load_config_bundle().await?;
+    CONFIG_BUNDLE.store(Arc::new(updated_bundle));
 
     // 配置检查已简化，因为配置现在完全基于数据库
     info!("检查配置..");
@@ -367,4 +374,21 @@ fn load_config_test() -> Config {
         cdn_sorting: true,
         ..Default::default()
     }
+}
+
+/// 确保默认的直播录制模式配置存在
+async fn ensure_default_live_recording_config(manager: &crate::config::ConfigManager) -> Result<()> {
+    // 检查配置项是否存在
+    if manager.config_item_exists("live_recording_mode").await? {
+        debug!("直播录制模式配置已存在");
+        return Ok(());
+    }
+
+    // 如果不存在，创建默认配置
+    info!("创建默认的直播录制模式配置: ffmpeg");
+    let default_value = Value::String("ffmpeg".to_string());
+    manager.update_config_item("live_recording_mode", default_value).await?;
+    info!("默认直播录制模式配置已设置");
+
+    Ok(())
 }

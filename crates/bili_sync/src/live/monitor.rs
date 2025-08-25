@@ -11,10 +11,26 @@ use tracing::{debug, error, info, warn};
 use bili_sync_entity::{live_monitor, live_record};
 use crate::bilibili::BiliClient;
 use crate::utils::time_format::now_standard_string;
+use crate::config::with_config;
 
 use super::api::{LiveApiClient, LiveStatus, Quality, StreamUrlPool};
 use super::recorder::LiveRecorder;
 use super::ws_client::{WebSocketEvent, WebSocketManager};
+
+/// 录制模式配置
+#[derive(Debug, Clone, PartialEq)]
+pub enum RecordingMode {
+    /// FFmpeg模式（默认）
+    FFmpeg,
+    /// 分片下载模式（使用正确的HLS API）
+    Segment,
+}
+
+impl Default for RecordingMode {
+    fn default() -> Self {
+        RecordingMode::FFmpeg
+    }
+}
 
 /// 监控配置
 #[derive(Debug, Clone)]
@@ -32,10 +48,20 @@ pub struct MonitorConfig {
     pub format: String,
     pub max_file_size: i64,
     pub last_status: LiveStatus,
+    /// 录制模式（新增）
+    pub recording_mode: RecordingMode,
 }
 
 impl From<live_monitor::Model> for MonitorConfig {
     fn from(model: live_monitor::Model) -> Self {
+        // 从全局配置中读取录制模式
+        let recording_mode = with_config(|config_bundle| {
+            match config_bundle.config.live_recording_mode.as_str() {
+                "segment" => RecordingMode::Segment,
+                "ffmpeg" | _ => RecordingMode::FFmpeg, // 默认FFmpeg模式
+            }
+        });
+        
         Self {
             id: model.id,
             upper_id: model.upper_id,
@@ -49,6 +75,7 @@ impl From<live_monitor::Model> for MonitorConfig {
             format: model.format,
             max_file_size: model.max_file_size,
             last_status: LiveStatus::from(model.last_status),
+            recording_mode,
         }
     }
 }
@@ -270,6 +297,7 @@ impl LiveMonitor {
                             if let Err(e) = Self::handle_websocket_event(
                                 &db,
                                 &live_client,
+                                &bili_client,
                                 &configs,
                                 &recorders,
                                 &url_pools,
@@ -287,7 +315,7 @@ impl LiveMonitor {
                         }
 
                         // 复刻bililive-go: 检查录制器状态并自动重启
-                        Self::check_and_restart_recorders(&db, &live_client, &configs, &recorders, &url_pools).await;
+                        Self::check_and_restart_recorders(&db, &live_client, &bili_client, &configs, &recorders, &url_pools).await;
                         
                         // 重新加载配置并更新WebSocket连接
                         match Self::reload_configs_static(&db, &configs).await {
@@ -327,6 +355,7 @@ impl LiveMonitor {
     async fn start_recording(
         db: &DatabaseConnection,
         live_client: &LiveApiClient<'static>,
+        bili_client: &Arc<BiliClient>,
         config: &MonitorConfig,
         room_info: &super::api::LiveRoomInfo,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
@@ -416,16 +445,66 @@ impl LiveMonitor {
             }
         };
 
+        // 根据配置启动对应模式的录制器
+        debug!("启动录制器，输出文件: {:?}，模式: {:?}", output_path, config.recording_mode);
+        let mut recorder = match config.recording_mode {
+            RecordingMode::FFmpeg => {
+                info!("使用FFmpeg模式录制");
+                LiveRecorder::new_ffmpeg(output_path.clone(), config.max_file_size)
+            }
+            RecordingMode::Segment => {
+                info!("使用分片模式录制（HLS API），工作目录: {:?}", output_path.parent().unwrap_or(&output_path));
+                
+                // 分片模式使用父目录作为工作目录
+                let work_dir = output_path.parent().unwrap_or(&output_path);
+                
+                match LiveRecorder::new_segment(
+                    work_dir, 
+                    config.room_id, 
+                    config.quality, 
+                    bili_client.clone()
+                ).await {
+                    Ok(recorder) => recorder,
+                    Err(e) => {
+                        error!("创建分片模式录制器失败: {}，回退到FFmpeg模式", e);
+                        warn!("分片模式启动失败，当前使用FFmpeg模式");
+                        LiveRecorder::new_ffmpeg(output_path.clone(), config.max_file_size)
+                    }
+                }
+            }
+        };
         // 启动录制器
-        debug!("启动录制器，输出文件: {:?}", output_path);
-        let mut recorder = LiveRecorder::new(output_path.clone(), config.max_file_size);
         if let Err(e) = recorder.start(stream_url.clone()).await {
             error!("启动录制器失败: {}", e);
-            // 启动失败时，更新录制记录状态为错误
-            if let Err(db_err) = Self::update_record_status(db, record_result.id, 3).await {
-                error!("更新录制记录状态失败: {}", db_err);
+            
+            // 如果是分片模式失败，尝试自动回退到FFmpeg模式
+            if config.recording_mode == RecordingMode::Segment {
+                warn!("分片模式启动失败，自动回退到FFmpeg模式");
+                
+                // 重新创建FFmpeg录制器
+                let mut ffmpeg_recorder = LiveRecorder::new_ffmpeg(output_path.clone(), config.max_file_size);
+                
+                match ffmpeg_recorder.start(stream_url.clone()).await {
+                    Ok(_) => {
+                        info!("✅ FFmpeg模式启动成功，作为分片模式的回退");
+                        recorder = ffmpeg_recorder;
+                    }
+                    Err(ffmpeg_err) => {
+                        error!("FFmpeg模式也启动失败: {}", ffmpeg_err);
+                        // 启动失败时，更新录制记录状态为错误
+                        if let Err(db_err) = Self::update_record_status(db, record_result.id, 3).await {
+                            error!("更新录制记录状态失败: {}", db_err);
+                        }
+                        return Err(anyhow!("分片模式和FFmpeg模式都启动失败: 分片={}, FFmpeg={}", e, ffmpeg_err));
+                    }
+                }
+            } else {
+                // FFmpeg模式失败，直接返回错误
+                if let Err(db_err) = Self::update_record_status(db, record_result.id, 3).await {
+                    error!("更新录制记录状态失败: {}", db_err);
+                }
+                return Err(anyhow!("启动录制器失败: {}", e));
             }
-            return Err(anyhow!("启动录制器失败: {}", e));
         }
 
         // 录制器启动成功，确保状态为录制中
@@ -472,31 +551,31 @@ impl LiveMonitor {
                 error!("停止录制器失败: {}", e);
             }
 
-            // 合并分段文件（如果是分段模式）
-            if let Err(e) = recorder.merge_segments().await {
-                error!("监控ID {} 合并分段文件失败: {}", monitor_id, e);
-            } else {
-                info!("监控ID {} 分段文件合并完成", monitor_id);
-            }
+            // FFmpeg模式不需要合并和清理操作，直接录制到最终文件
+            debug!("监控ID {} FFmpeg模式录制完成", monitor_id);
 
-            // 清理临时分段文件
-            if let Err(e) = recorder.cleanup_segments().await {
-                warn!("监控ID {} 清理分段文件失败: {}", monitor_id, e);
-            } else {
-                debug!("监控ID {} 分段文件清理完成", monitor_id);
-            }
-
-            // 获取最终文件大小
-            let file_size = if let Some(ref path) = recorder.output_path() {
-                match tokio::fs::metadata(path).await {
-                    Ok(metadata) => Some(metadata.len() as i64),
-                    Err(e) => {
-                        warn!("无法获取录制文件大小: {}", e);
-                        None
+            // 获取最终文件大小和路径（支持分片模式）
+            let (file_size, final_path) = {
+                let detailed_stats = recorder.get_detailed_stats().await;
+                let file_size = if detailed_stats.file_size > 0 {
+                    Some(detailed_stats.file_size as i64)
+                } else if let Some(ref path) = recorder.output_path().await {
+                    // 后备方案：从文件系统获取大小
+                    match tokio::fs::metadata(path).await {
+                        Ok(metadata) => Some(metadata.len() as i64),
+                        Err(e) => {
+                            warn!("无法获取录制文件大小: {}", e);
+                            None
+                        }
                     }
-                }
-            } else {
-                None
+                } else {
+                    None
+                };
+                
+                // 获取最终的输出路径（分片模式会返回合并后的MP4文件路径）
+                let final_path = recorder.output_path().await;
+                
+                (file_size, final_path)
             };
 
             // 更新录制记录
@@ -508,6 +587,12 @@ impl LiveMonitor {
 
             record.end_time = ActiveValue::Set(Some(now_standard_string()));
             record.file_size = ActiveValue::Set(file_size);
+            
+            // 更新文件路径（如果有最终路径）
+            if let Some(final_path) = final_path {
+                record.file_path = ActiveValue::Set(Some(final_path.to_string_lossy().to_string()));
+            }
+            
             record.status = ActiveValue::Set(1); // 完成
             
 
@@ -584,6 +669,7 @@ impl LiveMonitor {
     async fn check_and_restart_recorders(
         db: &DatabaseConnection,
         live_client: &LiveApiClient<'static>,
+        bili_client: &Arc<BiliClient>,
         configs: &Arc<RwLock<Vec<MonitorConfig>>>,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
         url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
@@ -643,7 +729,7 @@ impl LiveMonitor {
                                 // 1秒后重新开始录制（更快的恢复速度）
                                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                                 
-                                if let Err(e) = Self::start_recording(db, live_client, &config, &room_info, recorders, url_pools).await {
+                                if let Err(e) = Self::start_recording(db, live_client, &bili_client, &config, &room_info, recorders, url_pools).await {
                                     error!("重新开始录制失败: {}", e);
                                 }
                             }
@@ -722,6 +808,7 @@ impl LiveMonitor {
     async fn handle_websocket_event(
         db: &DatabaseConnection,
         live_client: &LiveApiClient<'static>,
+        bili_client: &Arc<BiliClient>,
         configs: &Arc<RwLock<Vec<MonitorConfig>>>,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
         url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
@@ -747,7 +834,7 @@ impl LiveMonitor {
                             debug!("房间 {} 开播，获取直播信息并启动录制", room_id);
                             if let Ok((_, room_info)) = live_client.get_live_status_by_room_id(room_id).await {
                                 if let Some(room_info) = room_info {
-                                    if let Err(e) = Self::start_recording(db, live_client, config, &room_info, recorders, url_pools).await {
+                                    if let Err(e) = Self::start_recording(db, live_client, &bili_client, config, &room_info, recorders, url_pools).await {
                                         error!("启动录制失败: {}", e);
                                     }
                                 } else {

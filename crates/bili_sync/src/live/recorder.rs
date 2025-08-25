@@ -1,12 +1,41 @@
 use anyhow::{anyhow, Result};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use std::sync::Arc;
 use tokio::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
-use super::LiveError;
+use crate::bilibili::BiliClient;
+use super::api::Quality;
+use super::segment_downloader::SegmentDownloader;
+use super::segment_manager::SegmentManager;
+use super::ffmpeg_recorder::FFmpegRecorder;
+
+/// 录制模式
+pub enum RecorderMode {
+    /// FFmpeg模式
+    FFmpeg(FFmpegRecorder),
+    /// 分片下载模式（使用正确的HLS API）
+    Segment(SegmentRecorder),
+}
+
+// 手动实现Debug以避免传播错误
+impl std::fmt::Debug for RecorderMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RecorderMode::FFmpeg(_) => write!(f, "RecorderMode::FFmpeg(..)"),
+            RecorderMode::Segment(_) => write!(f, "RecorderMode::Segment(..)"),
+        }
+    }
+}
+
+impl std::fmt::Debug for SegmentRecorder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SegmentRecorder")
+            .field("room_id", &self.room_id)
+            .field("quality", &self.quality)
+            .finish()
+    }
+}
 
 /// 录制状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +51,7 @@ pub enum RecordStatus {
 }
 
 /// 录制统计信息
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RecordStats {
     /// 录制开始时间
     pub start_time: Option<Instant>,
@@ -35,54 +64,341 @@ pub struct RecordStats {
 }
 
 
-/// 直播录制器（支持分段录制）
+/// 直播录制器（支持双模式）
 #[derive(Debug)]
 pub struct LiveRecorder {
-    /// 最终合并文件路径
-    final_output_path: PathBuf,
-    /// 主FFmpeg进程
-    primary_process: Option<Child>,
-    /// 主FFmpeg进程的stdin（用于优雅停止）
-    primary_stdin: Option<ChildStdin>,
+    /// 录制模式
+    mode: RecorderMode,
     /// 录制状态
     status: RecordStatus,
     /// 录制统计
     stats: RecordStats,
-    /// 当前使用的流URL
-    current_stream_url: Option<String>,
-    /// 最大文件大小（字节），0表示无限制
-    max_file_size: i64,
-    // 分段相关字段已移除，直接录制最终文件
+}
+
+// FFmpeg录制器已移至独立文件 ffmpeg_recorder.rs
+
+/// 分片录制器（新增）
+pub struct SegmentRecorder {
+    /// 录制质量
+    quality: Quality,
+    /// 房间ID
+    room_id: i64,
+    /// 工作目录
+    work_dir: PathBuf,
+    /// B站客户端
+    bili_client: Arc<BiliClient>,
+    /// 下载循环任务句柄
+    download_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl SegmentRecorder {
+    /// 创建分片录制器
+    pub async fn new<P: AsRef<Path>>(
+        work_dir: P,
+        room_id: i64,
+        quality: Quality,
+        bili_client: Arc<BiliClient>,
+    ) -> Result<Self> {
+        let work_dir = work_dir.as_ref().to_path_buf();
+        
+        // 确保工作目录存在
+        tokio::fs::create_dir_all(&work_dir).await
+            .map_err(|e| anyhow::anyhow!("创建工作目录失败: {}", e))?;
+        
+        Ok(Self {
+            quality,
+            room_id,
+            work_dir,
+            bili_client,
+            download_handle: None,
+        })
+    }
+    
+    /// 检查录制器是否正在运行
+    pub fn is_running(&self) -> bool {
+        self.download_handle.is_some() && 
+        !self.download_handle.as_ref().unwrap().is_finished()
+    }
+    
+    /// 获取录制状态
+    pub fn get_status(&self) -> RecordStatus {
+        if self.is_running() {
+            RecordStatus::Recording
+        } else if self.download_handle.is_some() {
+            RecordStatus::Stopped
+        } else {
+            RecordStatus::Idle
+        }
+    }
+    
+    /// 开始分片下载
+    pub async fn start(&mut self) -> Result<()> {
+        info!("开始分片模式录制，房间ID: {}", self.room_id);
+        
+        if self.download_handle.is_some() {
+            return Err(anyhow!("分片录制器已在运行中"));
+        }
+        
+        // 克隆必要的数据用于异步任务
+        let room_id = self.room_id;
+        let quality = self.quality;
+        let work_dir = self.work_dir.clone();
+        let bili_client = self.bili_client.clone();
+        
+        // 启动分片录制主循环（复刻bililive-go的实现）
+        let handle = tokio::spawn(async move {
+            info!("分片录制主循环已启动，房间: {}", room_id);
+            
+            // 初始化下载器和管理器
+            let mut downloader = match SegmentDownloader::new(
+                bili_client,
+                work_dir.clone(),
+                room_id,
+                quality,
+            ).await {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("初始化分片下载器失败: {}", e);
+                    return;
+                }
+            };
+            
+            let mut manager = match SegmentManager::new(&work_dir).await {
+                Ok(m) => m,
+                Err(e) => {
+                    error!("初始化分片管理器失败: {}", e);
+                    return;
+                }
+            };
+            
+            // 启动下载器
+            if let Err(e) = downloader.start().await {
+                error!("启动分片下载器失败: {}", e);
+                return;
+            }
+            
+            // 主循环：持续下载新分片
+            let mut download_interval = tokio::time::interval(Duration::from_secs(3)); // 每3秒检查一次新分片
+            let mut m3u8_refresh_interval = tokio::time::interval(Duration::from_secs(30)); // 每30秒刷新M3U8 URL
+            let mut stats_interval = tokio::time::interval(Duration::from_secs(60)); // 每60秒输出统计信息
+            
+            loop {
+                tokio::select! {
+                    // 主要的分片下载循环
+                    _ = download_interval.tick() => {
+                        match downloader.download_round().await {
+                            Ok(downloaded_segments) => {
+                                if !downloaded_segments.is_empty() {
+                                    info!("成功下载 {} 个新分片", downloaded_segments.len());
+                                    
+                                    // 将下载成功的分片信息同步到管理器
+                                    for (segment_info, file_size) in downloaded_segments {
+                                        if let Err(e) = manager.add_segment(&segment_info, file_size).await {
+                                            error!("添加分片到管理器失败: {}", e);
+                                        }
+                                    }
+                                    
+                                    // 检查磁盘空间（每次下载后）
+                                    if let Err(e) = manager.check_disk_space(200).await {
+                                        error!("磁盘空间检查失败: {}", e);
+                                    }
+                                    
+                                    // 输出下载统计
+                                    debug!("分片下载统计: {:#?}", downloader.stats());
+                                    
+                                    // 可选：清理旧分片文件（保持磁盘空间）
+                                    // let segment_count = manager.segment_count();
+                                    // if segment_count > 50 { // 保留最近50个分片
+                                    //     if let Ok(cleaned) = manager.cleanup_segments(50).await {
+                                    //         debug!("清理了 {} 个旧分片文件", cleaned);
+                                    //     }
+                                    // }
+                                }
+                            }
+                            Err(e) => {
+                                error!("分片下载失败: {}", e);
+                                
+                                // 下载失败时等待更长时间再重试
+                                tokio::time::sleep(Duration::from_secs(10)).await;
+                            }
+                        }
+                    }
+                    
+                    // 定期刷新M3U8 URL（防止URL过期）
+                    _ = m3u8_refresh_interval.tick() => {
+                        if let Err(e) = downloader.refresh_m3u8_url().await {
+                            error!("刷新M3U8 URL失败: {}", e);
+                        } else {
+                            debug!("M3U8 URL已刷新");
+                        }
+                    }
+                    
+                    // 定期输出统计信息和维护任务
+                    _ = stats_interval.tick() => {
+                        let downloader_stats = downloader.stats();
+                        let manager_stats = manager.stats();
+                        
+                        info!(
+                            "录制统计 - 下载器: [总分片: {}, 成功: {}, 失败: {}, 总大小: {} MB, 成功率: {:.1}%]",
+                            downloader_stats.total_segments,
+                            downloader_stats.successful_downloads,
+                            downloader_stats.failed_downloads,
+                            downloader_stats.total_bytes / 1024 / 1024,
+                            downloader_stats.success_rate() * 100.0
+                        );
+                        
+                        info!(
+                            "录制统计 - 管理器: [总分片: {}, 已下载: {}, 总时长: {:.1}s, 总大小: {} MB]",
+                            manager_stats.total_segments,
+                            manager_stats.downloaded_segments,
+                            manager_stats.total_duration,
+                            manager_stats.total_size / 1024 / 1024
+                        );
+                        
+                        // 生成并保存M3U8播放列表
+                        if let Err(e) = manager.save_m3u8_playlist(true).await {
+                            warn!("保存M3U8播放列表失败: {}", e);
+                        } else {
+                            debug!("M3U8播放列表已更新");
+                        }
+                        
+                        // 智能清理磁盘空间（复刻bililive-go的段文件管理）
+                        match manager.smart_cleanup().await {
+                            Ok(cleaned) => {
+                                if cleaned > 0 {
+                                    info!("智能清理完成：清理了 {} 个旧分片文件，当前保留 {} 个分片", 
+                                          cleaned, manager.segment_count());
+                                }
+                            }
+                            Err(e) => {
+                                warn!("智能清理失败: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        self.download_handle = Some(handle);
+        
+        info!("分片录制已启动，后台下载循环正在运行");
+        Ok(())
+    }
+    
+    /// 停止分片下载
+    pub async fn stop(&mut self) -> Result<()> {
+        info!("停止分片模式录制");
+        
+        if let Some(handle) = self.download_handle.take() {
+            handle.abort();
+            debug!("已终止下载循环任务");
+        }
+        
+        Ok(())
+    }
+    
+    /// 获取输出文件路径（录制停止后返回合并的MP4文件路径）
+    pub async fn output_path(&self) -> Result<Option<PathBuf>> {
+        // 优先返回合并后的MP4文件
+        let work_dir_name = self.work_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("recording");
+        
+        let parent_dir = self.work_dir.parent().unwrap_or(&self.work_dir);
+        let mp4_path = parent_dir.join(format!("{}.mp4", work_dir_name));
+        
+        // 如果MP4文件已存在（已合并），返回MP4路径
+        if mp4_path.exists() {
+            Ok(Some(mp4_path))
+        } else {
+            // 否则返回M3U8播放列表文件
+            let playlist_path = self.work_dir.join("playlist.m3u8");
+            
+            if playlist_path.exists() {
+                Ok(Some(playlist_path))
+            } else {
+                // 最后返回工作目录
+                warn!("未找到输出文件，返回工作目录路径");
+                Ok(Some(self.work_dir.clone()))
+            }
+        }
+    }
 }
 
 impl LiveRecorder {
-    #[allow(dead_code)] // 录制器方法，部分暂时未使用但需要保留
-    /// 创建新的录制器
-    /// 
-    /// # Arguments
-    /// * `output_path` - 输出文件路径
-    /// * `max_file_size` - 最大文件大小（字节），0表示无限制
-    pub fn new<P: AsRef<Path>>(output_path: P, max_file_size: i64) -> Self {
-        let final_output_path = output_path.as_ref().to_path_buf();
+    /// 创建FFmpeg模式录制器
+    pub fn new_ffmpeg<P: AsRef<Path>>(output_path: P, max_file_size: i64) -> Self {
+        let ffmpeg_recorder = FFmpegRecorder::new(output_path, max_file_size);
         
         Self {
-            final_output_path,
-            primary_process: None,
-            primary_stdin: None,
+            mode: RecorderMode::FFmpeg(ffmpeg_recorder),
             status: RecordStatus::Idle,
             stats: RecordStats::default(),
-            current_stream_url: None,
-            max_file_size,
+        }
+    }
+    
+    /// 创建分片模式录制器
+    pub async fn new_segment<P: AsRef<Path>>(
+        work_dir: P,
+        room_id: i64,
+        quality: Quality,
+        bili_client: Arc<BiliClient>,
+    ) -> Result<Self> {
+        let segment_recorder = SegmentRecorder::new(
+            work_dir,
+            room_id,
+            quality,
+            bili_client,
+        ).await?;
+        
+        Ok(Self {
+            mode: RecorderMode::Segment(segment_recorder),
+            status: RecordStatus::Idle,
+            stats: RecordStats::default(),
+        })
+    }
+    
+    /// 根据配置创建录制器
+    pub async fn new_with_mode<P: AsRef<Path>>(
+        output_path: P,
+        max_file_size: i64,
+        use_segment_mode: bool,
+        room_id: i64,
+        quality: Quality,
+        bili_client: Arc<BiliClient>,
+    ) -> Result<Self> {
+        if use_segment_mode {
+            info!("创建分片模式录制器");
+            Self::new_segment(output_path, room_id, quality, bili_client).await
+        } else {
+            info!("创建FFmpeg模式录制器");
+            Ok(Self::new_ffmpeg(output_path, max_file_size))
         }
     }
     
 
     /// 开始录制
-    /// 
-    /// # Arguments
-    /// * `stream_url` - 直播流地址
     pub async fn start(&mut self, stream_url: String) -> Result<()> {
-        self.start_with_cdn(&stream_url, "unknown").await
+        if self.status == RecordStatus::Recording {
+            return Err(anyhow!("录制器已在录制中"));
+        }
+
+        match &mut self.mode {
+            RecorderMode::FFmpeg(recorder) => {
+                recorder.start_with_cdn(&stream_url, "unknown").await?;
+            }
+            RecorderMode::Segment(recorder) => {
+                recorder.start().await?;
+            }
+        }
+
+        self.status = RecordStatus::Recording;
+        self.stats.start_time = Some(Instant::now());
+        self.stats.is_recording = true;
+
+        info!("录制已启动");
+        Ok(())
     }
     
     /// 开始录制（指定CDN节点）
@@ -95,157 +411,24 @@ impl LiveRecorder {
             return Err(anyhow!("录制器已在录制中"));
         }
 
-        info!("开始录制流: {}, CDN: {}", stream_url, cdn_node);
-        
-        // 确保输出目录存在
-        if let Some(parent) = self.final_output_path.parent() {
-            tokio::fs::create_dir_all(parent).await
-                .map_err(|e| LiveError::FileError(e))?;
+        match &mut self.mode {
+            RecorderMode::FFmpeg(recorder) => {
+                recorder.start_with_cdn(stream_url, cdn_node).await?;
+            }
+            RecorderMode::Segment(recorder) => {
+                // 分片模式不需要stream_url，直接启动
+                recorder.start().await?;
+            }
         }
-
-        // 检查ffmpeg是否可用
-        if !self.is_ffmpeg_available().await {
-            return Err(anyhow!("FFmpeg不可用，请确保已安装FFmpeg"));
-        }
-
-        // 启动录制进程
-        self.start_recording(stream_url, cdn_node).await?;
 
         self.status = RecordStatus::Recording;
-        self.current_stream_url = Some(stream_url.to_string());
         self.stats.start_time = Some(Instant::now());
         self.stats.is_recording = true;
 
-        info!("录制已启动，直接录制模式");
+        info!("录制已启动，CDN: {}", cdn_node);
         Ok(())
     }
     
-    /// 启动录制进程
-    async fn start_recording(&mut self, stream_url: &str, cdn_node: &str) -> Result<()> {
-        
-        // 直接使用最终输出文件路径，不使用分段模式
-        let segment_path = self.final_output_path.clone();
-
-        debug!("启动录制: {:?}, CDN: {}", segment_path, cdn_node);
-
-        // 构建FFmpeg命令参数
-        let args = self.build_ffmpeg_args(stream_url, &segment_path)?;
-        
-        debug!("FFmpeg命令参数: {:?}", args);
-
-        // 启动FFmpeg进程（使用tokio异步进程）
-        let mut process = Command::new("ffmpeg")
-            .args(&args)
-            .stdin(std::process::Stdio::piped())  // 改为piped以便发送停止命令
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| LiveError::RecorderStartError(format!("启动FFmpeg失败: {}", e)))?;
-
-        // 保存stdin句柄用于优雅停止
-        self.primary_stdin = process.stdin.take();
-
-        // 异步读取stdout进度信息
-        if let Some(stdout) = process.stdout.take() {
-            tokio::spawn(async move {
-                let reader = BufReader::new(stdout);
-                let mut lines = reader.lines();
-                let mut progress_data = HashMap::new();
-                
-                while let Ok(Some(line)) = lines.next_line().await {
-                    // FFmpeg进度格式: key=value
-                    if line.contains("=") {
-                        let parts: Vec<&str> = line.splitn(2, '=').collect();
-                        if parts.len() == 2 {
-                            progress_data.insert(parts[0].to_string(), parts[1].to_string());
-                        }
-                    }
-                    
-                    // 当收到 progress=continue 时，处理这批数据
-                    if line == "progress=continue" {
-                        // 监控录制速度
-                        if let Some(speed) = progress_data.get("speed") {
-                            // 解析速度（如 "0.998x"）
-                            if let Some(speed_str) = speed.strip_suffix('x') {
-                                if let Ok(speed_val) = speed_str.parse::<f64>() {
-                                    if speed_val < 0.95 {
-                                        warn!("录制速度过慢: {}x，可能丢帧", speed_val);
-                                    } else if speed_val > 1.05 {
-                                        debug!("录制速度: {}x", speed_val);
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // 监控帧率
-                        if let Some(fps) = progress_data.get("fps") {
-                            if let Ok(fps_val) = fps.parse::<f64>() {
-                                if fps_val < 20.0 {
-                                    warn!("当前FPS过低: {}", fps_val);
-                                } else {
-                                    debug!("当前FPS: {}", fps_val);
-                                }
-                            }
-                        }
-                        
-                        // 监控比特率
-                        if let Some(bitrate) = progress_data.get("bitrate") {
-                            debug!("当前比特率: {}", bitrate);
-                        }
-                        
-                        // 监控录制时长
-                        if let Some(time) = progress_data.get("out_time_ms") {
-                            if let Ok(time_ms) = time.parse::<u64>() {
-                                let duration_sec = time_ms / 1_000_000;
-                                debug!("已录制: {}秒", duration_sec);
-                            }
-                        }
-                        
-                        // 清空数据准备下一批
-                        progress_data.clear();
-                    }
-                }
-            });
-        }
-
-        // 异步读取stderr输出，检测403/404错误并主动终止
-        if let Some(stderr) = process.stderr.take() {
-            let process_id = process.id();
-            tokio::spawn(async move {
-                let reader = BufReader::new(stderr);
-                let mut lines = reader.lines();
-                
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let line = line.trim();
-                    if !line.is_empty() {
-                        // 检测URL过期错误（403 Forbidden, 404 Not Found）
-                        if line.contains("403 Forbidden") || line.contains("404 Not Found") || 
-                           line.contains("HTTP error 403") || line.contains("HTTP error 404") {
-                            error!("检测到URL过期错误，FFmpeg将快速失败: {}", line);
-                            // 不需要主动kill进程，FFmpeg会因为网络错误自然退出
-                            // 这样check_and_restart_recorders会更快检测到并重新获取URL
-                        } else if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
-                            error!("FFmpeg错误: {}", line);
-                        } else if line.contains("warning") || line.contains("Warning") || line.contains("WARNING") {
-                            warn!("FFmpeg警告: {}", line);
-                        } else {
-                            debug!("FFmpeg输出: {}", line);
-                        }
-                    }
-                }
-                
-                debug!("FFmpeg进程 {:?} 的stderr读取已结束", process_id);
-            });
-        }
-
-        // 保存进程到主进程槽
-        self.primary_process = Some(process);
-
-        // 不使用分段模式，直接录制到最终文件
-
-        info!("录制已启动，PID: {:?}", self.primary_process.as_ref().map(|p| p.id()));
-        Ok(())
-    }
 
     /// 停止录制
     pub async fn stop(&mut self) -> Result<()> {
@@ -255,62 +438,12 @@ impl LiveRecorder {
 
         info!("停止录制");
 
-        if let Some(mut process) = self.primary_process.take() {
-            let pid = process.id();
-            
-            // 优先尝试优雅停止
-            if let Some(mut stdin) = self.primary_stdin.take() {
-                match stdin.write_all(b"q").await {
-                    Ok(_) => {
-                        if let Err(e) = stdin.flush().await {
-                            warn!("flush stdin失败: {}", e);
-                        }
-                        info!("已发送优雅停止命令到FFmpeg进程 {:?}", pid);
-                        
-                        // 等待进程自然退出（最多10秒）
-                        let timeout = Duration::from_secs(10);
-                        let start = Instant::now();
-                        
-                        loop {
-                            match process.try_wait() {
-                                Ok(Some(status)) => {
-                                    info!("FFmpeg优雅退出，PID: {:?}，状态: {:?}", pid, status);
-                                    break;
-                                }
-                                Ok(None) => {
-                                    if start.elapsed() > timeout {
-                                        warn!("FFmpeg未在{}秒内响应停止命令，强制终止", timeout.as_secs());
-                                        if let Err(e) = process.kill().await {
-                                            error!("强制终止进程失败: {}", e);
-                                        }
-                                        break;
-                                    }
-                                    tokio::time::sleep(Duration::from_millis(100)).await;
-                                }
-                                Err(e) => {
-                                    error!("等待进程退出时出错: {}", e);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!("发送优雅停止命令失败: {}，强制终止进程", e);
-                        if let Err(e) = process.kill().await {
-                            error!("强制终止进程失败: {}", e);
-                        }
-                    }
-                }
-            } else {
-                warn!("stdin不可用，强制终止FFmpeg进程 {:?}", pid);
-                if let Err(e) = process.kill().await {
-                    error!("强制终止进程失败: {}", e);
-                }
+        match &mut self.mode {
+            RecorderMode::FFmpeg(recorder) => {
+                recorder.stop().await?;
             }
-            
-            // 确保进程完全退出
-            if let Err(e) = process.wait().await {
-                warn!("等待FFmpeg进程退出失败: {}", e);
+            RecorderMode::Segment(recorder) => {
+                recorder.stop().await?;
             }
         }
 
@@ -323,201 +456,176 @@ impl LiveRecorder {
         }
 
         // 获取文件大小
-        if let Ok(metadata) = tokio::fs::metadata(&self.final_output_path).await {
-            self.stats.file_size = metadata.len();
+        match &self.mode {
+            RecorderMode::FFmpeg(recorder) => {
+                if let Some(path) = recorder.output_path() {
+                    if let Ok(metadata) = tokio::fs::metadata(path).await {
+                        self.stats.file_size = metadata.len();
+                    }
+                }
+                info!("FFmpeg录制已停止，文件大小: {} 字节", self.stats.file_size);
+            }
+            RecorderMode::Segment(recorder) => {
+                // 分片模式需要合并分片为最终的MP4文件
+                if let Ok(mut segment_manager) = super::segment_manager::SegmentManager::new(&recorder.work_dir).await {
+                    // 先获取统计信息并克隆需要的数据
+                    let (total_segments, downloaded_segments, total_size, total_duration) = {
+                        let segment_stats = segment_manager.stats();
+                        (
+                            segment_stats.total_segments,
+                            segment_stats.downloaded_segments,
+                            segment_stats.total_size,
+                            segment_stats.total_duration,
+                        )
+                    };
+                    
+                    info!("分片录制已停止 - 总分片: {}, 成功下载: {}, 总大小: {} MB, 总时长: {:.1} 秒", 
+                          total_segments,
+                          downloaded_segments,
+                          total_size / 1024 / 1024,
+                          total_duration);
+                    
+                    // 生成最终的MP4文件路径
+                    let mp4_path = {
+                        let work_dir_name = recorder.work_dir
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("recording");
+                        
+                        let parent_dir = recorder.work_dir.parent().unwrap_or(&recorder.work_dir);
+                        parent_dir.join(format!("{}.mp4", work_dir_name))
+                    };
+                    
+                    // 合并分片为MP4
+                    match segment_manager.finalize_recording(&mp4_path, true).await {
+                        Ok(final_path) => {
+                            info!("✅ 分片合并成功，最终文件: {:?}", final_path);
+                            
+                            // 更新文件大小统计
+                            if let Ok(metadata) = tokio::fs::metadata(&final_path).await {
+                                self.stats.file_size = metadata.len();
+                            }
+                        }
+                        Err(e) => {
+                            error!("❌ 分片合并失败: {}", e);
+                            warn!("保留分片文件和M3U8播放列表，可手动合并");
+                            
+                            // 合并失败时至少保存播放列表
+                            if let Err(playlist_err) = segment_manager.save_m3u8_playlist(false).await {
+                                error!("保存最终播放列表也失败: {}", playlist_err);
+                            }
+                            
+                            // 使用分片总大小作为统计
+                            self.stats.file_size = total_size;
+                        }
+                    }
+                } else {
+                    info!("分片录制已停止");
+                }
+            }
         }
-
-        info!("录制已停止，文件大小: {} 字节", self.stats.file_size);
         Ok(())
     }
 
     /// 获取输出文件路径
-    pub fn output_path(&self) -> Option<&Path> {
-        Some(&self.final_output_path)
-    }
-
-    /// 检查FFmpeg是否可用
-    async fn is_ffmpeg_available(&self) -> bool {
-        match Command::new("ffmpeg")
-            .arg("-version")
-            .output()
-            .await
-        {
-            Ok(output) => output.status.success(),
-            Err(_) => false,
-        }
-    }
-
-    /// 构建FFmpeg命令参数
-    fn build_ffmpeg_args(&self, stream_url: &str, output_path: &Path) -> Result<Vec<String>> {
-        let mut args = Vec::new();
-
-        // 进度监控参数（放在最前面）
-        args.extend_from_slice(&[
-            "-progress".to_string(), "-".to_string(),            // 输出进度信息到stdout
-            "-nostats".to_string(),                              // 禁用默认统计输出
-        ]);
-
-        // 基础网络超时设置（不使用FFmpeg自动重连，由应用层控制）
-        args.extend_from_slice(&[
-            "-rw_timeout".to_string(), "3000000".to_string(),   // 3秒超时，更快速失败
-        ]);
-
-        // 添加HTTP头部选项来解决403错误
-        // FFmpeg的headers参数格式是多个头用\r\n分隔
-        args.extend_from_slice(&[
-            "-headers".to_string(), 
-            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\r\nReferer: https://live.bilibili.com/".to_string(),
-        ]);
-
-        // 输入选项
-        args.extend_from_slice(&[
-            "-y".to_string(),                                    // 覆盖输出文件
-            "-i".to_string(), stream_url.to_string(),            // 输入流
-            "-c".to_string(), "copy".to_string(),                // 直接复制流，不重编码
-            "-avoid_negative_ts".to_string(), "make_zero".to_string(), // 避免负时间戳
-        ]);
-
-        // 根据输出文件扩展名决定格式
-        let output_ext = output_path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("flv")
-            .to_lowercase();
-
-        match output_ext.as_str() {
-            "mp4" => {
-                args.extend_from_slice(&[
-                    "-f".to_string(), "mp4".to_string(),
-                    // 移除 faststart，因为它与直播流录制不兼容
-                    // faststart 需要完整文件才能工作，而直播流是实时的
-                ]);
+    pub async fn output_path(&self) -> Option<PathBuf> {
+        match &self.mode {
+            RecorderMode::FFmpeg(recorder) => {
+                recorder.output_path().map(|p| p.to_path_buf())
             }
-            "flv" => {
-                args.extend_from_slice(&[
-                    "-f".to_string(), "flv".to_string(),
-                ]);
-            }
-            "mkv" => {
-                args.extend_from_slice(&[
-                    "-f".to_string(), "matroska".to_string(),
-                ]);
-            }
-            "ts" => {
-                args.extend_from_slice(&[
-                    "-f".to_string(), "mpegts".to_string(),
-                ]);
-            }
-            _ => {
-                // 默认使用FLV格式，最适合直播流录制
-                args.extend_from_slice(&[
-                    "-f".to_string(), "flv".to_string(),
-                ]);
+            RecorderMode::Segment(recorder) => {
+                match recorder.output_path().await {
+                    Ok(path_opt) => path_opt,
+                    Err(_) => None,
+                }
             }
         }
-
-        // 添加文件大小限制参数（bililive-go风格）
-        if self.max_file_size > 0 {
-            args.extend_from_slice(&[
-                "-fs".to_string(), 
-                self.max_file_size.to_string(),
-            ]);
-        }
-
-        // 输出文件
-        args.push(output_path.to_string_lossy().to_string());
-
-        Ok(args)
     }
 
-    /// 检查FFmpeg进程是否仍在运行
+    /// 检查录制器进程状态
     pub fn check_process_status(&mut self) -> Result<bool> {
-        if let Some(ref mut process) = self.primary_process {
-            match process.try_wait() {
-                Ok(Some(status)) => {
-                    // 进程已退出
-                    if status.success() {
-                        info!("FFmpeg进程正常退出");
-                        self.status = RecordStatus::Stopped;
-                    } else {
-                        // 获取退出码和详细错误信息
-                        let exit_info = if let Some(code) = status.code() {
-                            format!("退出码: {}", code)
-                        } else {
-                            "进程被信号终止".to_string()
-                        };
-                        
-                        error!("FFmpeg进程异常退出: {}", exit_info);
-                        
-                        // 根据退出码提供更具体的错误信息
-                        match status.code() {
-                            Some(1) => error!("FFmpeg错误: 一般性错误，可能是输入文件问题或参数错误"),
-                            Some(2) => error!("FFmpeg错误: 参数解析失败"),
-                            Some(69) => error!("FFmpeg错误: 无法打开输入文件或网络连接失败"),
-                            Some(code) if code < 0 => error!("FFmpeg错误: 进程被信号终止"),
-                            _ => error!("FFmpeg错误: 未知错误"),
-                        }
-                        
-                        self.status = RecordStatus::Error;
+        match &mut self.mode {
+            RecorderMode::FFmpeg(recorder) => {
+                let result = recorder.check_process_status()?;
+                // 同步状态
+                if !result {
+                    self.status = RecordStatus::Stopped;
+                    self.stats.is_recording = false;
+                }
+                Ok(result)
+            }
+            RecorderMode::Segment(recorder) => {
+                // 检查分片录制器的实际运行状态
+                let is_running = recorder.is_running();
+                
+                // 同步状态
+                if !is_running && self.status == RecordStatus::Recording {
+                    warn!("分片录制器已停止运行");
+                    self.status = RecordStatus::Stopped;
+                    self.stats.is_recording = false;
+                    
+                    // 更新统计信息
+                    if let Some(start_time) = self.stats.start_time {
+                        self.stats.duration = start_time.elapsed();
                     }
-                    self.stats.is_recording = false;
-                    Ok(false)
                 }
-                Ok(None) => {
-                    // 进程仍在运行
-                    Ok(true)
-                }
-                Err(e) => {
-                    error!("检查进程状态失败: {}", e);
-                    self.status = RecordStatus::Error;
-                    self.stats.is_recording = false;
-                    Err(anyhow!("检查进程状态失败: {}", e))
-                }
-            }
-        } else {
-            Ok(false)
-        }
-    }
-
-
-
-
-
-    /// 合并分段文件（已禁用分段模式，此方法不执行任何操作）
-    pub async fn merge_segments(&self) -> Result<()> {
-        debug!("分段模式已禁用，直接录制到最终文件，无需合并");
-        Ok(())
-    }
-
-
-    /// 清理分段文件（已禁用分段模式，此方法不执行任何操作）
-    pub async fn cleanup_segments(&self) -> Result<()> {
-        debug!("分段模式已禁用，无需清理分段文件");
-        Ok(())
-    }
-}
-
-impl Drop for LiveRecorder {
-    fn drop(&mut self) {
-        // 确保在录制器被销毁时停止录制进程
-        if let Some(mut process) = self.primary_process.take() {
-            if let Err(e) = process.start_kill() {
-                error!("销毁录制器时终止主进程失败: {}", e);
+                
+                Ok(is_running)
             }
         }
     }
-}
 
-/// 录制器工厂，用于创建不同配置的录制器
-#[derive(Debug)]
-#[allow(dead_code)] // 录制器工厂，暂时未使用但需要保留
-pub struct RecorderFactory;
 
-impl RecorderFactory {
-    #[allow(dead_code)] // 工厂方法，暂时未使用但需要保留
-    /// 创建FLV格式录制器
-    pub fn create_flv_recorder<P: AsRef<Path>>(output_path: P, max_file_size: i64) -> LiveRecorder {
-        LiveRecorder::new(output_path, max_file_size)
+
+
+
+    /// 获取录制状态
+    pub fn status(&self) -> RecordStatus {
+        self.status
     }
-
+    
+    /// 获取统计信息
+    pub fn stats(&self) -> &RecordStats {
+        &self.stats
+    }
+    
+    /// 获取详细的录制统计信息（支持分片模式）
+    pub async fn get_detailed_stats(&self) -> RecordStats {
+        let mut stats = self.stats.clone();
+        
+        match &self.mode {
+            RecorderMode::FFmpeg(_) => {
+                // FFmpeg模式使用现有统计
+                stats
+            }
+            RecorderMode::Segment(recorder) => {
+                // 分片模式需要从分片管理器获取更详细的信息
+                
+                // 尝试从工作目录获取分片管理器的统计信息
+                if let Ok(segment_manager) = super::segment_manager::SegmentManager::new(&recorder.work_dir).await {
+                    let segment_stats = segment_manager.stats();
+                    
+                    // 更新文件大小为分片总大小
+                    stats.file_size = segment_stats.total_size;
+                    
+                    // 如果有开始时间，计算实际录制时长
+                    if let Some(start_time) = stats.start_time {
+                        if stats.is_recording {
+                            stats.duration = start_time.elapsed();
+                        }
+                    }
+                    
+                    debug!("分片录制统计 - 分片数: {}, 下载: {}, 总大小: {} MB", 
+                          segment_stats.total_segments,
+                          segment_stats.downloaded_segments,
+                          segment_stats.total_size / 1024 / 1024);
+                }
+                
+                stats
+            }
+        }
+    }
 }
+
+// Drop实现已移至各自的录制器中
+
