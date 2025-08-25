@@ -208,8 +208,9 @@ impl LiveRecorder {
             });
         }
 
-        // 异步读取stderr输出
+        // 异步读取stderr输出，检测403/404错误并主动终止
         if let Some(stderr) = process.stderr.take() {
+            let process_id = process.id();
             tokio::spawn(async move {
                 let reader = BufReader::new(stderr);
                 let mut lines = reader.lines();
@@ -217,7 +218,13 @@ impl LiveRecorder {
                 while let Ok(Some(line)) = lines.next_line().await {
                     let line = line.trim();
                     if !line.is_empty() {
-                        if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
+                        // 检测URL过期错误（403 Forbidden, 404 Not Found）
+                        if line.contains("403 Forbidden") || line.contains("404 Not Found") || 
+                           line.contains("HTTP error 403") || line.contains("HTTP error 404") {
+                            error!("检测到URL过期错误，FFmpeg将快速失败: {}", line);
+                            // 不需要主动kill进程，FFmpeg会因为网络错误自然退出
+                            // 这样check_and_restart_recorders会更快检测到并重新获取URL
+                        } else if line.contains("error") || line.contains("Error") || line.contains("ERROR") {
                             error!("FFmpeg错误: {}", line);
                         } else if line.contains("warning") || line.contains("Warning") || line.contains("WARNING") {
                             warn!("FFmpeg警告: {}", line);
@@ -226,6 +233,8 @@ impl LiveRecorder {
                         }
                     }
                 }
+                
+                debug!("FFmpeg进程 {:?} 的stderr读取已结束", process_id);
             });
         }
 
@@ -349,13 +358,9 @@ impl LiveRecorder {
             "-nostats".to_string(),                              // 禁用默认统计输出
         ]);
 
-        // 复刻bililive-go的重连参数（应该放在-i之前）
+        // 基础网络超时设置（不使用FFmpeg自动重连，由应用层控制）
         args.extend_from_slice(&[
-            "-rw_timeout".to_string(), "30000000".to_string(),   // 30秒超时 (单位:微秒)
-            "-reconnect".to_string(), "1".to_string(),           // 启用重连
-            "-reconnect_at_eof".to_string(), "1".to_string(),    // 在EOF时重连
-            "-reconnect_streamed".to_string(), "1".to_string(),  // 流式重连
-            "-reconnect_delay_max".to_string(), "10".to_string(), // 最大重连延迟
+            "-rw_timeout".to_string(), "3000000".to_string(),   // 3秒超时，更快速失败
         ]);
 
         // 添加HTTP头部选项来解决403错误

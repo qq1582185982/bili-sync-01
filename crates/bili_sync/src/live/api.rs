@@ -229,10 +229,6 @@ pub struct StreamUrlPool {
     current_index: usize,
     /// 最大URL数量
     max_urls: usize,
-    /// 上次刷新时间
-    last_refresh: Instant,
-    /// 刷新间隔
-    refresh_interval: Duration,
 }
 
 impl StreamUrlPool {
@@ -242,8 +238,6 @@ impl StreamUrlPool {
             urls: Vec::new(),
             current_index: 0,
             max_urls: 5, // 最多保持5个备用URL
-            last_refresh: Instant::now(),
-            refresh_interval: Duration::from_secs(300), // 5分钟刷新一次
         }
     }
     
@@ -324,22 +318,13 @@ impl StreamUrlPool {
         }
     }
     
-    /// 检查是否需要刷新
-    pub fn should_refresh(&self) -> bool {
-        self.last_refresh.elapsed() >= self.refresh_interval
-    }
-    
-    /// 标记已刷新
-    pub fn mark_refreshed(&mut self) {
-        self.last_refresh = Instant::now();
-    }
-    
     /// 获取URL数量
     pub fn len(&self) -> usize {
         self.urls.len()
     }
     
-    /// 检查是否为空
+    /// 检查是否为空（保留作为基础辅助方法）
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.urls.is_empty()
     }
@@ -347,6 +332,13 @@ impl StreamUrlPool {
     /// 获取即将过期的URL数量
     pub fn expiring_soon_count(&self) -> usize {
         self.urls.iter().filter(|url| url.is_expiring_soon()).count()
+    }
+    
+    /// 清空所有URL（复刻bililive-go行为：每次重试都获取全新URL）
+    pub fn clear(&mut self) {
+        self.urls.clear();
+        self.current_index = 0;
+        debug!("URL池已清空，将强制获取新的流地址");
     }
 }
 
@@ -529,7 +521,6 @@ impl<'a> LiveApiClient<'a> {
         
         // 清理过期的URL
         pool.cleanup_expired();
-        pool.mark_refreshed();
         
         debug!("URL池刷新完成，新增: {}, 当前总数: {}, 即将过期: {}", 
             added_count, pool.len(), pool.expiring_soon_count());

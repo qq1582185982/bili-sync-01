@@ -246,7 +246,7 @@ impl LiveMonitor {
             Self::setup_websocket_connections(&db, &configs, &ws_manager).await;
 
             // 创建定期检查任务（检查录制器状态和配置变化）
-            let mut check_interval = interval(Duration::from_secs(60)); // 每分钟检查一次
+            let mut check_interval = interval(Duration::from_secs(2)); // 每2秒检查一次，更快响应FFmpeg失败
             
             // 复刻bililive-go: 移除URL池刷新定时器，不做主动URL切换
             // let mut url_refresh_interval = interval(Duration::from_secs(300));
@@ -335,12 +335,16 @@ impl LiveMonitor {
         info!("开始录制 {} 的直播: {}", config.upper_name, room_info.title);
         debug!("录制配置 - 房间ID: {}, 质量: {:?}, 格式: {}", config.room_id, config.quality, config.format);
 
-        // 初始化或获取URL池
+        // 初始化或获取URL池，每次录制都强制刷新URL（复刻bililive-go行为）
         let mut url_pools_guard = url_pools.lock().await;
         let url_pool = url_pools_guard.entry(config.id).or_insert_with(StreamUrlPool::new);
         
-        // 如果URL池为空或需要刷新，获取新的URL列表
-        if url_pool.is_empty() || url_pool.should_refresh() {
+        // 强制清空URL池，每次都获取全新的URL
+        url_pool.clear();
+        info!("强制刷新URL池，获取最新的直播流地址");
+        
+        // 获取新的URL列表
+        if true { // 总是获取新URL
             debug!("初始化URL池，获取多个CDN节点地址...");
             if let Err(e) = live_client.refresh_url_pool(config.room_id, config.quality, url_pool).await {
                 error!("刷新URL池失败: {}", e);
@@ -627,8 +631,17 @@ impl LiveMonitor {
                                     error!("停止录制失败: {}", e);
                                 }
                                 
-                                // 5秒后重新开始录制（模仿 bililive-go 的 5s 延迟）
-                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                // 清空该监控器的URL池，强制获取新URL
+                                {
+                                    let mut url_pools_guard = url_pools.lock().await;
+                                    if let Some(url_pool) = url_pools_guard.get_mut(&config.id) {
+                                        url_pool.clear();
+                                        info!("清空监控器 {} 的URL池，将使用全新URL重启", monitor_id);
+                                    }
+                                }
+                                
+                                // 1秒后重新开始录制（更快的恢复速度）
+                                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                                 
                                 if let Err(e) = Self::start_recording(db, live_client, &config, &room_info, recorders, url_pools).await {
                                     error!("重新开始录制失败: {}", e);
