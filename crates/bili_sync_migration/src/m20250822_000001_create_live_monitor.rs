@@ -28,6 +28,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(LiveMonitor::CheckInterval).integer().default(60).not_null())
                     .col(ColumnDef::new(LiveMonitor::Quality).string_len(20).default("high").not_null())
                     .col(ColumnDef::new(LiveMonitor::Format).string_len(10).default("flv").not_null())
+                    .col(ColumnDef::new(LiveMonitor::MaxFileSize).big_integer().default(0).not_null())
                     .col(ColumnDef::new(LiveMonitor::LastStatus).integer().default(0).not_null())
                     .col(ColumnDef::new(LiveMonitor::LastCheckAt).string())
                     .col(ColumnDef::new(LiveMonitor::CreatedAt).string().not_null())
@@ -195,6 +196,7 @@ enum LiveMonitor {
     CheckInterval,
     Quality,
     Format,
+    MaxFileSize,
     LastStatus,
     LastCheckAt,
     CreatedAt,

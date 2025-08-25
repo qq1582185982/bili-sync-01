@@ -9858,6 +9858,7 @@ pub async fn add_live_monitor(
         check_interval: Set(params.check_interval as i32),
         quality: Set(params.quality),
         format: Set(params.format),
+        max_file_size: Set(params.max_file_size),
         last_status: Set(0), // 默认未直播
         last_check_at: sea_orm::NotSet,
         created_at: Set(now_standard_string()),
@@ -10021,6 +10022,11 @@ pub async fn update_live_monitor(
             Set(format)
         } else {
             Unchanged(monitor.format)
+        },
+        max_file_size: if let Some(size) = params.max_file_size {
+            Set(size)
+        } else {
+            Unchanged(monitor.max_file_size)
         },
         last_status: Unchanged(monitor.last_status),
         last_check_at: Unchanged(monitor.last_check_at),

@@ -16,6 +16,7 @@ pub struct Model {
     pub check_interval: i32,
     pub quality: String,
     pub format: String,
+    pub max_file_size: i64,
     pub last_status: i32,
     pub last_check_at: Option<String>,
     pub created_at: String,

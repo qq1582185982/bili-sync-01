@@ -345,6 +345,9 @@ pub struct AddLiveMonitorRequest {
     /// 是否启用
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// 最大文件大小（字节），0表示无限制
+    #[serde(default = "default_max_file_size")]
+    pub max_file_size: i64,
 }
 
 // 更新直播监控请求
@@ -356,6 +359,7 @@ pub struct UpdateLiveMonitorRequest {
     pub quality: Option<String>,
     pub format: Option<String>,
     pub enabled: Option<bool>,
+    pub max_file_size: Option<i64>,
 }
 
 // 直播监控列表查询请求
@@ -390,4 +394,8 @@ fn default_format() -> String {
 
 fn default_enabled() -> bool {
     true // 默认启用
+}
+
+fn default_max_file_size() -> i64 {
+    0 // 默认无限制
 }

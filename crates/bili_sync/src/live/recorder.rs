@@ -50,6 +50,8 @@ pub struct LiveRecorder {
     stats: RecordStats,
     /// 当前使用的流URL
     current_stream_url: Option<String>,
+    /// 最大文件大小（字节），0表示无限制
+    max_file_size: i64,
     // 分段相关字段已移除，直接录制最终文件
 }
 
@@ -59,7 +61,8 @@ impl LiveRecorder {
     /// 
     /// # Arguments
     /// * `output_path` - 输出文件路径
-    pub fn new<P: AsRef<Path>>(output_path: P) -> Self {
+    /// * `max_file_size` - 最大文件大小（字节），0表示无限制
+    pub fn new<P: AsRef<Path>>(output_path: P, max_file_size: i64) -> Self {
         let final_output_path = output_path.as_ref().to_path_buf();
         
         Self {
@@ -69,6 +72,7 @@ impl LiveRecorder {
             status: RecordStatus::Idle,
             stats: RecordStats::default(),
             current_stream_url: None,
+            max_file_size,
         }
     }
     
@@ -407,6 +411,14 @@ impl LiveRecorder {
             }
         }
 
+        // 添加文件大小限制参数（bililive-go风格）
+        if self.max_file_size > 0 {
+            args.extend_from_slice(&[
+                "-fs".to_string(), 
+                self.max_file_size.to_string(),
+            ]);
+        }
+
         // 输出文件
         args.push(output_path.to_string_lossy().to_string());
 
@@ -499,8 +511,8 @@ pub struct RecorderFactory;
 impl RecorderFactory {
     #[allow(dead_code)] // 工厂方法，暂时未使用但需要保留
     /// 创建FLV格式录制器
-    pub fn create_flv_recorder<P: AsRef<Path>>(output_path: P) -> LiveRecorder {
-        LiveRecorder::new(output_path)
+    pub fn create_flv_recorder<P: AsRef<Path>>(output_path: P, max_file_size: i64) -> LiveRecorder {
+        LiveRecorder::new(output_path, max_file_size)
     }
 
 }

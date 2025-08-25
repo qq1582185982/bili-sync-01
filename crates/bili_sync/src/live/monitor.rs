@@ -30,6 +30,7 @@ pub struct MonitorConfig {
     pub check_interval: Duration,
     pub quality: Quality,
     pub format: String,
+    pub max_file_size: i64,
     pub last_status: LiveStatus,
 }
 
@@ -46,6 +47,7 @@ impl From<live_monitor::Model> for MonitorConfig {
             check_interval: Duration::from_secs(model.check_interval as u64),
             quality: Quality::from(model.quality.as_str()),
             format: model.format,
+            max_file_size: model.max_file_size,
             last_status: LiveStatus::from(model.last_status),
         }
     }
@@ -362,11 +364,12 @@ impl LiveMonitor {
         let stream_url = &current_url.url;
         debug!("选择录制URL: CDN={}, URL={}", current_url.cdn_node, stream_url);
 
-        // 生成输出文件名
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        // 生成输出文件名（bililive-go风格：包含精确时间戳避免重复）
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S");
         let safe_title = crate::utils::filenamify::filenamify(&room_info.title);
-        let filename = format!("{}_{}_{}_{}.{}", 
-            config.upper_name, config.room_id, timestamp, safe_title, config.format);
+        let safe_upper_name = crate::utils::filenamify::filenamify(&config.upper_name);
+        let filename = format!("[{}][{}][{}].{}", 
+            timestamp, safe_upper_name, safe_title, config.format);
         let mut output_path = config.path.join(filename);
         
         // 规范化路径分隔符，确保在Windows下使用反斜杠
@@ -411,7 +414,7 @@ impl LiveMonitor {
 
         // 启动录制器
         debug!("启动录制器，输出文件: {:?}", output_path);
-        let mut recorder = LiveRecorder::new(output_path.clone());
+        let mut recorder = LiveRecorder::new(output_path.clone(), config.max_file_size);
         if let Err(e) = recorder.start(stream_url.clone()).await {
             error!("启动录制器失败: {}", e);
             // 启动失败时，更新录制记录状态为错误
