@@ -185,11 +185,11 @@ impl SegmentRecorder {
             
             // 启动下载器，传入回调函数处理下载完成的分片
             let manager_for_callback = manager.clone();
-            let segment_callback = move |segment_info: super::m3u8_parser::SegmentInfo, file_size: u64| {
+            let segment_callback = move |segment_info: super::m3u8_parser::SegmentInfo, file_size: u64, file_path: std::path::PathBuf| {
                 let manager_clone = manager_for_callback.clone();
                 tokio::spawn(async move {
                     let mut manager_guard = manager_clone.lock().await;
-                    if let Err(e) = manager_guard.add_segment(&segment_info, file_size).await {
+                    if let Err(e) = manager_guard.add_segment(&segment_info, file_size, file_path).await {
                         error!("添加分片到管理器失败: {}", e);
                     } else {
                         debug!("分片已添加到管理器 - 序列号: {}, 时长: {:.2}秒", segment_info.sequence, segment_info.duration);

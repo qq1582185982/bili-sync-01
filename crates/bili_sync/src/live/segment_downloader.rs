@@ -82,7 +82,7 @@ impl SegmentDownloader {
     /// 开始分片下载，支持回调函数处理下载完成的分片
     pub async fn start<F>(&mut self, segment_callback: F) -> Result<()> 
     where
-        F: Fn(SegmentInfo, u64) + Send + Sync + 'static,
+        F: Fn(SegmentInfo, u64, PathBuf) + Send + Sync + 'static,
     {
         if self.status == DownloadStatus::Downloading {
             return Err(anyhow!("分片下载器已在运行中"));
@@ -191,6 +191,7 @@ impl SegmentDownloader {
                         .unwrap_or(&format!("{}.m4s", sequence))
                         .to_string();
                     let segment_path = self.work_dir.join(&segment_filename);
+                    let segment_path_clone = segment_path.clone();
 
                     // 复制需要的数据用于异步任务
                     let http_client = self.client.client.clone();
@@ -226,7 +227,7 @@ impl SegmentDownloader {
                                     is_initialization: false,
                                     initialization_url: None,
                                 };
-                                return Ok(Some((segment_info, bytes.len(), segment_counter)));
+                                return Ok(Some((segment_info, bytes.len(), segment_counter, segment_path_clone)));
                             }
                             Ok(resp) => {
                                 return Err(anyhow!("HTTP错误: {}", resp.status()));
@@ -250,14 +251,14 @@ impl SegmentDownloader {
                     // 处理下载结果
                     for result in results {
                         match result {
-                            Ok(Ok(Some((segment_info, size, counter)))) => {
+                            Ok(Ok(Some((segment_info, size, counter, file_path)))) => {
                                 info!("✅ 分片 {} 下载完成: {} bytes", counter, size);
                                 self.download_stats.successful_downloads += 1;
                                 self.download_stats.total_bytes += size as u64;
                                 
                                 // 调用回调函数
-                                debug!("🔄 调用回调函数，分片: {}, 大小: {} bytes", segment_info.sequence, size);
-                                segment_callback(segment_info, size as u64);
+                                debug!("🔄 调用回调函数，分片: {}, 大小: {} bytes, 路径: {:?}", segment_info.sequence, size, file_path);
+                                segment_callback(segment_info, size as u64, file_path);
                             }
                             Ok(Ok(None)) => {
                                 // 404跳过的分片

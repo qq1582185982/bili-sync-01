@@ -87,12 +87,9 @@ impl SegmentManager {
     }
 
     /// 添加分片记录
-    pub async fn add_segment(&mut self, segment_info: &SegmentInfo, file_size: u64) -> Result<()> {
-        debug!("add_segment调用 - 序列号: {}, 时长: {:.2}秒, 文件大小: {} bytes", 
-               segment_info.sequence, segment_info.duration, file_size);
-        
-        let filename = format!("segment_{:06}.ts", segment_info.sequence);
-        let file_path = self.work_dir.join(&filename);
+    pub async fn add_segment(&mut self, segment_info: &SegmentInfo, file_size: u64, file_path: PathBuf) -> Result<()> {
+        debug!("add_segment调用 - 序列号: {}, 时长: {:.2}秒, 文件大小: {} bytes, 路径: {:?}", 
+               segment_info.sequence, segment_info.duration, file_size, file_path);
 
         let record = SegmentRecord {
             url: segment_info.url.clone(),
@@ -464,7 +461,13 @@ impl SegmentManager {
         let timestamp = parts[4].parse()?;
         let downloaded = parts[5] == "OK";
 
-        let filename = format!("segment_{:06}.ts", sequence);
+        // 从URL中提取实际的文件名，而不是使用硬编码格式
+        let filename = if let Some(filename_from_url) = url.split('/').last() {
+            filename_from_url.to_string()
+        } else {
+            // 如果无法从URL提取，回退到序列号命名
+            format!("{}.m4s", sequence)
+        };
         let file_path = self.work_dir.join(&filename);
 
         Ok(SegmentRecord {
@@ -1033,13 +1036,15 @@ impl SegmentManager {
         m3u8_content.push_str("#EXT-X-TARGETDURATION:10\n");
         m3u8_content.push_str("#EXT-X-MEDIA-SEQUENCE:0\n");
 
-        // 检查是否有初始化段
-        let init_segment_path = self.work_dir.join("h1756135359.m4s");
-        if init_segment_path.exists() {
+        // 动态查找初始化段
+        if let Some(init_segment_path) = self.find_initialization_segment().await {
             m3u8_content.push_str(&format!(
                 "#EXT-X-MAP:URI=\"{}\"\n", 
                 init_segment_path.file_name().unwrap().to_string_lossy()
             ));
+            debug!("添加初始化段到M3U8: {:?}", init_segment_path.file_name().unwrap());
+        } else {
+            warn!("未找到初始化段文件");
         }
 
         // 添加所有分片
