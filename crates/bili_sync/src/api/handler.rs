@@ -9847,6 +9847,26 @@ pub async fn add_live_monitor(
         }));
     }
     
+    // 获取quality和format，优先使用请求中的值，否则使用全局配置或默认值
+    let quality = params.quality.unwrap_or_else(|| "high".to_string());
+    
+    let format = if let Some(f) = params.format {
+        f
+    } else if let Some(manager) = crate::config::get_config_manager() {
+        // 从全局配置获取格式
+        if let Ok(Some(config_value)) = manager.get_config_item("live_recording_config").await {
+            if let Ok(live_config) = serde_json::from_value::<LiveRecordingConfig>(config_value) {
+                live_config.quality.preferred_format
+            } else {
+                "flv".to_string() // 解析失败时的默认值
+            }
+        } else {
+            "flv".to_string() // 配置不存在时的默认值
+        }
+    } else {
+        "flv".to_string() // 配置管理器不可用时的默认值
+    };
+
     // 创建新的监控
     let new_monitor = live_monitor::ActiveModel {
         id: sea_orm::NotSet,
@@ -9857,8 +9877,8 @@ pub async fn add_live_monitor(
         path: Set(params.path),
         enabled: Set(params.enabled),
         check_interval: Set(params.check_interval as i32),
-        quality: Set(params.quality),
-        format: Set(params.format),
+        quality: Set(quality),
+        format: Set(format),
         max_file_size: Set(params.max_file_size),
         last_status: Set(0), // 默认未直播
         last_check_at: sea_orm::NotSet,

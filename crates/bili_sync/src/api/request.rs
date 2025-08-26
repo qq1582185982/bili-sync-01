@@ -336,12 +336,10 @@ pub struct AddLiveMonitorRequest {
     /// 检查间隔（秒）
     #[serde(default = "default_check_interval")]
     pub check_interval: u64,
-    /// 录制质量
-    #[serde(default = "default_quality")]
-    pub quality: String,
-    /// 录制格式
-    #[serde(default = "default_format")]
-    pub format: String,
+    /// 录制质量（可选，使用全局配置）
+    pub quality: Option<String>,
+    /// 录制格式（可选，使用全局配置）
+    pub format: Option<String>,
     /// 是否启用
     #[serde(default = "default_enabled")]
     pub enabled: bool,

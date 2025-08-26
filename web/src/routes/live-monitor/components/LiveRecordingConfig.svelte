@@ -4,7 +4,6 @@
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
 	import api from '$lib/api';
@@ -345,16 +344,25 @@
 
 			<!-- 操作按钮 -->
 			<div class="flex justify-end space-x-2">
-				<Button variant="outline" on:click={handleClose}>
+				<button 
+					type="button"
+					on:click={handleClose}
+					class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2"
+				>
 					取消
-				</Button>
-				<Button on:click={saveConfig} disabled={saving}>
+				</button>
+				<button 
+					type="button"
+					on:click={saveConfig} 
+					disabled={saving}
+					class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+				>
 					{#if saving}
 						保存中...
 					{:else}
 						保存配置
 					{/if}
-				</Button>
+				</button>
 			</div>
 		{/if}
 	</div>
