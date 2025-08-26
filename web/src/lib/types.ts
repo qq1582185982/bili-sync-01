@@ -783,6 +783,30 @@ export interface LiveRecord {
 	status: RecordStatus;
 }
 
+// 合并质量类型
+export type MergeQuality = 'StreamCopy' | 'Reencode' | 'Auto';
+
+// 直播录制配置
+export interface LiveRecordingConfig {
+	auto_merge: {
+		enabled: boolean;
+		duration_threshold: number;
+		keep_segments_after_merge: boolean;
+		output_format: string;
+		output_quality: MergeQuality;
+	};
+	quality: {
+		preferred_format: string;
+		resolution: string;
+		frame_rate: number;
+	};
+	file_management: {
+		max_segments_to_keep: number;
+		filename_template: string;
+		auto_cleanup_days: number;
+	};
+}
+
 // 创建直播监控请求
 export interface CreateLiveMonitorRequest {
 	upper_id: number;

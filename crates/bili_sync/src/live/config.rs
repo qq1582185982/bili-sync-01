@@ -3,10 +3,11 @@
 //! 包含直播录制相关的所有配置项和默认值
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use std::time::Duration;
 
 /// 直播录制配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LiveRecordingConfig {
     /// 自动合并配置
     pub auto_merge: AutoMergeConfig,
@@ -17,7 +18,7 @@ pub struct LiveRecordingConfig {
 }
 
 /// 自动合并配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AutoMergeConfig {
     /// 是否启用自动合并
     pub enabled: bool,
@@ -33,7 +34,7 @@ pub struct AutoMergeConfig {
 }
 
 /// 录制质量配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RecordingQualityConfig {
     /// 首选录制格式
     pub preferred_format: String,
@@ -44,7 +45,7 @@ pub struct RecordingQualityConfig {
 }
 
 /// 文件管理配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FileManagementConfig {
     /// 分片文件保留数量
     pub max_segments_to_keep: usize,
@@ -55,7 +56,7 @@ pub struct FileManagementConfig {
 }
 
 /// 合并质量配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum MergeQuality {
     /// 流复制（无损，速度快）
     StreamCopy,

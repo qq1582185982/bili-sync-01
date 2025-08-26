@@ -13,6 +13,7 @@
 	import type { LiveMonitorConfig, LiveMonitorStatusResponse } from '$lib/types';
 	// import LiveMonitorForm from './components/LiveMonitorForm.svelte';
 	import LiveRecordsDialog from './components/LiveRecordsDialog.svelte';
+	import LiveRecordingConfig from './components/LiveRecordingConfig.svelte';
 
 	// 状态管理
 	let monitors: LiveMonitorConfig[] = [];
@@ -30,6 +31,7 @@
 	let deleteDialogOpen = false;
 	let editDialogOpen = false;
 	let recordsDialogOpen = false;
+	let configDialogOpen = false;
 	let deleteMonitorId: number | null = null;
 	let editMonitor: LiveMonitorConfig | null = null;
 	let recordsMonitorId: number | null = null;
@@ -88,6 +90,15 @@
 		recordsMonitorId = monitorId;
 		recordsDialogOpen = true;
 		console.log('recordsDialogOpen set to:', recordsDialogOpen);
+	}
+
+	function openConfigDialog() {
+		console.log('openConfigDialog called');
+		configDialogOpen = true;
+	}
+
+	function closeConfigDialog() {
+		configDialogOpen = false;
 	}
 
 	function closeEditDialog() {
@@ -336,6 +347,18 @@
 				<RefreshCw class="mr-2 h-4 w-4 {loading ? 'animate-spin' : ''}" />
 				刷新
 			</Button.Root>
+			<button 
+				class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium outline-none transition-all focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 border border-input bg-background shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2"
+				on:click={(e) => {
+					console.log('Config button clicked, event:', e);
+					e.preventDefault();
+					e.stopPropagation();
+					openConfigDialog();
+				}}
+			>
+				<Settings class="mr-2 h-4 w-4" />
+				录制配置
+			</button>
 			<button 
 				class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium outline-none transition-all focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 h-9 px-4 py-2"
 				on:click={(e) => {
@@ -755,5 +778,12 @@
 		monitorId={recordsMonitorId}
 		open={recordsDialogOpen}
 		onClose={closeRecordsDialog}
+	/>
+{/if}
+
+<!-- 录制配置对话框 -->
+{#if configDialogOpen}
+	<LiveRecordingConfig 
+		on:close={closeConfigDialog}
 	/>
 {/if}

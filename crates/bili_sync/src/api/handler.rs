@@ -22,6 +22,7 @@ use utoipa::OpenApi;
 
 use crate::api::auth::OpenAPIAuth;
 use crate::api::error::InnerApiError;
+use crate::live::config::LiveRecordingConfig;
 use crate::api::request::{
     AddLiveMonitorRequest, AddVideoSourceRequest, BatchUpdateConfigRequest, ConfigHistoryRequest, 
     LiveMonitorsRequest, QRGenerateRequest, QRPollRequest, RecordingsRequest,
@@ -109,7 +110,7 @@ mod rename_tests {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(get_video_sources, get_videos, get_video, reset_video, reset_all_videos, reset_specific_tasks, update_video_status, add_video_source, update_video_source_enabled, update_video_source_scan_deleted, reset_video_source_path, delete_video_source, reload_config, get_config, update_config, get_bangumi_seasons, search_bilibili, get_user_favorites, get_user_collections, get_user_followings, get_subscribed_collections, get_submission_videos, get_logs, get_queue_status, proxy_image, get_config_item, get_config_history, validate_config, get_hot_reload_status, check_initial_setup, setup_auth_token, update_credential, generate_qr_code, poll_qr_status, get_current_user, clear_credential, pause_scanning_endpoint, resume_scanning_endpoint, get_task_control_status, get_video_play_info, proxy_video_stream, validate_favorite, get_user_favorites_by_uid, test_notification_handler, get_notification_config, update_notification_config, get_notification_status),
+    paths(get_video_sources, get_videos, get_video, reset_video, reset_all_videos, reset_specific_tasks, update_video_status, add_video_source, update_video_source_enabled, update_video_source_scan_deleted, reset_video_source_path, delete_video_source, reload_config, get_config, update_config, get_bangumi_seasons, search_bilibili, get_user_favorites, get_user_collections, get_user_followings, get_subscribed_collections, get_submission_videos, get_logs, get_queue_status, proxy_image, get_config_item, get_config_history, validate_config, get_hot_reload_status, check_initial_setup, setup_auth_token, update_credential, generate_qr_code, poll_qr_status, get_current_user, clear_credential, pause_scanning_endpoint, resume_scanning_endpoint, get_task_control_status, get_video_play_info, proxy_video_stream, validate_favorite, get_user_favorites_by_uid, test_notification_handler, get_notification_config, update_notification_config, get_notification_status, get_live_recording_config, update_live_recording_config),
     modifiers(&OpenAPIAuth),
     security(
         ("Token" = []),
@@ -10207,4 +10208,104 @@ pub async fn get_live_monitor_status(
 )]
 pub async fn health_check() -> Result<ApiResponse<()>, ApiError> {
     Ok(ApiResponse::ok(()))
+}
+
+// ==================== 直播录制配置相关API处理函数 ====================
+
+/// 获取直播录制配置
+#[utoipa::path(
+    get,
+    path = "/api/live/recording-config",
+    responses(
+        (status = 200, description = "成功获取直播录制配置", body = ApiResponse<LiveRecordingConfig>),
+        (status = 500, description = "获取配置失败", body = String)
+    )
+)]
+pub async fn get_live_recording_config(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+) -> Result<ApiResponse<crate::live::config::LiveRecordingConfig>, ApiError> {
+    use crate::config::ConfigManager;
+    use crate::live::config::{LiveRecordingConfig, config_keys};
+
+    let config_manager = ConfigManager::new(db.as_ref().clone());
+    
+    // 尝试从数据库获取配置
+    match config_manager.get_config_item(config_keys::LIVE_RECORDING_CONFIG).await {
+        Ok(Some(config_json)) => {
+            // 解析JSON配置
+            match serde_json::from_value::<LiveRecordingConfig>(config_json) {
+                Ok(config) => Ok(ApiResponse::ok(config)),
+                Err(e) => {
+                    warn!("解析直播录制配置失败: {}, 使用默认配置", e);
+                    Ok(ApiResponse::ok(LiveRecordingConfig::default()))
+                }
+            }
+        }
+        Ok(None) => {
+            // 配置不存在，返回默认配置
+            Ok(ApiResponse::ok(LiveRecordingConfig::default()))
+        }
+        Err(e) => {
+            error!("获取直播录制配置失败: {}", e);
+            Err(ApiError::from(anyhow!("获取直播录制配置失败: {}", e)))
+        }
+    }
+}
+
+/// 更新直播录制配置
+#[utoipa::path(
+    put,
+    path = "/api/live/recording-config",
+    request_body = LiveRecordingConfig,
+    responses(
+        (status = 200, description = "成功更新直播录制配置", body = ApiResponse<ConfigItemResponse>),
+        (status = 400, description = "配置参数无效", body = String),
+        (status = 500, description = "更新配置失败", body = String)
+    )
+)]
+pub async fn update_live_recording_config(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    axum::Json(config): axum::Json<crate::live::config::LiveRecordingConfig>,
+) -> Result<ApiResponse<ConfigItemResponse>, ApiError> {
+    use crate::config::ConfigManager;
+    use crate::live::config::config_keys;
+
+    // 验证配置参数
+    if config.auto_merge.duration_threshold < 60 || config.auto_merge.duration_threshold > 3600 {
+        return Err(ApiError::from(anyhow!("自动合并时长阈值必须在60-3600秒之间")));
+    }
+    
+    if config.quality.frame_rate < 15 || config.quality.frame_rate > 60 {
+        return Err(ApiError::from(anyhow!("录制帧率必须在15-60fps之间")));
+    }
+    
+    if config.file_management.max_segments_to_keep < 10 || config.file_management.max_segments_to_keep > 100 {
+        return Err(ApiError::from(anyhow!("分片保留数量必须在10-100之间")));
+    }
+    
+    if config.file_management.auto_cleanup_days < 1 || config.file_management.auto_cleanup_days > 30 {
+        return Err(ApiError::from(anyhow!("自动清理天数必须在1-30天之间")));
+    }
+
+    let config_manager = ConfigManager::new(db.as_ref().clone());
+    
+    // 将配置转换为JSON并保存
+    let config_json = serde_json::to_value(&config)
+        .map_err(|e| ApiError::from(anyhow!("序列化配置失败: {}", e)))?;
+    
+    config_manager
+        .update_config_item(config_keys::LIVE_RECORDING_CONFIG, config_json.clone())
+        .await
+        .map_err(|e| ApiError::from(anyhow!("更新直播录制配置失败: {}", e)))?;
+
+    // 重新加载配置包
+    if let Err(e) = crate::config::reload_config_bundle().await {
+        warn!("重新加载配置包失败: {}", e);
+    }
+
+    Ok(ApiResponse::ok(ConfigItemResponse {
+        key: config_keys::LIVE_RECORDING_CONFIG.to_string(),
+        value: config_json,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }))
 }

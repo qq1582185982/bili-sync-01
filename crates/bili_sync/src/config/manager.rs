@@ -318,6 +318,22 @@ impl ConfigManager {
         Ok(existing.is_some())
     }
 
+    /// 获取单个配置项
+    pub async fn get_config_item(&self, key: &str) -> Result<Option<Value>> {
+        let item = ConfigItem::find()
+            .filter(config_item::Column::KeyName.eq(key))
+            .one(&self.db)
+            .await?;
+        
+        if let Some(config_item) = item {
+            let value: Value = serde_json::from_str(&config_item.value_json)
+                .context("解析配置值JSON失败")?;
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// 获取配置变更历史 (使用原生SQL)
     pub async fn get_config_history(
         &self,

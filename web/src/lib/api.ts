@@ -42,6 +42,7 @@ import type {
 	VideoBvidResponse,
 	LiveMonitorConfig,
 	LiveRecord,
+	LiveRecordingConfig,
 	CreateLiveMonitorRequest,
 	UpdateLiveMonitorRequest,
 	LiveMonitorsResponse,
@@ -680,6 +681,22 @@ class ApiClient {
 	async getLiveMonitorStatus(): Promise<ApiResponse<LiveMonitorStatusResponse>> {
 		return this.get<LiveMonitorStatusResponse>('/live/status');
 	}
+
+	/**
+	 * 获取直播录制配置
+	 */
+	async getLiveRecordingConfig(): Promise<LiveRecordingConfig> {
+		const response = await this.get<LiveRecordingConfig>('/live/recording-config');
+		return response.data;
+	}
+
+	/**
+	 * 更新直播录制配置
+	 * @param config 录制配置
+	 */
+	async updateLiveRecordingConfig(config: LiveRecordingConfig): Promise<void> {
+		await this.put<any>('/live/recording-config', config);
+	}
 }
 
 // 创建默认的 API 客户端实例
@@ -942,6 +959,16 @@ export const api = {
 	 * 获取直播监控状态
 	 */
 	getLiveMonitorStatus: () => apiClient.getLiveMonitorStatus(),
+
+	/**
+	 * 获取直播录制配置
+	 */
+	getLiveRecordingConfig: () => apiClient.getLiveRecordingConfig(),
+
+	/**
+	 * 更新直播录制配置
+	 */
+	updateLiveRecordingConfig: (config: LiveRecordingConfig) => apiClient.updateLiveRecordingConfig(config),
 
 	/**
 	 * 订阅系统信息WebSocket事件

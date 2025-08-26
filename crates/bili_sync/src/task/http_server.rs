@@ -34,6 +34,7 @@ use crate::api::handler::{
     get_hot_reload_status,
     get_live_monitor_status,
     get_live_monitors,
+    get_live_recording_config,
     get_log_files,
     get_logs,
     get_notification_config,
@@ -71,6 +72,7 @@ use crate::api::handler::{
     update_config_item_internal,
     update_credential,
     update_live_monitor,
+    update_live_recording_config,
     update_notification_config,
     update_video_source_enabled,
     update_video_source_scan_deleted,
@@ -235,6 +237,8 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
         .route("/api/live/monitors/{id}", delete(delete_live_monitor))
         .route("/api/live/recordings", get(get_recordings))
         .route("/api/live/status", get(get_live_monitor_status))
+        .route("/api/live/recording-config", get(get_live_recording_config))
+        .route("/api/live/recording-config", put(update_live_recording_config))
         // 健康检查API
         .route("/api/health", head(health_check))
         // 视频流API
