@@ -14,9 +14,11 @@ pub mod ws_client;
 pub mod segment_downloader;
 pub mod segment_manager;
 pub mod m3u8_parser;
+pub mod config;
 
 // 只导出实际使用的类型
 pub use monitor::LiveMonitor;
+pub use config::{LiveRecordingConfig, AutoMergeConfig, MergeQuality};
 
 /// 直播录制相关的错误类型
 #[derive(Debug, thiserror::Error)]

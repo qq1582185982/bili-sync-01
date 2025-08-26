@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use futures::future;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -8,7 +9,6 @@ use tracing::{debug, error, info, warn};
 use m3u8_rs;
 
 use crate::bilibili::BiliClient;
-use crate::unified_downloader::UnifiedDownloader;
 use super::api::Quality;
 use super::m3u8_parser::{M3u8Parser, SegmentInfo};
 
@@ -22,9 +22,7 @@ pub enum DownloadStatus {
 
 /// 分片下载器
 pub struct SegmentDownloader {
-    /// 统一下载器，复用现有下载逻辑
-    downloader: UnifiedDownloader,
-    /// B站API客户端
+    /// B站API客户端（使用其内部的reqwest客户端）
     client: Arc<BiliClient>,
     /// M3U8解析器
     parser: M3u8Parser,
@@ -65,14 +63,10 @@ impl SegmentDownloader {
         // 确保工作目录存在
         tokio::fs::create_dir_all(&work_dir).await
             .map_err(|e| anyhow!("创建工作目录失败: {}", e))?;
-
-        // 创建统一下载器
-        let downloader = UnifiedDownloader::new_smart(client.client.clone()).await;
         
         info!("分片下载器已初始化，工作目录: {:?}", work_dir);
 
         Ok(Self {
-            downloader,
             client,
             parser: M3u8Parser::new(),
             status: DownloadStatus::Idle,
@@ -85,13 +79,17 @@ impl SegmentDownloader {
         })
     }
 
-    /// 开始分片下载
-    pub async fn start(&mut self) -> Result<()> {
+    /// 开始分片下载，支持回调函数处理下载完成的分片
+    pub async fn start<F>(&mut self, segment_callback: F) -> Result<()> 
+    where
+        F: Fn(SegmentInfo, u64) + Send + Sync + 'static,
+    {
         if self.status == DownloadStatus::Downloading {
             return Err(anyhow!("分片下载器已在运行中"));
         }
 
         info!("开始分片录制，房间: {}, 质量: {:?}", self.room_id, self.quality);
+        debug!("📥 SegmentDownloader::start 已接收到回调函数");
         
         self.status = DownloadStatus::Downloading;
         self.download_stats.start_time = Some(Instant::now());
@@ -118,9 +116,8 @@ impl SegmentDownloader {
         info!("🎬 开始分片下载循环...");
         let mut segment_counter = 0;
         let mut last_sequence = 0u64;
-        let max_segments = 20; // 临时限制用于测试
 
-        while self.status == DownloadStatus::Downloading && segment_counter < max_segments {
+        while self.status == DownloadStatus::Downloading {
             // 刷新M3U8获取最新分片列表
             if let Err(e) = self.refresh_m3u8_url().await {
                 error!("刷新M3U8失败: {}", e);
@@ -164,7 +161,9 @@ impl SegmentDownloader {
                 info!("解析到 {} 个分片，sequence从 {} 开始", 
                     media_playlist.segments.len(), current_sequence);
 
-                // 下载新的segments（复刻bili-shadowreplay逻辑）
+                // 收集本轮要下载的所有分片
+                let mut download_tasks = vec![];
+                
                 for (i, ts_segment) in media_playlist.segments.iter().enumerate() {
                     let sequence = current_sequence + i as u64;
                     
@@ -187,55 +186,93 @@ impl SegmentDownloader {
                         format!("{}{}", self.base_url.trim_end_matches('/'), uri_with_slash)
                     };
 
-                    // 生成segment文件名（使用.ts扩展名，与bili-shadowreplay一致）
-                    let segment_filename = format!("segment_{:09}.ts", segment_counter);
+                    // 使用原始文件名（从URI中提取，如420516438.m4s）
+                    let segment_filename = ts_segment.uri.split('/').last()
+                        .unwrap_or(&format!("{}.m4s", sequence))
+                        .to_string();
                     let segment_path = self.work_dir.join(&segment_filename);
 
-                    info!("📥 下载分片 {}/{}: {}", 
-                        segment_counter, max_segments, ts_segment.uri);
-
-                    // 下载segment（重试机制）
-                    let mut retry_count = 0;
-                    let max_retries = 3;
+                    // 复制需要的数据用于异步任务
+                    let http_client = self.client.client.clone();
+                    let duration = ts_segment.duration as f64;
                     
-                    while retry_count < max_retries {
-                        match self.downloader.fetch_with_fallback(&[&segment_url], &segment_path).await {
-                            Ok(_) => {
-                                // 检查文件大小
-                                match tokio::fs::metadata(&segment_path).await {
-                                    Ok(metadata) => {
-                                        let size = metadata.len();
-                                        if size > 0 {
-                                            info!("✅ 分片 {} 下载完成: {} bytes", segment_counter, size);
-                                            self.download_stats.successful_downloads += 1;
-                                            self.download_stats.total_bytes += size;
-                                            break; // 成功，跳出重试循环
-                                        } else {
-                                            warn!("⚠️  分片 {} 文件大小为0", segment_counter);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        warn!("⚠️  无法获取分片 {} 文件信息: {}", segment_counter, e);
-                                    }
-                                }
+                    info!("📥 准备下载分片 {}: {}", segment_counter, ts_segment.uri);
+
+                    // 创建并行下载任务
+                    let download_task = tokio::spawn(async move {
+                        // 直接使用HTTP下载，不依赖aria2
+                        let response = http_client
+                            .get(&segment_url)
+                            .timeout(Duration::from_secs(10))
+                            .send()
+                            .await;
+                        
+                        match response {
+                            Ok(resp) if resp.status() == 404 => {
+                                // 404错误直接跳过，不重试
+                                debug!("分片不存在(404)，跳过: {}", segment_url);
+                                return Ok(None);
+                            }
+                            Ok(resp) if resp.status().is_success() => {
+                                let bytes = resp.bytes().await?;
+                                tokio::fs::write(&segment_path, &bytes).await?;
+                                
+                                // 返回成功结果
+                                let segment_info = SegmentInfo {
+                                    url: segment_url,
+                                    sequence,
+                                    duration,
+                                    timestamp: chrono::Utc::now().timestamp_millis(),
+                                    is_initialization: false,
+                                    initialization_url: None,
+                                };
+                                return Ok(Some((segment_info, bytes.len(), segment_counter)));
+                            }
+                            Ok(resp) => {
+                                return Err(anyhow!("HTTP错误: {}", resp.status()));
                             }
                             Err(e) => {
-                                retry_count += 1;
-                                if retry_count >= max_retries {
-                                    error!("❌ 分片 {} 下载失败，已重试{}次: {}", 
-                                        segment_counter, max_retries, e);
-                                    self.download_stats.failed_downloads += 1;
-                                } else {
-                                    warn!("⚠️  分片 {} 下载失败，重试第{}次: {}", 
-                                        segment_counter, retry_count, e);
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
-                                }
+                                return Err(anyhow!("网络错误: {}", e));
+                            }
+                        }
+                    });
+                    
+                    download_tasks.push(download_task);
+                    last_sequence = sequence;
+                    self.download_stats.total_segments += 1;
+                }
+                
+                // 并行等待所有下载任务完成
+                if !download_tasks.is_empty() {
+                    info!("🚀 开始并行下载 {} 个分片", download_tasks.len());
+                    let results = future::join_all(download_tasks).await;
+                    
+                    // 处理下载结果
+                    for result in results {
+                        match result {
+                            Ok(Ok(Some((segment_info, size, counter)))) => {
+                                info!("✅ 分片 {} 下载完成: {} bytes", counter, size);
+                                self.download_stats.successful_downloads += 1;
+                                self.download_stats.total_bytes += size as u64;
+                                
+                                // 调用回调函数
+                                debug!("🔄 调用回调函数，分片: {}, 大小: {} bytes", segment_info.sequence, size);
+                                segment_callback(segment_info, size as u64);
+                            }
+                            Ok(Ok(None)) => {
+                                // 404跳过的分片
+                                debug!("⚪ 分片不存在，已跳过");
+                            }
+                            Ok(Err(e)) => {
+                                error!("❌ 分片下载失败: {}", e);
+                                self.download_stats.failed_downloads += 1;
+                            }
+                            Err(e) => {
+                                error!("❌ 下载任务异常: {}", e);
+                                self.download_stats.failed_downloads += 1;
                             }
                         }
                     }
-
-                    last_sequence = sequence;
-                    self.download_stats.total_segments += 1;
                 }
             } else {
                 warn!("收到MasterPlaylist而不是MediaPlaylist，跳过此轮");
@@ -328,15 +365,22 @@ impl SegmentDownloader {
             
             info!("下载初始化段: {} -> {:?}", header_url, file_path);
             
-            // 使用统一下载器下载初始化段
-            match self.downloader.fetch_with_fallback(&[&header_url], &file_path).await {
-                Ok(_) => {
-                    // 获取文件大小
-                    let size = match tokio::fs::metadata(&file_path).await {
-                        Ok(metadata) => metadata.len(),
-                        Err(_) => 0,
-                    };
+            // 使用HTTP客户端直接下载初始化段
+            let response = self.client.client
+                .get(&header_url)
+                .timeout(Duration::from_secs(10))
+                .send()
+                .await;
+                
+            match response {
+                Ok(resp) if resp.status().is_success() => {
+                    let bytes = resp.bytes().await
+                        .map_err(|e| anyhow!("读取初始化段内容失败: {}", e))?;
                     
+                    tokio::fs::write(&file_path, &bytes).await
+                        .map_err(|e| anyhow!("写入初始化段失败: {}", e))?;
+                    
+                    let size = bytes.len();
                     info!("✅ 初始化段下载成功: {} bytes", size);
                     
                     if size > 0 {
@@ -354,6 +398,9 @@ impl SegmentDownloader {
                     } else {
                         warn!("初始化段文件大小为0，可能下载失败");
                     }
+                }
+                Ok(resp) => {
+                    error!("❌ 初始化段下载失败，HTTP状态: {}", resp.status());
                 }
                 Err(e) => {
                     error!("❌ 初始化段下载失败: {}", e);
@@ -503,14 +550,26 @@ impl SegmentDownloader {
         
         let start_time = Instant::now();
         
-        // 使用统一下载器下载
-        self.downloader
-            .fetch_with_fallback(&[&segment.url], &file_path)
-            .await?;
+        // 使用HTTP客户端直接下载分片
+        let response = self.client.client
+            .get(&segment.url)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| anyhow!("请求分片失败: {}", e))?;
+            
+        if !response.status().is_success() {
+            return Err(anyhow!("分片下载失败，状态码: {}", response.status()));
+        }
+        
+        let bytes = response.bytes().await
+            .map_err(|e| anyhow!("读取分片内容失败: {}", e))?;
+            
+        tokio::fs::write(&file_path, &bytes).await
+            .map_err(|e| anyhow!("写入分片文件失败: {}", e))?;
         
         // 获取文件大小
-        let metadata = tokio::fs::metadata(&file_path).await?;
-        let size = metadata.len();
+        let size = bytes.len() as u64;
         
         let download_time = start_time.elapsed();
         self.download_stats.total_bytes += size;

@@ -31,6 +31,7 @@ mod m20250722_000001_add_bangumi_cache_fields;
 mod m20250726_000001_unify_time_format;
 mod m20250807_000001_add_video_cid;
 mod m20250822_000001_create_live_monitor;
+mod m20250825_000001_add_auto_merge_config;
 
 pub struct Migrator;
 
@@ -69,6 +70,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250726_000001_unify_time_format::Migration),
             Box::new(m20250807_000001_add_video_cid::Migration),
             Box::new(m20250822_000001_create_live_monitor::Migration),
+            Box::new(m20250825_000001_add_auto_merge_config::Migration),
         ]
     }
 }

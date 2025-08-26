@@ -163,80 +163,63 @@ impl SegmentRecorder {
                 }
             };
             
-            let mut manager = match SegmentManager::new(&work_dir).await {
-                Ok(m) => m,
+            let manager = match SegmentManager::new(&work_dir).await {
+                Ok(mut m) => {
+                    // 设置自动合并配置
+                    use super::config::AutoMergeConfig;
+                    let auto_config = AutoMergeConfig {
+                        enabled: true,
+                        duration_threshold: 60, // 60秒阈值
+                        keep_segments_after_merge: false,
+                        output_format: "mp4".to_string(),
+                        output_quality: super::config::MergeQuality::Auto,
+                    };
+                    m.set_auto_merge_config(auto_config);
+                    std::sync::Arc::new(tokio::sync::Mutex::new(m))
+                },
                 Err(e) => {
                     error!("初始化分片管理器失败: {}", e);
                     return;
                 }
             };
             
-            // 启动下载器
-            if let Err(e) = downloader.start().await {
+            // 启动下载器，传入回调函数处理下载完成的分片
+            let manager_for_callback = manager.clone();
+            let segment_callback = move |segment_info: super::m3u8_parser::SegmentInfo, file_size: u64| {
+                let manager_clone = manager_for_callback.clone();
+                tokio::spawn(async move {
+                    let mut manager_guard = manager_clone.lock().await;
+                    if let Err(e) = manager_guard.add_segment(&segment_info, file_size).await {
+                        error!("添加分片到管理器失败: {}", e);
+                    } else {
+                        debug!("分片已添加到管理器 - 序列号: {}, 时长: {:.2}秒", segment_info.sequence, segment_info.duration);
+                        // 每添加一个分片后检查自动合并
+                        if let Ok(Some(merged_file)) = manager_guard.perform_auto_merge().await {
+                            info!("自动合并完成: {:?}", merged_file);
+                        }
+                    }
+                });
+            };
+            
+            debug!("🚀 SegmentRecorder 准备调用 downloader.start(segment_callback)");
+            if let Err(e) = downloader.start(segment_callback).await {
                 error!("启动分片下载器失败: {}", e);
                 return;
             }
+            debug!("✅ downloader.start(segment_callback) 调用成功");
             
-            // 主循环：持续下载新分片
-            let mut download_interval = tokio::time::interval(Duration::from_secs(3)); // 每3秒检查一次新分片
-            let mut m3u8_refresh_interval = tokio::time::interval(Duration::from_secs(30)); // 每30秒刷新M3U8 URL
+            // 下载器现在独立运行，我们只需要等待并定期输出统计信息
             let mut stats_interval = tokio::time::interval(Duration::from_secs(60)); // 每60秒输出统计信息
+            
+            info!("分片录制主循环正在运行，下载器已启动");
             
             loop {
                 tokio::select! {
-                    // 主要的分片下载循环
-                    _ = download_interval.tick() => {
-                        match downloader.download_round().await {
-                            Ok(downloaded_segments) => {
-                                if !downloaded_segments.is_empty() {
-                                    info!("成功下载 {} 个新分片", downloaded_segments.len());
-                                    
-                                    // 将下载成功的分片信息同步到管理器
-                                    for (segment_info, file_size) in downloaded_segments {
-                                        if let Err(e) = manager.add_segment(&segment_info, file_size).await {
-                                            error!("添加分片到管理器失败: {}", e);
-                                        }
-                                    }
-                                    
-                                    // 检查磁盘空间（每次下载后）
-                                    if let Err(e) = manager.check_disk_space(200).await {
-                                        error!("磁盘空间检查失败: {}", e);
-                                    }
-                                    
-                                    // 输出下载统计
-                                    debug!("分片下载统计: {:#?}", downloader.stats());
-                                    
-                                    // 可选：清理旧分片文件（保持磁盘空间）
-                                    // let segment_count = manager.segment_count();
-                                    // if segment_count > 50 { // 保留最近50个分片
-                                    //     if let Ok(cleaned) = manager.cleanup_segments(50).await {
-                                    //         debug!("清理了 {} 个旧分片文件", cleaned);
-                                    //     }
-                                    // }
-                                }
-                            }
-                            Err(e) => {
-                                error!("分片下载失败: {}", e);
-                                
-                                // 下载失败时等待更长时间再重试
-                                tokio::time::sleep(Duration::from_secs(10)).await;
-                            }
-                        }
-                    }
-                    
-                    // 定期刷新M3U8 URL（防止URL过期）
-                    _ = m3u8_refresh_interval.tick() => {
-                        if let Err(e) = downloader.refresh_m3u8_url().await {
-                            error!("刷新M3U8 URL失败: {}", e);
-                        } else {
-                            debug!("M3U8 URL已刷新");
-                        }
-                    }
-                    
                     // 定期输出统计信息和维护任务
                     _ = stats_interval.tick() => {
                         let downloader_stats = downloader.stats();
-                        let manager_stats = manager.stats();
+                        let manager_guard = manager.lock().await;
+                        let manager_stats = manager_guard.stats();
                         
                         info!(
                             "录制统计 - 下载器: [总分片: {}, 成功: {}, 失败: {}, 总大小: {} MB, 成功率: {:.1}%]",
@@ -256,18 +239,22 @@ impl SegmentRecorder {
                         );
                         
                         // 生成并保存M3U8播放列表
-                        if let Err(e) = manager.save_m3u8_playlist(true).await {
+                        if let Err(e) = manager_guard.save_m3u8_playlist(true).await {
                             warn!("保存M3U8播放列表失败: {}", e);
                         } else {
                             debug!("M3U8播放列表已更新");
                         }
                         
+                        // 释放 manager_guard 以避免长时间锁定
+                        drop(manager_guard);
+                        
                         // 智能清理磁盘空间（复刻bililive-go的段文件管理）
-                        match manager.smart_cleanup().await {
+                        let mut manager_guard = manager.lock().await;
+                        match manager_guard.smart_cleanup().await {
                             Ok(cleaned) => {
                                 if cleaned > 0 {
                                     info!("智能清理完成：清理了 {} 个旧分片文件，当前保留 {} 个分片", 
-                                          cleaned, manager.segment_count());
+                                          cleaned, manager_guard.segment_count());
                                 }
                             }
                             Err(e) => {

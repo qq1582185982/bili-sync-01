@@ -5,6 +5,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, info, warn};
 
 use super::m3u8_parser::SegmentInfo;
+use super::config::{AutoMergeConfig, MergeQuality};
 
 /// 分片记录
 #[derive(Debug, Clone)]
@@ -36,6 +37,10 @@ pub struct SegmentManager {
     log_file: Option<File>,
     /// 统计信息
     stats: SegmentStats,
+    /// 自动合并配置
+    auto_merge_config: Option<AutoMergeConfig>,
+    /// 最后一次自动合并的时间戳
+    last_auto_merge_timestamp: Option<i64>,
 }
 
 /// 分片统计信息
@@ -67,6 +72,8 @@ impl SegmentManager {
             work_dir: work_dir.to_path_buf(),
             log_file: None,
             stats: SegmentStats::default(),
+            auto_merge_config: None,
+            last_auto_merge_timestamp: None,
         };
 
         // 初始化日志文件
@@ -81,6 +88,9 @@ impl SegmentManager {
 
     /// 添加分片记录
     pub async fn add_segment(&mut self, segment_info: &SegmentInfo, file_size: u64) -> Result<()> {
+        debug!("add_segment调用 - 序列号: {}, 时长: {:.2}秒, 文件大小: {} bytes", 
+               segment_info.sequence, segment_info.duration, file_size);
+        
         let filename = format!("segment_{:06}.ts", segment_info.sequence);
         let file_path = self.work_dir.join(&filename);
 
@@ -100,10 +110,19 @@ impl SegmentManager {
         // 添加到内存列表
         self.segments.push(record);
         
+        debug!("分片已添加到管理器 - 总分片数: {}, 当前总时长: {:.2}秒", 
+               self.segments.len(), self.stats.total_duration);
+        
         // 更新统计
         self.update_stats();
         
         debug!("添加分片记录: 序列号={}, 大小={} bytes", segment_info.sequence, file_size);
+        
+        // 检查是否需要触发自动合并
+        if self.should_auto_merge() {
+            info!("触发自动合并条件，当前时长: {:.2}秒", self.stats.total_duration);
+        }
+        
         Ok(())
     }
 
@@ -872,6 +891,244 @@ impl SegmentManager {
         
         info!("录制最终化处理完成，输出文件: {:?}", merged_file);
         Ok(merged_file)
+    }
+
+    /// 设置自动合并配置
+    pub fn set_auto_merge_config(&mut self, config: AutoMergeConfig) {
+        info!("已设置自动合并配置: 启用={}, 阈值={}秒", 
+              config.enabled, config.duration_threshold);
+        self.auto_merge_config = Some(config);
+    }
+
+    /// 获取自动合并配置
+    pub fn get_auto_merge_config(&self) -> Option<&AutoMergeConfig> {
+        self.auto_merge_config.as_ref()
+    }
+
+    /// 检查是否应该触发自动合并
+    pub fn should_auto_merge(&self) -> bool {
+        if let Some(config) = &self.auto_merge_config {
+            debug!("auto_merge配置检查 - enabled: {}, 时长: {:.2}秒, 阈值: {}秒", 
+                   config.enabled, self.stats.total_duration, config.duration_threshold);
+            
+            if config.enabled && config.should_auto_merge(self.stats.total_duration) {
+                // 检查距离上次自动合并是否超过阈值
+                if let Some(last_merge_time) = self.last_auto_merge_timestamp {
+                    // 获取当前最新分片的时间戳
+                    if let Some(latest_timestamp) = self.stats.end_timestamp {
+                        let time_since_last_merge = (latest_timestamp - last_merge_time) as f64 / 1000.0;
+                        debug!("上次合并后时间: {:.2}秒", time_since_last_merge);
+                        return time_since_last_merge >= config.duration_threshold as f64;
+                    }
+                } else {
+                    // 第一次检查，直接根据总时长判断
+                    debug!("首次检查，时长达到阈值: {}", true);
+                    return true;
+                }
+            }
+        } else {
+            debug!("未找到auto_merge配置");
+        }
+        false
+    }
+
+    /// 执行自动合并
+    pub async fn perform_auto_merge(&mut self) -> Result<Option<PathBuf>> {
+        debug!("perform_auto_merge调用 - 当前时长: {:.2}秒, should_auto_merge: {}", 
+               self.stats.total_duration, self.should_auto_merge());
+        
+        if !self.should_auto_merge() {
+            return Ok(None);
+        }
+
+        let Some(config) = self.auto_merge_config.clone() else {
+            return Ok(None);
+        };
+
+        info!("开始执行自动合并，当前时长: {:.2}秒", self.stats.total_duration);
+
+        // 生成带时间戳的输出文件名
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let output_filename = format!("auto_merged_{}.{}", timestamp, config.output_format);
+        let output_path = self.work_dir.join(&output_filename);
+
+        // 执行合并
+        match self.auto_merge_segments_to_mp4(&output_path, &config).await {
+            Ok(merged_file) => {
+                // 更新最后一次自动合并的时间戳
+                self.last_auto_merge_timestamp = self.stats.end_timestamp;
+                
+                info!("自动合并成功: {:?}", merged_file);
+
+                // 根据配置决定是否清理分片文件
+                if !config.keep_segments_after_merge {
+                    info!("正在清理已合并的分片文件...");
+                    let segments_to_clean = self.segments.clone();
+                    for segment in &segments_to_clean {
+                        if segment.downloaded && segment.file_path.exists() {
+                            if let Err(e) = tokio::fs::remove_file(&segment.file_path).await {
+                                warn!("删除分片文件失败: {:?}, 错误: {}", segment.file_path, e);
+                            }
+                        }
+                    }
+                    
+                    // 清空内存中的分片列表
+                    self.segments.clear();
+                    self.update_stats();
+                    
+                    info!("已清理 {} 个分片文件", segments_to_clean.len());
+                }
+
+                Ok(Some(merged_file))
+            }
+            Err(e) => {
+                warn!("自动合并失败: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    /// 自动合并分片为MP4（内部方法）
+    async fn auto_merge_segments_to_mp4(
+        &self,
+        output_path: &Path,
+        config: &AutoMergeConfig,
+    ) -> Result<PathBuf> {
+        // 筛选已下载的分片
+        let downloaded_segments: Vec<_> = self.segments
+            .iter()
+            .filter(|s| s.downloaded)
+            .collect();
+
+        if downloaded_segments.is_empty() {
+            return Err(anyhow!("没有可合并的分片"));
+        }
+
+        info!("开始自动合并 {} 个分片", downloaded_segments.len());
+
+        // 1. 生成M3U8索引文件
+        let m3u8_path = self.work_dir.join("auto_merge_index.m3u8");
+        self.generate_auto_merge_m3u8(&downloaded_segments, &m3u8_path).await?;
+
+        // 2. 使用FFmpeg进行转换
+        self.auto_merge_clip_from_m3u8(&m3u8_path, output_path, config).await?;
+
+        // 3. 清理临时M3U8文件
+        if m3u8_path.exists() {
+            let _ = tokio::fs::remove_file(&m3u8_path).await;
+        }
+
+        Ok(output_path.to_path_buf())
+    }
+
+    /// 生成自动合并用的M3U8文件
+    async fn generate_auto_merge_m3u8(
+        &self,
+        segments: &[&SegmentRecord],
+        m3u8_path: &Path,
+    ) -> Result<()> {
+        let mut m3u8_content = String::new();
+        m3u8_content.push_str("#EXTM3U\n");
+        m3u8_content.push_str("#EXT-X-VERSION:3\n");
+        m3u8_content.push_str("#EXT-X-TARGETDURATION:10\n");
+        m3u8_content.push_str("#EXT-X-MEDIA-SEQUENCE:0\n");
+
+        // 检查是否有初始化段
+        let init_segment_path = self.work_dir.join("h1756135359.m4s");
+        if init_segment_path.exists() {
+            m3u8_content.push_str(&format!(
+                "#EXT-X-MAP:URI=\"{}\"\n", 
+                init_segment_path.file_name().unwrap().to_string_lossy()
+            ));
+        }
+
+        // 添加所有分片
+        for segment in segments {
+            m3u8_content.push_str(&format!("#EXTINF:{:.3},\n", segment.duration));
+            if let Some(filename) = segment.file_path.file_name() {
+                m3u8_content.push_str(&format!("{}\n", filename.to_string_lossy()));
+            }
+        }
+
+        m3u8_content.push_str("#EXT-X-ENDLIST\n");
+
+        tokio::fs::write(m3u8_path, m3u8_content).await
+            .map_err(|e| anyhow!("写入M3U8文件失败: {}", e))?;
+
+        debug!("自动合并M3U8文件已生成: {:?}", m3u8_path);
+        Ok(())
+    }
+
+    /// 从M3U8文件自动合并为MP4
+    async fn auto_merge_clip_from_m3u8(
+        &self,
+        m3u8_path: &Path,
+        output_path: &Path,
+        config: &AutoMergeConfig,
+    ) -> Result<()> {
+        use std::process::Stdio;
+        use tokio::process::Command;
+
+        // 删除已存在的输出文件
+        if output_path.exists() {
+            tokio::fs::remove_file(output_path).await?;
+        }
+
+        let mut args = vec!["-i".to_string(), m3u8_path.to_string_lossy().to_string()];
+        args.extend(config.output_quality.get_ffmpeg_args());
+        args.push(output_path.to_string_lossy().to_string());
+
+        info!("执行FFmpeg自动合并: ffmpeg {}", args.join(" "));
+
+        let cmd = Command::new("ffmpeg")
+            .args(&args)
+            .current_dir(&self.work_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| anyhow!("启动FFmpeg失败: {}", e))?;
+
+        let output = cmd.wait_with_output().await
+            .map_err(|e| anyhow!("等待FFmpeg完成失败: {}", e))?;
+
+        if output.status.success() {
+            info!("FFmpeg自动合并成功");
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            warn!("FFmpeg自动合并失败，尝试重编码: {}", stderr);
+
+            // 尝试使用重编码参数
+            let mut fallback_args = vec!["-i".to_string(), m3u8_path.to_string_lossy().to_string()];
+            fallback_args.extend(config.output_quality.get_fallback_ffmpeg_args());
+            fallback_args.push(output_path.to_string_lossy().to_string());
+
+            info!("执行FFmpeg重编码: ffmpeg {}", fallback_args.join(" "));
+
+            let fallback_cmd = Command::new("ffmpeg")
+                .args(&fallback_args)
+                .current_dir(&self.work_dir)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| anyhow!("启动FFmpeg重编码失败: {}", e))?;
+
+            let fallback_output = fallback_cmd.wait_with_output().await
+                .map_err(|e| anyhow!("等待FFmpeg重编码完成失败: {}", e))?;
+
+            if fallback_output.status.success() {
+                info!("FFmpeg重编码合并成功");
+                Ok(())
+            } else {
+                let fallback_stderr = String::from_utf8_lossy(&fallback_output.stderr);
+                Err(anyhow!("FFmpeg合并失败: {}", fallback_stderr))
+            }
+        }
+    }
+
+    /// 获取统计信息
+    pub fn get_stats(&self) -> &SegmentStats {
+        &self.stats
     }
 
     /// 更新统计信息
