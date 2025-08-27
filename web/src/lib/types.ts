@@ -802,8 +802,12 @@ export interface StreamQuality {
 	bitrate?: number;
 }
 
+// 录制模式类型
+export type RecordingMode = 'ffmpeg' | 'segment';
+
 // 直播录制配置
 export interface LiveRecordingConfig {
+	recording_mode: RecordingMode;
 	auto_merge: {
 		enabled: boolean;
 		duration_threshold: number;

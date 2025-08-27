@@ -9,6 +9,7 @@
 	import api from '$lib/api';
 	import { onMount } from 'svelte';
 	import Loading from '$lib/components/ui/Loading.svelte';
+	import type { RecordingMode } from '$lib/types';
 
 	const dispatch = createEventDispatcher<{
 		close: void;
@@ -16,6 +17,7 @@
 
 	// 配置数据
 	let config = {
+		recording_mode: 'ffmpeg' as RecordingMode,
 		auto_merge: {
 			enabled: false,
 			duration_threshold: 600,
@@ -49,6 +51,11 @@
 		{ value: 'StreamCopy', label: '流复制（无损，速度快）' },
 		{ value: 'Reencode', label: '重编码（有损，文件小）' },
 		{ value: 'Auto', label: '自动选择' }
+	];
+
+	const recordingModeOptions = [
+		{ value: 'ffmpeg', label: 'FFmpeg模式', description: '直接录制到文件，适合FLV/MP4格式' },
+		{ value: 'segment', label: '分片模式', description: 'HLS分片下载并合并，适合M4S格式' }
 	];
 
 	const recordingFormatOptions = [
@@ -115,6 +122,13 @@
 	// 关闭对话框
 	function handleClose() {
 		dispatch('close');
+	}
+
+	// 智能模式推荐：当选择M4S格式时推荐分片模式
+	$: {
+		if (config.quality.preferred_format === 'm4s' && config.recording_mode === 'ffmpeg') {
+			// 可以在这里添加提示逻辑，但不自动改变用户选择
+		}
 	}
 
 	// 组件挂载时加载配置
@@ -247,6 +261,27 @@
 							<Card.Description>设置录制流的格式、分辨率和帧率</Card.Description>
 						</Card.Header>
 						<Card.Content class="space-y-4">
+							<!-- 录制模式 -->
+							<div class="space-y-2">
+								<Label for="recording-mode">录制模式</Label>
+								<select
+									id="recording-mode"
+									bind:value={config.recording_mode}
+									class="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+								>
+									{#each recordingModeOptions as option}
+										<option value={option.value}>{option.label}</option>
+									{/each}
+								</select>
+								<p class="text-sm text-muted-foreground">
+									{#if config.recording_mode}
+										{recordingModeOptions.find(m => m.value === config.recording_mode)?.description || ''}
+									{:else}
+										选择录制模式
+									{/if}
+								</p>
+							</div>
+
 							<!-- 首选格式 -->
 							<div class="space-y-2">
 								<Label for="preferred-format">首选录制格式</Label>
@@ -259,6 +294,19 @@
 										<option value={option.value}>{option.label}</option>
 									{/each}
 								</select>
+								{#if config.quality.preferred_format === 'm4s' && config.recording_mode === 'ffmpeg'}
+									<div class="flex items-start space-x-2 mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md dark:bg-yellow-900/20 dark:border-yellow-800">
+										<div class="flex-shrink-0">
+											<svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+												<path fill-rule="evenodd" d="M8.485 3.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 3.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+											</svg>
+										</div>
+										<div>
+											<h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">建议使用分片模式</h3>
+											<p class="text-sm text-yellow-700 dark:text-yellow-300 mt-1">M4S格式建议使用分片模式以支持自动合并为MP4文件</p>
+										</div>
+									</div>
+								{/if}
 							</div>
 
 							<!-- 质量等级 -->

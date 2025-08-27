@@ -12,25 +12,12 @@ use bili_sync_entity::{live_monitor, live_record};
 use crate::bilibili::BiliClient;
 use crate::utils::time_format::now_standard_string;
 use crate::config::with_config;
+use crate::config::ConfigManager;
 
 use super::api::{LiveApiClient, LiveStatus, Quality, StreamUrlPool};
 use super::recorder::LiveRecorder;
 use super::ws_client::{WebSocketEvent, WebSocketManager};
-
-/// 录制模式配置
-#[derive(Debug, Clone, PartialEq)]
-pub enum RecordingMode {
-    /// FFmpeg模式（默认）
-    FFmpeg,
-    /// 分片下载模式（使用正确的HLS API）
-    Segment,
-}
-
-impl Default for RecordingMode {
-    fn default() -> Self {
-        RecordingMode::FFmpeg
-    }
-}
+use super::config::{RecordingMode, LiveRecordingConfig, config_keys};
 
 /// 监控配置
 #[derive(Debug, Clone)]
@@ -54,11 +41,11 @@ pub struct MonitorConfig {
 
 impl From<live_monitor::Model> for MonitorConfig {
     fn from(model: live_monitor::Model) -> Self {
-        // 从全局配置中读取录制模式
+        // 从全局配置中读取录制模式（临时保持原有逻辑，实际配置会通过API更新）
         let recording_mode = with_config(|config_bundle| {
             match config_bundle.config.live_recording_mode.as_str() {
                 "segment" => RecordingMode::Segment,
-                "ffmpeg" | _ => RecordingMode::FFmpeg, // 默认FFmpeg模式
+                "ffmpeg" | _ => RecordingMode::FFmpeg,
             }
         });
         
@@ -361,6 +348,27 @@ impl LiveMonitor {
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
         url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
     ) -> Result<()> {
+        // 从数据库读取最新的直播录制配置
+        let config_manager = ConfigManager::new(db.clone());
+        let (actual_recording_mode, auto_merge_config) = if let Ok(Some(config_json)) = config_manager.get_config_item(config_keys::LIVE_RECORDING_CONFIG).await {
+            if let Ok(live_config) = serde_json::from_value::<LiveRecordingConfig>(config_json) {
+                live_debug!("从数据库读取录制配置 - 模式: {:?}, 自动合并启用: {}, 阈值: {}秒", 
+                           live_config.recording_mode, 
+                           live_config.auto_merge.enabled, 
+                           live_config.auto_merge.duration_threshold);
+                (live_config.recording_mode, Some(live_config.auto_merge))
+            } else {
+                live_warn!("解析直播录制配置失败，使用默认配置");
+                (config.recording_mode.clone(), None)
+            }
+        } else {
+            live_debug!("使用监控配置中的录制模式: {:?}", config.recording_mode);
+            (config.recording_mode.clone(), None)
+        };
+
+        // 创建修改后的配置副本
+        let mut effective_config = config.clone();
+        effective_config.recording_mode = actual_recording_mode;
         live_info!("开始录制 {} 的直播: {}", config.upper_name, room_info.title);
         live_debug!("录制配置 - 房间ID: {}, 质量: {:?}, 格式: {}", config.room_id, config.quality, config.format);
 
@@ -446,8 +454,8 @@ impl LiveMonitor {
         };
 
         // 根据配置启动对应模式的录制器
-        live_debug!("启动录制器，输出文件: {:?}，模式: {:?}", output_path, config.recording_mode);
-        let mut recorder = match config.recording_mode {
+        live_debug!("启动录制器，输出文件: {:?}，模式: {:?}", output_path, effective_config.recording_mode);
+        let mut recorder = match effective_config.recording_mode {
             RecordingMode::FFmpeg => {
                 live_info!("使用FFmpeg模式录制");
                 LiveRecorder::new_ffmpeg(output_path.clone(), config.max_file_size)
@@ -462,7 +470,8 @@ impl LiveMonitor {
                     work_dir, 
                     config.room_id, 
                     config.quality, 
-                    bili_client.clone()
+                    bili_client.clone(),
+                    auto_merge_config
                 ).await {
                     Ok(recorder) => recorder,
                     Err(e) => {
@@ -478,7 +487,7 @@ impl LiveMonitor {
             live_error!("启动录制器失败: {}", e);
             
             // 如果是分片模式失败，尝试自动回退到FFmpeg模式
-            if config.recording_mode == RecordingMode::Segment {
+            if effective_config.recording_mode == RecordingMode::Segment {
                 live_warn!("分片模式启动失败，自动回退到FFmpeg模式");
                 
                 // 重新创建FFmpeg录制器

@@ -87,6 +87,8 @@ pub struct SegmentRecorder {
     bili_client: Arc<BiliClient>,
     /// 下载循环任务句柄
     download_handle: Option<tokio::task::JoinHandle<()>>,
+    /// 自动合并配置
+    auto_merge_config: Option<super::config::AutoMergeConfig>,
 }
 
 impl SegmentRecorder {
@@ -96,6 +98,7 @@ impl SegmentRecorder {
         room_id: i64,
         quality: Quality,
         bili_client: Arc<BiliClient>,
+        auto_merge_config: Option<super::config::AutoMergeConfig>,
     ) -> Result<Self> {
         let work_dir = work_dir.as_ref().to_path_buf();
         
@@ -109,6 +112,7 @@ impl SegmentRecorder {
             work_dir,
             bili_client,
             download_handle: None,
+            auto_merge_config,
         })
     }
     
@@ -132,6 +136,7 @@ impl SegmentRecorder {
         let quality = self.quality;
         let work_dir = self.work_dir.clone();
         let bili_client = self.bili_client.clone();
+        let auto_merge_config = self.auto_merge_config.clone();
         
         // 启动分片录制主循环（复刻bililive-go的实现）
         let handle = tokio::spawn(async move {
@@ -155,12 +160,12 @@ impl SegmentRecorder {
                 Ok(mut m) => {
                     // 设置自动合并配置
                     use super::config::AutoMergeConfig;
-                    let auto_config = AutoMergeConfig {
-                        enabled: true,
-                        duration_threshold: 60, // 60秒阈值
-                        keep_segments_after_merge: false,
-                        output_format: "mp4".to_string(),
-                        output_quality: super::config::MergeQuality::Auto,
+                    let auto_config = if let Some(config) = &auto_merge_config {
+                        live_info!("已设置自动合并配置: 启用={}, 阈值={}秒", config.enabled, config.duration_threshold);
+                        config.clone()
+                    } else {
+                        live_warn!("未提供自动合并配置，使用默认配置");
+                        AutoMergeConfig::default()
                     };
                     m.set_auto_merge_config(auto_config);
                     std::sync::Arc::new(tokio::sync::Mutex::new(m))
@@ -319,12 +324,14 @@ impl LiveRecorder {
         room_id: i64,
         quality: Quality,
         bili_client: Arc<BiliClient>,
+        auto_merge_config: Option<super::config::AutoMergeConfig>,
     ) -> Result<Self> {
         let segment_recorder = SegmentRecorder::new(
             work_dir,
             room_id,
             quality,
             bili_client,
+            auto_merge_config,
         ).await?;
         
         Ok(Self {
@@ -346,7 +353,7 @@ impl LiveRecorder {
     ) -> Result<Self> {
         if use_segment_mode {
             live_info!("创建分片模式录制器");
-            Self::new_segment(output_path, room_id, quality, bili_client).await
+            Self::new_segment(output_path, room_id, quality, bili_client, None).await
         } else {
             live_info!("创建FFmpeg模式录制器");
             Ok(Self::new_ffmpeg(output_path, max_file_size))

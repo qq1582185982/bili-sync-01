@@ -5,9 +5,49 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// 录制模式
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+pub enum RecordingMode {
+    /// FFmpeg模式 - 直接录制到文件
+    #[serde(rename = "ffmpeg")]
+    FFmpeg,
+    /// 分片模式 - HLS分片下载并合并
+    #[serde(rename = "segment")]
+    Segment,
+}
+
+impl Default for RecordingMode {
+    fn default() -> Self {
+        Self::FFmpeg
+    }
+}
+
+impl std::fmt::Display for RecordingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RecordingMode::FFmpeg => write!(f, "ffmpeg"),
+            RecordingMode::Segment => write!(f, "segment"),
+        }
+    }
+}
+
+impl std::str::FromStr for RecordingMode {
+    type Err = String;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "ffmpeg" => Ok(Self::FFmpeg),
+            "segment" => Ok(Self::Segment),
+            _ => Err(format!("Invalid recording mode: {}", s))
+        }
+    }
+}
+
 /// 直播录制配置
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LiveRecordingConfig {
+    /// 录制模式
+    pub recording_mode: RecordingMode,
     /// 自动合并配置
     pub auto_merge: AutoMergeConfig,
     /// 录制质量配置
@@ -102,6 +142,7 @@ pub struct QualityInfo {
 impl Default for LiveRecordingConfig {
     fn default() -> Self {
         Self {
+            recording_mode: RecordingMode::default(),
             auto_merge: AutoMergeConfig::default(),
             quality: RecordingQualityConfig::default(),
             file_management: FileManagementConfig::default(),
