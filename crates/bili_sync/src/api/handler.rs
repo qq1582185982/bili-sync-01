@@ -9847,24 +9847,34 @@ pub async fn add_live_monitor(
         }));
     }
     
-    // 获取quality和format，优先使用请求中的值，否则使用全局配置或默认值
-    let quality = params.quality.unwrap_or_else(|| "high".to_string());
-    
-    let format = if let Some(f) = params.format {
-        f
-    } else if let Some(manager) = crate::config::get_config_manager() {
-        // 从全局配置获取格式
-        if let Ok(Some(config_value)) = manager.get_config_item("live_recording_config").await {
-            if let Ok(live_config) = serde_json::from_value::<LiveRecordingConfig>(config_value) {
-                live_config.quality.preferred_format
-            } else {
-                "flv".to_string() // 解析失败时的默认值
-            }
+    // 获取quality_level和format，优先使用请求中的值，否则使用全局配置或默认值
+    let (quality, quality_level, format) = if let Some(manager) = crate::config::get_config_manager() {
+        // 从全局配置获取
+        let live_config = if let Ok(Some(config_value)) = manager.get_config_item("live_recording_config").await {
+            serde_json::from_value::<LiveRecordingConfig>(config_value).unwrap_or_default()
         } else {
-            "flv".to_string() // 配置不存在时的默认值
-        }
+            LiveRecordingConfig::default()
+        };
+        
+        let quality_level = params.quality_level.unwrap_or(live_config.quality.quality_level);
+        let quality = params.quality.unwrap_or_else(|| {
+            use crate::live::config::RecordingQualityConfig;
+            let temp_config = RecordingQualityConfig {
+                preferred_format: "flv".to_string(),
+                quality_level,
+                frame_rate: 30,
+            };
+            temp_config.get_quality_name()
+        });
+        let format = params.format.unwrap_or(live_config.quality.preferred_format);
+        
+        (quality, quality_level, format)
     } else {
-        "flv".to_string() // 配置管理器不可用时的默认值
+        // 配置管理器不可用时的默认值
+        let quality_level = params.quality_level.unwrap_or(10000); // 默认原画
+        let quality = params.quality.unwrap_or_else(|| "原画".to_string());
+        let format = params.format.unwrap_or_else(|| "flv".to_string());
+        (quality, quality_level, format)
     };
 
     // 创建新的监控
@@ -9878,6 +9888,7 @@ pub async fn add_live_monitor(
         enabled: Set(params.enabled),
         check_interval: Set(params.check_interval as i32),
         quality: Set(quality),
+        quality_level: Set(quality_level),
         format: Set(format),
         max_file_size: Set(params.max_file_size),
         last_status: Set(0), // 默认未直播
@@ -9897,6 +9908,7 @@ pub async fn add_live_monitor(
         enabled: inserted.enabled,
         check_interval: inserted.check_interval,
         quality: inserted.quality,
+        quality_level: inserted.quality_level,
         format: inserted.format,
         last_status: inserted.last_status,
         last_check_at: inserted.last_check_at,
@@ -9969,6 +9981,7 @@ pub async fn get_live_monitors(
             enabled: m.enabled,
             check_interval: m.check_interval,
             quality: m.quality,
+            quality_level: m.quality_level,
             format: m.format,
             last_status: m.last_status,
             last_check_at: m.last_check_at,
@@ -10039,6 +10052,11 @@ pub async fn update_live_monitor(
         } else {
             Unchanged(monitor.quality)
         },
+        quality_level: if let Some(quality_level) = params.quality_level {
+            Set(quality_level)
+        } else {
+            Unchanged(monitor.quality_level)
+        },
         format: if let Some(format) = params.format {
             Set(format)
         } else {
@@ -10066,6 +10084,7 @@ pub async fn update_live_monitor(
         enabled: updated.enabled,
         check_interval: updated.check_interval,
         quality: updated.quality,
+        quality_level: updated.quality_level,
         format: updated.format,
         last_status: updated.last_status,
         last_check_at: updated.last_check_at,
@@ -10328,4 +10347,62 @@ pub async fn update_live_recording_config(
         value: config_json,
         updated_at: chrono::Utc::now().to_rfc3339(),
     }))
+}
+
+/// 获取B站直播可用质量等级（静态列表）
+#[utoipa::path(
+    get,
+    path = "/api/live/quality-levels",
+    responses(
+        (status = 200, description = "成功获取质量等级列表", body = ApiResponse<Vec<crate::live::config::QualityInfo>>),
+    )
+)]
+pub async fn get_live_quality_levels() -> Result<ApiResponse<Vec<crate::live::config::QualityInfo>>, ApiError> {
+    use crate::live::config::RecordingQualityConfig;
+    
+    let qualities = RecordingQualityConfig::get_available_qualities();
+    
+    Ok(ApiResponse::ok(qualities))
+}
+
+/// 获取直播间实时可用质量等级
+#[utoipa::path(
+    get,
+    path = "/api/live/room/{room_id}/qualities",
+    responses(
+        (status = 200, description = "成功获取直播间质量等级", body = ApiResponse<Vec<crate::live::bilibili_api::StreamQuality>>),
+        (status = 404, description = "直播间不存在或未开播", body = String),
+        (status = 500, description = "获取质量信息失败", body = String)
+    )
+)]
+pub async fn get_room_qualities(
+    Path(room_id): Path<i64>,
+) -> Result<ApiResponse<Vec<crate::live::bilibili_api::StreamQuality>>, ApiError> {
+    use crate::live::bilibili_api::BilibiliLiveApi;
+    
+    let api = BilibiliLiveApi::new();
+    
+    // 先检查直播间状态
+    match api.get_room_info(room_id).await {
+        Ok(room_info) => {
+            if room_info.live_status != 1 {
+                return Err(ApiError::from(anyhow!("直播间未开播，状态: {}", room_info.live_status)));
+            }
+        }
+        Err(e) => {
+            return Err(ApiError::from(anyhow!("获取直播间信息失败: {}", e)));
+        }
+    }
+    
+    // 获取可用质量等级
+    match api.get_available_qualities(room_id).await {
+        Ok(qualities) => {
+            info!("成功获取直播间 {} 的 {} 个质量等级", room_id, qualities.len());
+            Ok(ApiResponse::ok(qualities))
+        }
+        Err(e) => {
+            warn!("获取直播间质量失败: {}", e);
+            Err(ApiError::from(anyhow!("获取直播间质量失败: {}", e)))
+        }
+    }
 }

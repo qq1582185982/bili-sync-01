@@ -703,6 +703,7 @@ pub struct LiveMonitorInfo {
     pub enabled: bool,
     pub check_interval: i32,
     pub quality: String,
+    pub quality_level: u32,
     pub format: String,
     pub last_status: i32,
     pub last_check_at: Option<String>,

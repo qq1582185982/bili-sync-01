@@ -15,6 +15,7 @@ pub mod segment_downloader;
 pub mod segment_manager;
 pub mod m3u8_parser;
 pub mod config;
+pub mod bilibili_api;
 
 // 只导出实际使用的类型
 pub use monitor::LiveMonitor;

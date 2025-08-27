@@ -34,6 +34,8 @@ use crate::api::handler::{
     get_hot_reload_status,
     get_live_monitor_status,
     get_live_monitors,
+    get_live_quality_levels,
+    get_room_qualities,
     get_live_recording_config,
     get_log_files,
     get_logs,
@@ -233,6 +235,8 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
         // 直播监控API
         .route("/api/live/monitors", get(get_live_monitors))
         .route("/api/live/monitors", post(add_live_monitor))
+        .route("/api/live/quality-levels", get(get_live_quality_levels))
+        .route("/api/live/room/{room_id}/qualities", get(get_room_qualities))
         .route("/api/live/monitors/{id}", put(update_live_monitor))
         .route("/api/live/monitors/{id}", delete(delete_live_monitor))
         .route("/api/live/recordings", get(get_recordings))

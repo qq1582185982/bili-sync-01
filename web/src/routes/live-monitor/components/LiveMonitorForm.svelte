@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	// 使用现有的基础组件
 	import * as Button from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import type { LiveMonitorConfig, LiveQuality, LiveFormat } from '$lib/types';
+	import type { LiveMonitorConfig, LiveFormat, QualityInfo } from '$lib/types';
+	import api from '$lib/api';
 
 	export let monitor: LiveMonitorConfig | null = null;
 	export let onSubmit: (data: any) => void;
@@ -21,18 +22,32 @@
 		path: monitor?.path || '',
 		enabled: monitor?.enabled ?? true,
 		check_interval: monitor?.check_interval || 60,
-		quality: monitor?.quality || 'high' as LiveQuality,
+		quality_level: monitor?.quality_level || 10000, // 默认原画
 		format: monitor?.format || 'flv' as LiveFormat
 	};
 
-	// 画质选项
-	const qualityOptions = [
-		{ value: 'fluent', label: '流畅' },
-		{ value: 'high', label: '高清' },
-		{ value: 'super_clear', label: '超清' },
-		{ value: 'blue_ray', label: '蓝光' },
-		{ value: 'original', label: '原画' }
+	// B站质量等级选项
+	let qualityOptions: QualityInfo[] = [
+		{ qn: 10000, name: '原画', description: '最高画质，原始分辨率' },
+		{ qn: 800, name: '4K', description: '4K超高清画质' },
+		{ qn: 401, name: '蓝光杜比', description: '蓝光画质，支持杜比音效' },
+		{ qn: 400, name: '蓝光', description: '蓝光画质' },
+		{ qn: 250, name: '超清', description: '超清画质，通常为720p或1080p' },
+		{ qn: 150, name: '高清', description: '高清画质，通常为720p' },
+		{ qn: 80, name: '流畅', description: '流畅画质，通常为480p' }
 	];
+
+	// 加载B站质量等级选项
+	async function loadQualityOptions() {
+		try {
+			const levels = await api.getLiveQualityLevels();
+			if (levels && levels.length > 0) {
+				qualityOptions = levels;
+			}
+		} catch (error) {
+			console.warn('无法加载B站质量等级，使用默认选项:', error);
+		}
+	}
 
 	// 格式选项
 	const formatOptions = [
@@ -80,7 +95,10 @@
 		onSubmit(submitData);
 	}
 
-	// 这些响应式变量在使用原生select后不再需要
+	// 组件挂载时加载质量等级选项
+	onMount(() => {
+		loadQualityOptions();
+	});
 </script>
 
 <div class="space-y-6">
@@ -177,16 +195,23 @@
 			</div>
 
 			<div class="space-y-2">
-				<Label for="quality">录制画质</Label>
+				<Label for="quality_level">录制画质</Label>
 				<select
-					id="quality"
-					bind:value={formData.quality}
+					id="quality_level"
+					bind:value={formData.quality_level}
 					class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					{#each qualityOptions as option}
-						<option value={option.value}>{option.label}</option>
+						<option value={option.qn}>{option.name}</option>
 					{/each}
 				</select>
+				<p class="text-xs text-muted-foreground">
+					{#if formData.quality_level}
+						{qualityOptions.find(q => q.qn === formData.quality_level)?.description || 'B站质量等级'}
+					{:else}
+						选择录制质量等级，数值越高画质越好
+					{/if}
+				</p>
 			</div>
 
 			<div class="space-y-2">
@@ -222,7 +247,7 @@
 			<li>• UP主ID可以从UP主主页URL获取：https://space.bilibili.com/UP主ID</li>
 			<li>• 直播间ID可以从直播间URL获取：https://live.bilibili.com/直播间ID</li>
 			<li>• 检查间隔建议设置为30-60秒，太频繁可能被限制</li>
-			<li>• 原画画质需要大量存储空间，请根据需要选择</li>
+			<li>• 原画画质（10000）需要大量存储空间，数值越高画质越好</li>
 		</ul>
 	</div>
 

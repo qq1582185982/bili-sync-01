@@ -43,6 +43,8 @@ import type {
 	LiveMonitorConfig,
 	LiveRecord,
 	LiveRecordingConfig,
+	QualityInfo,
+	StreamQuality,
 	CreateLiveMonitorRequest,
 	UpdateLiveMonitorRequest,
 	LiveMonitorsResponse,
@@ -697,6 +699,23 @@ class ApiClient {
 	async updateLiveRecordingConfig(config: LiveRecordingConfig): Promise<void> {
 		await this.put<any>('/live/recording-config', config);
 	}
+
+	/**
+	 * 获取B站质量等级列表（静态）
+	 */
+	async getLiveQualityLevels(): Promise<QualityInfo[]> {
+		const response = await this.get<QualityInfo[]>('/live/quality-levels');
+		return response.data;
+	}
+
+	/**
+	 * 获取直播间实时质量等级
+	 * @param roomId 直播间ID
+	 */
+	async getRoomQualities(roomId: number): Promise<StreamQuality[]> {
+		const response = await this.get<StreamQuality[]>(`/live/room/${roomId}/qualities`);
+		return response.data;
+	}
 }
 
 // 创建默认的 API 客户端实例
@@ -969,6 +988,16 @@ export const api = {
 	 * 更新直播录制配置
 	 */
 	updateLiveRecordingConfig: (config: LiveRecordingConfig) => apiClient.updateLiveRecordingConfig(config),
+
+	/**
+	 * 获取B站质量等级列表（静态）
+	 */
+	getLiveQualityLevels: () => apiClient.getLiveQualityLevels(),
+
+	/**
+	 * 获取直播间实时质量等级
+	 */
+	getRoomQualities: (roomId: number) => apiClient.getRoomQualities(roomId),
 
 	/**
 	 * 订阅系统信息WebSocket事件

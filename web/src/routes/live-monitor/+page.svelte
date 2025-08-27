@@ -10,7 +10,7 @@
 	import BreadCrumb from '$lib/components/bread-crumb.svelte';
 	import Loading from '$lib/components/ui/Loading.svelte';
 	import api from '$lib/api';
-	import type { LiveMonitorConfig, LiveMonitorStatusResponse } from '$lib/types';
+	import type { LiveMonitorConfig, LiveMonitorStatusResponse, QualityInfo } from '$lib/types';
 	// import LiveMonitorForm from './components/LiveMonitorForm.svelte';
 	import LiveRecordsDialog from './components/LiveRecordsDialog.svelte';
 	import LiveRecordingConfig from './components/LiveRecordingConfig.svelte';
@@ -26,6 +26,17 @@
 
 	// 监控状态
 	let monitorStatus: LiveMonitorStatusResponse | null = null;
+
+	// B站质量等级选项
+	let qualityOptions: QualityInfo[] = [
+		{ qn: 10000, name: '原画', description: '最高画质，原始分辨率' },
+		{ qn: 800, name: '4K', description: '4K超高清画质' },
+		{ qn: 401, name: '蓝光杜比', description: '蓝光画质，支持杜比音效' },
+		{ qn: 400, name: '蓝光', description: '蓝光画质' },
+		{ qn: 250, name: '超清', description: '超清画质，通常为720p或1080p' },
+		{ qn: 150, name: '高清', description: '高清画质，通常为720p' },
+		{ qn: 80, name: '流畅', description: '流畅画质，通常为480p' }
+	];
 
 	// 对话框状态
 	let deleteDialogOpen = false;
@@ -44,8 +55,6 @@
 		room_id: null,
 		short_room_id: null,
 		path: '',
-		quality: 'super_clear',
-		format: 'flv',
 		enabled: true
 	};
 
@@ -72,8 +81,6 @@
 			room_id: monitor.room_id,
 			short_room_id: monitor.short_room_id,
 			path: monitor.path,
-			quality: monitor.quality,
-			format: monitor.format,
 			enabled: monitor.enabled
 		};
 		editDialogOpen = true;
@@ -111,8 +118,6 @@
 			room_id: null,
 			short_room_id: null,
 			path: '',
-			quality: 'super_clear',
-			format: 'flv',
 			enabled: true
 		};
 	}
@@ -209,9 +214,7 @@
 				room_id: monitor.room_id,
 				short_room_id: monitor.short_room_id,
 				path: monitor.path,
-				enabled: monitor.enabled,
-				quality: monitor.quality,
-				format: monitor.format
+				enabled: monitor.enabled
 			});
 			await loadMonitors();
 			await loadStatus();
@@ -297,15 +300,21 @@
 	}
 
 	// 获取画质文本
-	function getQualityText(quality: string) {
-		const qualityMap: Record<string, string> = {
-			fluent: '流畅',
-			high: '高清',
-			super_clear: '超清',
-			blue_ray: '蓝光',
-			original: '原画'
-		};
-		return qualityMap[quality] || quality;
+	function getQualityText(qualityLevel: number) {
+		const quality = qualityOptions.find(q => q.qn === qualityLevel);
+		return quality ? quality.name : `质量${qualityLevel}`;
+	}
+
+	// 加载B站质量等级选项
+	async function loadQualityOptions() {
+		try {
+			const levels = await api.getLiveQualityLevels();
+			if (levels && levels.length > 0) {
+				qualityOptions = levels;
+			}
+		} catch (error) {
+			console.warn('无法加载B站质量等级，使用默认选项:', error);
+		}
 	}
 
 	// 分页处理
@@ -317,6 +326,7 @@
 	// 页面初始化
 	onMount(() => {
 		console.log('Page mounted, initial editDialogOpen:', editDialogOpen);
+		loadQualityOptions();
 		loadMonitors();
 		loadStatus();
 	});
@@ -508,7 +518,7 @@
 
 										<!-- 录制设置 -->
 										<div class="border-l pl-4">
-											<p class="text-sm">画质: {getQualityText(monitor.quality)}</p>
+											<p class="text-sm">画质: {getQualityText(monitor.quality_level)}</p>
 											<p class="text-sm text-muted-foreground">格式: {monitor.format.toUpperCase()}</p>
 										</div>
 
@@ -674,33 +684,9 @@
 					/>
 				</div>
 
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-					<div>
-						<label for="quality" class="block text-sm font-medium mb-2">录制画质</label>
-						<select 
-							id="quality"
-							bind:value={formData.quality}
-							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-						>
-							<option value="fluent">流畅</option>
-							<option value="high">高清</option>
-							<option value="super_clear">超清</option>
-							<option value="blue_ray">蓝光</option>
-							<option value="original">原画</option>
-						</select>
-					</div>
-					
-					<div>
-						<label for="format" class="block text-sm font-medium mb-2">录制格式</label>
-						<select 
-							id="format"
-							bind:value={formData.format}
-							class="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-						>
-							<option value="flv">FLV</option>
-							<option value="mp4">MP4</option>
-						</select>
-					</div>
+				<div class="text-sm text-muted-foreground mb-4 p-4 bg-muted/50 rounded-lg">
+					<p class="font-medium mb-2">🎥 录制配置说明</p>
+					<p>录制画质和格式将使用全局配置中的设置。请在「直播录制配置」中设置画质和格式选项。</p>
 				</div>
 
 				<div class="flex items-center space-x-2">

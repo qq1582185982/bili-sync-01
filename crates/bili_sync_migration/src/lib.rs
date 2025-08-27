@@ -32,6 +32,7 @@ mod m20250726_000001_unify_time_format;
 mod m20250807_000001_add_video_cid;
 mod m20250822_000001_create_live_monitor;
 mod m20250825_000001_add_auto_merge_config;
+mod m20250826_000001_update_live_monitor_quality;
 
 pub struct Migrator;
 
@@ -71,6 +72,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250807_000001_add_video_cid::Migration),
             Box::new(m20250822_000001_create_live_monitor::Migration),
             Box::new(m20250825_000001_add_auto_merge_config::Migration),
+            Box::new(m20250826_000001_update_live_monitor_quality::Migration),
         ]
     }
 }

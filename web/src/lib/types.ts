@@ -742,8 +742,8 @@ export interface TaskStatus {
 
 // 直播监控相关类型
 
-// 直播画质枚举
-export type LiveQuality = 'fluent' | 'high' | 'super_clear' | 'blue_ray' | 'original';
+// 直播画质等级（使用B站质量等级）
+export type LiveQuality = number;
 
 // 直播格式枚举
 export type LiveFormat = 'flv' | 'mp4';
@@ -763,7 +763,7 @@ export interface LiveMonitorConfig {
 	short_room_id?: number;
 	path: string;
 	enabled: boolean;
-	quality: LiveQuality;
+	quality_level: number; // 使用B站质量等级
 	format: LiveFormat;
 	last_status: LiveStatus;
 	last_check_at?: string;
@@ -786,6 +786,22 @@ export interface LiveRecord {
 // 合并质量类型
 export type MergeQuality = 'StreamCopy' | 'Reencode' | 'Auto';
 
+// B站质量等级信息
+export interface QualityInfo {
+	qn: number;
+	name: string;
+	description: string;
+}
+
+// B站直播流质量信息
+export interface StreamQuality {
+	qn: number;
+	description: string;
+	resolution?: string;
+	frame_rate?: number;
+	bitrate?: number;
+}
+
 // 直播录制配置
 export interface LiveRecordingConfig {
 	auto_merge: {
@@ -797,7 +813,7 @@ export interface LiveRecordingConfig {
 	};
 	quality: {
 		preferred_format: string;
-		resolution: string;
+		quality_level: number; // 使用B站质量等级而非分辨率字符串
 		frame_rate: number;
 	};
 	file_management: {
@@ -815,7 +831,7 @@ export interface CreateLiveMonitorRequest {
 	short_room_id?: number;
 	path: string;
 	enabled?: boolean;
-	quality?: LiveQuality;
+	quality_level?: number; // 使用B站质量等级
 	format?: LiveFormat;
 }
 
@@ -826,7 +842,7 @@ export interface UpdateLiveMonitorRequest {
 	short_room_id?: number;
 	path?: string;
 	enabled?: boolean;
-	quality?: LiveQuality;
+	quality_level?: number; // 使用B站质量等级
 	format?: LiveFormat;
 }
 

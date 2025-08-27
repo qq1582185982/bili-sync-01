@@ -38,8 +38,9 @@ pub struct AutoMergeConfig {
 pub struct RecordingQualityConfig {
     /// 首选录制格式
     pub preferred_format: String,
-    /// 录制分辨率
-    pub resolution: String,
+    /// B站质量等级 (qn)
+    /// 10000=原画, 800=4K, 401=蓝光杜比, 400=蓝光, 250=超清, 150=高清, 80=流畅
+    pub quality_level: u32,
     /// 录制帧率
     pub frame_rate: u32,
 }
@@ -70,6 +71,35 @@ pub enum MergeQuality {
     Auto,
 }
 
+/// B站直播质量等级常量
+pub mod bilibili_quality {
+    /// 原画
+    pub const ORIGINAL: u32 = 10000;
+    /// 4K
+    pub const UHD_4K: u32 = 800;
+    /// 蓝光杜比
+    pub const BLURAY_DOLBY: u32 = 401;
+    /// 蓝光
+    pub const BLURAY: u32 = 400;
+    /// 超清
+    pub const SUPER_HIGH: u32 = 250;
+    /// 高清
+    pub const HIGH: u32 = 150;
+    /// 流畅
+    pub const SMOOTH: u32 = 80;
+}
+
+/// B站直播质量等级信息
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct QualityInfo {
+    /// 质量等级 (qn)
+    pub qn: u32,
+    /// 质量名称
+    pub name: String,
+    /// 描述
+    pub description: String,
+}
+
 impl Default for LiveRecordingConfig {
     fn default() -> Self {
         Self {
@@ -96,7 +126,7 @@ impl Default for RecordingQualityConfig {
     fn default() -> Self {
         Self {
             preferred_format: "flv".to_string(),
-            resolution: "1080p".to_string(),
+            quality_level: 10000, // 原画
             frame_rate: 30,
         }
     }
@@ -109,6 +139,63 @@ impl Default for FileManagementConfig {
             filename_template: "{upper_name}_{room_id}_{date}_{time}_{title}.{ext}".to_string(),
             auto_cleanup_days: 7,
         }
+    }
+}
+
+impl RecordingQualityConfig {
+    /// 获取质量等级的名称
+    pub fn get_quality_name(&self) -> String {
+        match self.quality_level {
+            10000 => "原画".to_string(),
+            800 => "4K".to_string(),
+            401 => "蓝光杜比".to_string(),
+            400 => "蓝光".to_string(),
+            250 => "超清".to_string(),
+            150 => "高清".to_string(),
+            80 => "流畅".to_string(),
+            _ => format!("自定义({})", self.quality_level),
+        }
+    }
+
+    /// 获取所有可用的质量等级
+    pub fn get_available_qualities() -> Vec<QualityInfo> {
+        vec![
+            QualityInfo {
+                qn: bilibili_quality::ORIGINAL,
+                name: "原画".to_string(),
+                description: "最高画质，原始分辨率".to_string(),
+            },
+            QualityInfo {
+                qn: bilibili_quality::UHD_4K,
+                name: "4K".to_string(),
+                description: "4K超高清画质".to_string(),
+            },
+            QualityInfo {
+                qn: bilibili_quality::BLURAY_DOLBY,
+                name: "蓝光杜比".to_string(),
+                description: "蓝光画质，支持杜比音效".to_string(),
+            },
+            QualityInfo {
+                qn: bilibili_quality::BLURAY,
+                name: "蓝光".to_string(),
+                description: "蓝光画质".to_string(),
+            },
+            QualityInfo {
+                qn: bilibili_quality::SUPER_HIGH,
+                name: "超清".to_string(),
+                description: "超清画质，通常为720p或1080p".to_string(),
+            },
+            QualityInfo {
+                qn: bilibili_quality::HIGH,
+                name: "高清".to_string(),
+                description: "高清画质，通常为720p".to_string(),
+            },
+            QualityInfo {
+                qn: bilibili_quality::SMOOTH,
+                name: "流畅".to_string(),
+                description: "流畅画质，通常为480p".to_string(),
+            },
+        ]
     }
 }
 
@@ -182,6 +269,8 @@ mod tests {
         assert!(!config.auto_merge.enabled);
         assert_eq!(config.auto_merge.duration_threshold, 600);
         assert_eq!(config.auto_merge.output_format, "mp4");
+        assert_eq!(config.quality.quality_level, bilibili_quality::ORIGINAL);
+        assert_eq!(config.quality.preferred_format, "flv");
     }
 
     #[test]
@@ -196,6 +285,17 @@ mod tests {
         
         config.enabled = false;
         assert!(!config.should_auto_merge(600.0));
+    }
+
+    #[test]
+    fn test_quality_levels() {
+        let config = RecordingQualityConfig::default();
+        assert_eq!(config.get_quality_name(), "原画");
+        
+        let qualities = RecordingQualityConfig::get_available_qualities();
+        assert_eq!(qualities.len(), 7);
+        assert_eq!(qualities[0].qn, bilibili_quality::ORIGINAL);
+        assert_eq!(qualities[0].name, "原画");
     }
 
     #[test]

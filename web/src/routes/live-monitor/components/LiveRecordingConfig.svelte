@@ -25,7 +25,7 @@
 		},
 		quality: {
 			preferred_format: 'flv',
-			resolution: '1080p',
+			quality_level: 10000, // 默认原画
 			frame_rate: 30
 		},
 		file_management: {
@@ -56,20 +56,37 @@
 		{ value: 'm4s', label: 'M4S (HLS)' }
 	];
 
-	const resolutionOptions = [
-		{ value: '360p', label: '360P' },
-		{ value: '480p', label: '480P' },
-		{ value: '720p', label: '720P' },
-		{ value: '1080p', label: '1080P' },
-		{ value: '4K', label: '4K' },
-		{ value: '8K', label: '8K' }
+	// 质量等级选项
+	let qualityLevelOptions = [
+		{ value: 10000, label: '原画', description: '最高画质，原始分辨率' },
+		{ value: 800, label: '4K', description: '4K超高清画质' },
+		{ value: 401, label: '蓝光杜比', description: '蓝光画质，支持杜比音效' },
+		{ value: 400, label: '蓝光', description: '蓝光画质' },
+		{ value: 250, label: '超清', description: '超清画质，通常为720p或1080p' },
+		{ value: 150, label: '高清', description: '高清画质，通常为720p' },
+		{ value: 80, label: '流畅', description: '流畅画质，通常为480p' }
 	];
 
 	// 加载配置
 	async function loadConfig() {
 		loading = true;
 		try {
-			config = await api.getLiveRecordingConfig();
+			// 并行加载配置和质量等级选项
+			const [configData, qualityLevels] = await Promise.all([
+				api.getLiveRecordingConfig(),
+				api.getLiveQualityLevels().catch(() => null) // 如果获取失败，使用默认选项
+			]);
+			
+			config = configData;
+			
+			// 如果成功获取到质量等级，则使用API数据
+			if (qualityLevels && qualityLevels.length > 0) {
+				qualityLevelOptions = qualityLevels.map(q => ({
+					value: q.qn,
+					label: q.name,
+					description: q.description
+				}));
+			}
 		} catch (error) {
 			console.error('加载录制配置失败:', error);
 			toast.error('加载配置失败');
@@ -244,18 +261,25 @@
 								</select>
 							</div>
 
-							<!-- 分辨率 -->
+							<!-- 质量等级 -->
 							<div class="space-y-2">
-								<Label for="resolution">录制分辨率</Label>
+								<Label for="quality-level">录制质量等级</Label>
 								<select
-									id="resolution"
-									bind:value={config.quality.resolution}
+									id="quality-level"
+									bind:value={config.quality.quality_level}
 									class="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
 								>
-									{#each resolutionOptions as option}
+									{#each qualityLevelOptions as option}
 										<option value={option.value}>{option.label}</option>
 									{/each}
 								</select>
+								<p class="text-sm text-muted-foreground">
+									{#if config.quality.quality_level}
+										{qualityLevelOptions.find(q => q.value === config.quality.quality_level)?.description || '自定义质量等级'}
+									{:else}
+										选择录制质量等级，数值越高画质越好
+									{/if}
+								</p>
 							</div>
 
 							<!-- 帧率 -->

@@ -338,6 +338,8 @@ pub struct AddLiveMonitorRequest {
     pub check_interval: u64,
     /// 录制质量（可选，使用全局配置）
     pub quality: Option<String>,
+    /// B站质量等级 (qn)（可选，使用全局配置）
+    pub quality_level: Option<u32>,
     /// 录制格式（可选，使用全局配置）
     pub format: Option<String>,
     /// 是否启用
@@ -355,6 +357,7 @@ pub struct UpdateLiveMonitorRequest {
     pub path: Option<String>,
     pub check_interval: Option<u64>,
     pub quality: Option<String>,
+    pub quality_level: Option<u32>,
     pub format: Option<String>,
     pub enabled: Option<bool>,
     pub max_file_size: Option<i64>,
