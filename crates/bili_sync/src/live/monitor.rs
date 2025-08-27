@@ -196,7 +196,8 @@ impl LiveMonitor {
     /// 静态方法：重新加载监控配置（用于spawned task中），返回是否有变化
     async fn reload_configs_static(
         db: &DatabaseConnection, 
-        configs: &Arc<RwLock<Vec<MonitorConfig>>>
+        configs: &Arc<RwLock<Vec<MonitorConfig>>>,
+        recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
     ) -> Result<bool> {
         let models = live_monitor::Entity::find()
             .filter(live_monitor::Column::Enabled.eq(true))
@@ -213,13 +214,36 @@ impl LiveMonitor {
         let old_rooms: std::collections::HashSet<i64> = old_configs.iter().map(|c| c.room_id).collect();
         let new_rooms: std::collections::HashSet<i64> = new_configs.iter().map(|c| c.room_id).collect();
         
-        let has_changes = old_rooms != new_rooms;
+        // 找出被移除的监控ID
+        let removed_ids: Vec<i32> = old_configs.iter()
+            .filter(|old| !new_configs.iter().any(|new| new.id == old.id))
+            .map(|c| c.id)
+            .collect();
+        
+        let has_changes = old_rooms != new_rooms || !removed_ids.is_empty();
         
         if has_changes {
             live_info!(
                 "监控配置发生变化 - 旧房间: {:?}, 新房间: {:?}", 
                 old_rooms, new_rooms
             );
+            
+            // 停止被移除监控的录制器
+            if !removed_ids.is_empty() {
+                live_info!("检测到 {} 个被移除的监控，准备停止对应的录制器: {:?}", removed_ids.len(), removed_ids);
+                drop(configs_guard); // 释放配置锁以避免死锁
+                
+                for monitor_id in removed_ids {
+                    if let Err(e) = Self::stop_recording(db, monitor_id, recorders).await {
+                        live_error!("停止被移除监控 {} 的录制器失败: {}", monitor_id, e);
+                    } else {
+                        live_info!("成功停止被移除监控 {} 的录制器", monitor_id);
+                    }
+                }
+                
+                // 重新获取配置锁以更新配置
+                configs_guard = configs.write().await;
+            }
             
             // 详细显示每个监控配置的状态
             for config in &new_configs {
@@ -305,7 +329,7 @@ impl LiveMonitor {
                         Self::check_and_restart_recorders(&db, &live_client, &bili_client, &configs, &recorders, &url_pools).await;
                         
                         // 重新加载配置并更新WebSocket连接
-                        match Self::reload_configs_static(&db, &configs).await {
+                        match Self::reload_configs_static(&db, &configs, &recorders).await {
                             Ok(has_changes) => {
                                 if has_changes {
                                     // 配置变化后重新设置WebSocket连接
