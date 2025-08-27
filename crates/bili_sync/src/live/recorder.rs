@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::time::{Duration, Instant};
-use tracing::{debug, error, info, warn};
+use crate::{live_debug, live_error, live_info, live_warn};
 
 use crate::bilibili::BiliClient;
 use super::api::Quality;
@@ -121,7 +121,7 @@ impl SegmentRecorder {
     
     /// 开始分片下载
     pub async fn start(&mut self) -> Result<()> {
-        info!("开始分片模式录制，房间ID: {}", self.room_id);
+        live_info!("开始分片模式录制，房间ID: {}", self.room_id);
         
         if self.download_handle.is_some() {
             return Err(anyhow!("分片录制器已在运行中"));
@@ -135,7 +135,7 @@ impl SegmentRecorder {
         
         // 启动分片录制主循环（复刻bililive-go的实现）
         let handle = tokio::spawn(async move {
-            info!("分片录制主循环已启动，房间: {}", room_id);
+            live_info!("分片录制主循环已启动，房间: {}", room_id);
             
             // 初始化下载器和管理器
             let mut downloader = match SegmentDownloader::new(
@@ -146,7 +146,7 @@ impl SegmentRecorder {
             ).await {
                 Ok(d) => d,
                 Err(e) => {
-                    error!("初始化分片下载器失败: {}", e);
+                    live_error!("初始化分片下载器失败: {}", e);
                     return;
                 }
             };
@@ -166,7 +166,7 @@ impl SegmentRecorder {
                     std::sync::Arc::new(tokio::sync::Mutex::new(m))
                 },
                 Err(e) => {
-                    error!("初始化分片管理器失败: {}", e);
+                    live_error!("初始化分片管理器失败: {}", e);
                     return;
                 }
             };
@@ -178,28 +178,28 @@ impl SegmentRecorder {
                 tokio::spawn(async move {
                     let mut manager_guard = manager_clone.lock().await;
                     if let Err(e) = manager_guard.add_segment(&segment_info, file_size, file_path).await {
-                        error!("添加分片到管理器失败: {}", e);
+                        live_error!("添加分片到管理器失败: {}", e);
                     } else {
-                        debug!("分片已添加到管理器 - 序列号: {}, 时长: {:.2}秒", segment_info.sequence, segment_info.duration);
+                        live_debug!("分片已添加到管理器 - 序列号: {}, 时长: {:.2}秒", segment_info.sequence, segment_info.duration);
                         // 每添加一个分片后检查自动合并
                         if let Ok(Some(merged_file)) = manager_guard.perform_auto_merge().await {
-                            info!("自动合并完成: {:?}", merged_file);
+                            live_info!("自动合并完成: {:?}", merged_file);
                         }
                     }
                 });
             };
             
-            debug!("🚀 SegmentRecorder 准备调用 downloader.start(segment_callback)");
+            live_debug!("🚀 SegmentRecorder 准备调用 downloader.start(segment_callback)");
             if let Err(e) = downloader.start(segment_callback).await {
-                error!("启动分片下载器失败: {}", e);
+                live_error!("启动分片下载器失败: {}", e);
                 return;
             }
-            debug!("✅ downloader.start(segment_callback) 调用成功");
+            live_debug!("✅ downloader.start(segment_callback) 调用成功");
             
             // 下载器现在独立运行，我们只需要等待并定期输出统计信息
             let mut stats_interval = tokio::time::interval(Duration::from_secs(60)); // 每60秒输出统计信息
             
-            info!("分片录制主循环正在运行，下载器已启动");
+            live_info!("分片录制主循环正在运行，下载器已启动");
             
             loop {
                 tokio::select! {
@@ -209,7 +209,7 @@ impl SegmentRecorder {
                         let manager_guard = manager.lock().await;
                         let manager_stats = manager_guard.stats();
                         
-                        info!(
+                        live_info!(
                             "录制统计 - 下载器: [总分片: {}, 成功: {}, 失败: {}, 总大小: {} MB, 成功率: {:.1}%]",
                             downloader_stats.total_segments,
                             downloader_stats.successful_downloads,
@@ -218,7 +218,7 @@ impl SegmentRecorder {
                             downloader_stats.success_rate() * 100.0
                         );
                         
-                        info!(
+                        live_info!(
                             "录制统计 - 管理器: [总分片: {}, 已下载: {}, 总时长: {:.1}s, 总大小: {} MB]",
                             manager_stats.total_segments,
                             manager_stats.downloaded_segments,
@@ -228,9 +228,9 @@ impl SegmentRecorder {
                         
                         // 生成并保存M3U8播放列表
                         if let Err(e) = manager_guard.save_m3u8_playlist(true).await {
-                            warn!("保存M3U8播放列表失败: {}", e);
+                            live_warn!("保存M3U8播放列表失败: {}", e);
                         } else {
-                            debug!("M3U8播放列表已更新");
+                            live_debug!("M3U8播放列表已更新");
                         }
                         
                         // 释放 manager_guard 以避免长时间锁定
@@ -241,12 +241,12 @@ impl SegmentRecorder {
                         match manager_guard.smart_cleanup().await {
                             Ok(cleaned) => {
                                 if cleaned > 0 {
-                                    info!("智能清理完成：清理了 {} 个旧分片文件，当前保留 {} 个分片", 
+                                    live_info!("智能清理完成：清理了 {} 个旧分片文件，当前保留 {} 个分片", 
                                           cleaned, manager_guard.segment_count());
                                 }
                             }
                             Err(e) => {
-                                warn!("智能清理失败: {}", e);
+                                live_warn!("智能清理失败: {}", e);
                             }
                         }
                     }
@@ -256,17 +256,17 @@ impl SegmentRecorder {
         
         self.download_handle = Some(handle);
         
-        info!("分片录制已启动，后台下载循环正在运行");
+        live_info!("分片录制已启动，后台下载循环正在运行");
         Ok(())
     }
     
     /// 停止分片下载
     pub async fn stop(&mut self) -> Result<()> {
-        info!("停止分片模式录制");
+        live_info!("停止分片模式录制");
         
         if let Some(handle) = self.download_handle.take() {
             handle.abort();
-            debug!("已终止下载循环任务");
+            live_debug!("已终止下载循环任务");
         }
         
         Ok(())
@@ -294,7 +294,7 @@ impl SegmentRecorder {
                 Ok(Some(playlist_path))
             } else {
                 // 最后返回工作目录
-                warn!("未找到输出文件，返回工作目录路径");
+                live_warn!("未找到输出文件，返回工作目录路径");
                 Ok(Some(self.work_dir.clone()))
             }
         }
@@ -345,10 +345,10 @@ impl LiveRecorder {
         bili_client: Arc<BiliClient>,
     ) -> Result<Self> {
         if use_segment_mode {
-            info!("创建分片模式录制器");
+            live_info!("创建分片模式录制器");
             Self::new_segment(output_path, room_id, quality, bili_client).await
         } else {
-            info!("创建FFmpeg模式录制器");
+            live_info!("创建FFmpeg模式录制器");
             Ok(Self::new_ffmpeg(output_path, max_file_size))
         }
     }
@@ -373,7 +373,7 @@ impl LiveRecorder {
         self.stats.start_time = Some(Instant::now());
         self.stats.is_recording = true;
 
-        info!("录制已启动");
+        live_info!("录制已启动");
         Ok(())
     }
     
@@ -402,7 +402,7 @@ impl LiveRecorder {
         self.stats.start_time = Some(Instant::now());
         self.stats.is_recording = true;
 
-        info!("录制已启动，CDN: {}", cdn_node);
+        live_info!("录制已启动，CDN: {}", cdn_node);
         Ok(())
     }
     
@@ -413,7 +413,7 @@ impl LiveRecorder {
             return Ok(());
         }
 
-        info!("停止录制");
+        live_info!("停止录制");
 
         match &mut self.mode {
             RecorderMode::FFmpeg(recorder) => {
@@ -440,7 +440,7 @@ impl LiveRecorder {
                         self.stats.file_size = metadata.len();
                     }
                 }
-                info!("FFmpeg录制已停止，文件大小: {} 字节", self.stats.file_size);
+                live_info!("FFmpeg录制已停止，文件大小: {} 字节", self.stats.file_size);
             }
             RecorderMode::Segment(recorder) => {
                 // 分片模式需要合并分片为最终的MP4文件
@@ -456,7 +456,7 @@ impl LiveRecorder {
                         )
                     };
                     
-                    info!("分片录制已停止 - 总分片: {}, 成功下载: {}, 总大小: {} MB, 总时长: {:.1} 秒", 
+                    live_info!("分片录制已停止 - 总分片: {}, 成功下载: {}, 总大小: {} MB, 总时长: {:.1} 秒", 
                           total_segments,
                           downloaded_segments,
                           total_size / 1024 / 1024,
@@ -476,7 +476,7 @@ impl LiveRecorder {
                     // 合并分片为MP4
                     match segment_manager.finalize_recording(&mp4_path, true).await {
                         Ok(final_path) => {
-                            info!("✅ 分片合并成功，最终文件: {:?}", final_path);
+                            live_info!("✅ 分片合并成功，最终文件: {:?}", final_path);
                             
                             // 更新文件大小统计
                             if let Ok(metadata) = tokio::fs::metadata(&final_path).await {
@@ -484,12 +484,12 @@ impl LiveRecorder {
                             }
                         }
                         Err(e) => {
-                            error!("❌ 分片合并失败: {}", e);
-                            warn!("保留分片文件和M3U8播放列表，可手动合并");
+                            live_error!("❌ 分片合并失败: {}", e);
+                            live_warn!("保留分片文件和M3U8播放列表，可手动合并");
                             
                             // 合并失败时至少保存播放列表
                             if let Err(playlist_err) = segment_manager.save_m3u8_playlist(false).await {
-                                error!("保存最终播放列表也失败: {}", playlist_err);
+                                live_error!("保存最终播放列表也失败: {}", playlist_err);
                             }
                             
                             // 使用分片总大小作为统计
@@ -497,7 +497,7 @@ impl LiveRecorder {
                         }
                     }
                 } else {
-                    info!("分片录制已停止");
+                    live_info!("分片录制已停止");
                 }
             }
         }
@@ -537,7 +537,7 @@ impl LiveRecorder {
                 
                 // 同步状态
                 if !is_running && self.status == RecordStatus::Recording {
-                    warn!("分片录制器已停止运行");
+                    live_warn!("分片录制器已停止运行");
                     self.status = RecordStatus::Stopped;
                     self.stats.is_recording = false;
                     
@@ -589,7 +589,7 @@ impl LiveRecorder {
                         }
                     }
                     
-                    debug!("分片录制统计 - 分片数: {}, 下载: {}, 总大小: {} MB", 
+                    live_debug!("分片录制统计 - 分片数: {}, 下载: {}, 总大小: {} MB", 
                           segment_stats.total_segments,
                           segment_stats.downloaded_segments,
                           segment_stats.total_size / 1024 / 1024);

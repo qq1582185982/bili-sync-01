@@ -9,7 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{debug, warn};
+use crate::{live_debug, live_warn};
 use utoipa::ToSchema;
 
 /// B站直播API客户端
@@ -142,7 +142,7 @@ impl BilibiliLiveApi {
             room_id
         );
 
-        debug!("获取直播间信息: {}", url);
+        live_debug!("获取直播间信息: {}", url);
         
         let mut request = self.client.get(&url);
         if let Some(cookies) = &self.cookies {
@@ -187,7 +187,7 @@ impl BilibiliLiveApi {
             room_id, qn
         );
 
-        debug!("获取播放URL: {}", url);
+        live_debug!("获取播放URL: {}", url);
         
         let mut request = self.client.get(&url);
         if let Some(cookies) = &self.cookies {
@@ -204,7 +204,7 @@ impl BilibiliLiveApi {
         let response_text = response.text().await
             .context("获取响应文本失败")?;
 
-        debug!("播放URL响应: {}", response_text);
+        live_debug!("播放URL响应: {}", response_text);
 
         // 尝试解析为JSON（新版API）
         if let Ok(response_data) = serde_json::from_str::<PlayUrlResponse>(&response_text) {
@@ -214,7 +214,7 @@ impl BilibiliLiveApi {
         }
 
         // 如果JSON解析失败，可能需要处理其他格式或错误
-        warn!("无法解析播放URL响应，可能格式不匹配");
+        live_warn!("无法解析播放URL响应，可能格式不匹配");
         Err(anyhow!("无法获取有效的播放URL"))
     }
 

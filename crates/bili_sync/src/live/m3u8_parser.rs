@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use tracing::debug;
+use crate::live_debug;
 
 /// 分片信息
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ impl M3u8Parser {
         let mut current_sequence = self.last_sequence + 1;
         let mut _media_sequence = None;
         
-        debug!("解析M3U8播放列表，内容长度: {} bytes", content.len());
+        live_debug!("解析M3U8播放列表，内容长度: {} bytes", content.len());
 
         // 逐行解析
         for line in content.lines() {
@@ -58,7 +58,7 @@ impl M3u8Parser {
                     if let Ok(seq) = seq_str.parse::<u64>() {
                         _media_sequence = Some(seq);
                         current_sequence = seq;
-                        debug!("播放列表媒体序列号: {}", seq);
+                        live_debug!("播放列表媒体序列号: {}", seq);
                     }
                 }
             } else if line.starts_with("#EXTINF:") {
@@ -92,7 +92,7 @@ impl M3u8Parser {
 
                     segments.push(segment);
                     self.mark_sequence_processed(current_sequence);
-                    debug!("新分片: 序列号={}, 时长={:.3}s", current_sequence, current_duration);
+                    live_debug!("新分片: 序列号={}, 时长={:.3}s", current_sequence, current_duration);
                 }
 
                 current_sequence += 1;
@@ -105,7 +105,7 @@ impl M3u8Parser {
             self.last_sequence = last_segment.sequence;
         }
 
-        debug!("解析完成，发现 {} 个新分片", segments.len());
+        live_debug!("解析完成，发现 {} 个新分片", segments.len());
         segments
     }
 

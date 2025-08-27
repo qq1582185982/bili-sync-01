@@ -31,12 +31,19 @@ where
         use crate::api::handler::{add_log_entry, LogLevel};
         use crate::utils::time_format::now_standard_string;
 
-        let level = match *event.metadata().level() {
-            tracing::Level::ERROR => LogLevel::Error,
-            tracing::Level::WARN => LogLevel::Warn,
-            tracing::Level::INFO => LogLevel::Info,
-            tracing::Level::DEBUG => LogLevel::Debug,
-            tracing::Level::TRACE => LogLevel::Debug, // 将TRACE映射到DEBUG
+        // 判断是否为直播相关日志
+        let is_live_log = event.metadata().target().starts_with("bili_sync::live");
+        
+        let level = if is_live_log {
+            LogLevel::Live
+        } else {
+            match *event.metadata().level() {
+                tracing::Level::ERROR => LogLevel::Error,
+                tracing::Level::WARN => LogLevel::Warn,
+                tracing::Level::INFO => LogLevel::Info,
+                tracing::Level::DEBUG => LogLevel::Debug,
+                tracing::Level::TRACE => LogLevel::Debug, // 将TRACE映射到DEBUG
+            }
         };
 
         let level_str = match *event.metadata().level() {

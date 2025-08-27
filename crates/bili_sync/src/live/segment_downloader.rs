@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::time::{Duration, Instant};
-use tracing::{debug, error, info, warn};
+use crate::{live_debug, live_error, live_info, live_warn};
 use m3u8_rs;
 
 use crate::bilibili::BiliClient;
@@ -64,7 +64,7 @@ impl SegmentDownloader {
         tokio::fs::create_dir_all(&work_dir).await
             .map_err(|e| anyhow!("创建工作目录失败: {}", e))?;
         
-        info!("分片下载器已初始化，工作目录: {:?}", work_dir);
+        live_info!("分片下载器已初始化，工作目录: {:?}", work_dir);
 
         Ok(Self {
             client,
@@ -88,8 +88,8 @@ impl SegmentDownloader {
             return Err(anyhow!("分片下载器已在运行中"));
         }
 
-        info!("开始分片录制，房间: {}, 质量: {:?}", self.room_id, self.quality);
-        debug!("📥 SegmentDownloader::start 已接收到回调函数");
+        live_info!("开始分片录制，房间: {}, 质量: {:?}", self.room_id, self.quality);
+        live_debug!("📥 SegmentDownloader::start 已接收到回调函数");
         
         self.status = DownloadStatus::Downloading;
         self.download_stats.start_time = Some(Instant::now());
@@ -98,29 +98,29 @@ impl SegmentDownloader {
         self.refresh_m3u8_url().await?;
         
         // 下载初始化段（DASH格式需要）
-        info!("🔍 开始检查和下载初始化段...");
+        live_info!("🔍 开始检查和下载初始化段...");
         match self.download_initialization_segment().await {
             Ok(Some(header_path)) => {
-                info!("✅ 初始化段已保存到: {}", header_path);
+                live_info!("✅ 初始化段已保存到: {}", header_path);
             }
             Ok(None) => {
-                warn!("⚠️  未找到初始化段，继续录制常规分片");
+                live_warn!("⚠️  未找到初始化段，继续录制常规分片");
             }
             Err(e) => {
-                error!("❌ 下载初始化段时发生错误: {}", e);
-                warn!("⚠️  继续录制常规分片");
+                live_error!("❌ 下载初始化段时发生错误: {}", e);
+                live_warn!("⚠️  继续录制常规分片");
             }
         }
         
         // 复刻bili-shadowreplay的segment下载循环
-        info!("🎬 开始分片下载循环...");
+        live_info!("🎬 开始分片下载循环...");
         let mut segment_counter = 0;
         let mut last_sequence = 0u64;
 
         while self.status == DownloadStatus::Downloading {
             // 刷新M3U8获取最新分片列表
             if let Err(e) = self.refresh_m3u8_url().await {
-                error!("刷新M3U8失败: {}", e);
+                live_error!("刷新M3U8失败: {}", e);
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 continue;
             }
@@ -129,7 +129,7 @@ impl SegmentDownloader {
             let m3u8_url = match &self.current_m3u8_url {
                 Some(url) => url.clone(),
                 None => {
-                    error!("M3U8 URL为空");
+                    live_error!("M3U8 URL为空");
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
@@ -138,7 +138,7 @@ impl SegmentDownloader {
             let playlist_content = match self.fetch_playlist(&m3u8_url).await {
                 Ok(content) => content,
                 Err(e) => {
-                    error!("获取M3U8内容失败: {}", e);
+                    live_error!("获取M3U8内容失败: {}", e);
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
@@ -148,7 +148,7 @@ impl SegmentDownloader {
             let playlist = match m3u8_rs::parse_playlist_res(playlist_content.as_bytes()) {
                 Ok(playlist) => playlist,
                 Err(e) => {
-                    error!("解析M3U8失败: {:?}", e);
+                    live_error!("解析M3U8失败: {:?}", e);
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
@@ -158,7 +158,7 @@ impl SegmentDownloader {
             if let m3u8_rs::Playlist::MediaPlaylist(media_playlist) = playlist {
                 let current_sequence = media_playlist.media_sequence;
                 
-                info!("解析到 {} 个分片，sequence从 {} 开始", 
+                live_info!("解析到 {} 个分片，sequence从 {} 开始", 
                     media_playlist.segments.len(), current_sequence);
 
                 // 收集本轮要下载的所有分片
@@ -197,7 +197,7 @@ impl SegmentDownloader {
                     let http_client = self.client.client.clone();
                     let duration = ts_segment.duration as f64;
                     
-                    info!("📥 准备下载分片 {}: {}", segment_counter, ts_segment.uri);
+                    live_info!("📥 准备下载分片 {}: {}", segment_counter, ts_segment.uri);
 
                     // 创建并行下载任务
                     let download_task = tokio::spawn(async move {
@@ -211,7 +211,7 @@ impl SegmentDownloader {
                         match response {
                             Ok(resp) if resp.status() == 404 => {
                                 // 404错误直接跳过，不重试
-                                debug!("分片不存在(404)，跳过: {}", segment_url);
+                                live_debug!("分片不存在(404)，跳过: {}", segment_url);
                                 return Ok(None);
                             }
                             Ok(resp) if resp.status().is_success() => {
@@ -243,46 +243,46 @@ impl SegmentDownloader {
                 
                 // 并行等待所有下载任务完成
                 if !download_tasks.is_empty() {
-                    info!("🚀 开始并行下载 {} 个分片", download_tasks.len());
+                    live_info!("🚀 开始并行下载 {} 个分片", download_tasks.len());
                     let results = future::join_all(download_tasks).await;
                     
                     // 处理下载结果
                     for result in results {
                         match result {
                             Ok(Ok(Some((segment_info, size, counter, file_path)))) => {
-                                info!("✅ 分片 {} 下载完成: {} bytes", counter, size);
+                                live_info!("✅ 分片 {} 下载完成: {} bytes", counter, size);
                                 self.download_stats.successful_downloads += 1;
                                 self.download_stats.total_bytes += size as u64;
                                 
                                 // 调用回调函数
-                                debug!("🔄 调用回调函数，分片: {}, 大小: {} bytes, 路径: {:?}", segment_info.sequence, size, file_path);
+                                live_debug!("🔄 调用回调函数，分片: {}, 大小: {} bytes, 路径: {:?}", segment_info.sequence, size, file_path);
                                 segment_callback(segment_info, size as u64, file_path);
                             }
                             Ok(Ok(None)) => {
                                 // 404跳过的分片
-                                debug!("⚪ 分片不存在，已跳过");
+                                live_debug!("⚪ 分片不存在，已跳过");
                             }
                             Ok(Err(e)) => {
-                                error!("❌ 分片下载失败: {}", e);
+                                live_error!("❌ 分片下载失败: {}", e);
                                 self.download_stats.failed_downloads += 1;
                             }
                             Err(e) => {
-                                error!("❌ 下载任务异常: {}", e);
+                                live_error!("❌ 下载任务异常: {}", e);
                                 self.download_stats.failed_downloads += 1;
                             }
                         }
                     }
                 }
             } else {
-                warn!("收到MasterPlaylist而不是MediaPlaylist，跳过此轮");
+                live_warn!("收到MasterPlaylist而不是MediaPlaylist，跳过此轮");
             }
 
             // 休眠等待新分片
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
 
-        info!("🔚 分片下载完成，总共处理{}个分片", segment_counter);
-        info!("📊 下载统计 - 成功: {}, 失败: {}, 总大小: {} bytes", 
+        live_info!("🔚 分片下载完成，总共处理{}个分片", segment_counter);
+        live_info!("📊 下载统计 - 成功: {}, 失败: {}, 总大小: {} bytes", 
             self.download_stats.successful_downloads,
             self.download_stats.failed_downloads, 
             self.download_stats.total_bytes);
@@ -315,11 +315,11 @@ impl SegmentDownloader {
             let base_url = self.extract_base_url_from_m3u8(m3u8_url);
             let full_header_url = format!("{}{}", base_url, header_filename);
             
-            info!("找到初始化段: {}", header_filename);
+            live_info!("找到初始化段: {}", header_filename);
             return Ok(Some(full_header_url));
         }
 
-        debug!("未在M3U8中找到初始化段");
+        live_debug!("未在M3U8中找到初始化段");
         Ok(None)
     }
 
@@ -338,7 +338,7 @@ impl SegmentDownloader {
             let filename = header_url.split('/').last().unwrap_or("header.m4s");
             let file_path = self.work_dir.join(filename);
             
-            info!("下载初始化段: {} -> {:?}", header_url, file_path);
+            live_info!("下载初始化段: {} -> {:?}", header_url, file_path);
             
             // 使用HTTP客户端直接下载初始化段
             let response = self.client.client
@@ -356,7 +356,7 @@ impl SegmentDownloader {
                         .map_err(|e| anyhow!("写入初始化段失败: {}", e))?;
                     
                     let size = bytes.len();
-                    info!("✅ 初始化段下载成功: {} bytes", size);
+                    live_info!("✅ 初始化段下载成功: {} bytes", size);
                     
                     if size > 0 {
                         // 创建初始化段的SegmentInfo（备用，暂不使用）
@@ -369,14 +369,14 @@ impl SegmentDownloader {
                         
                         return Ok(Some(file_path.to_string_lossy().to_string()));
                     } else {
-                        warn!("初始化段文件大小为0，可能下载失败");
+                        live_warn!("初始化段文件大小为0，可能下载失败");
                     }
                 }
                 Ok(resp) => {
-                    error!("❌ 初始化段下载失败，HTTP状态: {}", resp.status());
+                    live_error!("❌ 初始化段下载失败，HTTP状态: {}", resp.status());
                 }
                 Err(e) => {
-                    error!("❌ 初始化段下载失败: {}", e);
+                    live_error!("❌ 初始化段下载失败: {}", e);
                 }
             }
         }
@@ -386,7 +386,7 @@ impl SegmentDownloader {
 
     /// 刷新M3U8播放列表URL（使用正确的HLS API）
     pub async fn refresh_m3u8_url(&mut self) -> Result<()> {
-        debug!("获取HLS master playlist，房间: {}", self.room_id);
+        live_debug!("获取HLS master playlist，房间: {}", self.room_id);
 
         // 使用正确的HLS API端点（从bili-shadowreplay项目发现）
         let mut params = HashMap::new();
@@ -405,8 +405,8 @@ impl SegmentDownloader {
             .await
             .map_err(|e| anyhow!("获取HLS master playlist失败: {}", e))?;
 
-        info!("获取到HLS master playlist内容: {} bytes", master_playlist_content.len());
-        debug!("Master playlist前200字符: {}", &master_playlist_content.chars().take(200).collect::<String>());
+        live_info!("获取到HLS master playlist内容: {} bytes", master_playlist_content.len());
+        live_debug!("Master playlist前200字符: {}", &master_playlist_content.chars().take(200).collect::<String>());
 
         // 解析master playlist，提取第一个变体流的URL
         // Master playlist格式示例:
@@ -429,7 +429,7 @@ impl SegmentDownloader {
                             self.base_url = variant_url[..last_slash + 1].to_string();
                         }
                         
-                        info!("✅ 从HLS master playlist提取到变体流URL: {}", variant_url);
+                        live_info!("✅ 从HLS master playlist提取到变体流URL: {}", variant_url);
                         return Ok(());
                     }
                 }
@@ -447,14 +447,14 @@ impl SegmentDownloader {
                     self.base_url = line[..last_slash + 1].to_string();
                 }
                 
-                info!("✅ 从master playlist直接提取到M3U8 URL: {}", line);
+                live_info!("✅ 从master playlist直接提取到M3U8 URL: {}", line);
                 return Ok(());
             }
         }
 
         // 如果解析失败，输出完整内容用于调试
-        warn!("无法从master playlist中提取M3U8 URL");
-        warn!("完整的master playlist内容:\n{}", master_playlist_content);
+        live_warn!("无法从master playlist中提取M3U8 URL");
+        live_warn!("完整的master playlist内容:\n{}", master_playlist_content);
         
         Err(anyhow!("无法从HLS master playlist中提取变体流URL"))
     }
@@ -462,7 +462,7 @@ impl SegmentDownloader {
 
     /// 获取M3U8播放列表内容
     async fn fetch_playlist(&self, url: &str) -> Result<String> {
-        debug!("获取播放列表: {}", url);
+        live_debug!("获取播放列表: {}", url);
         
         let response = self.client.client
             .get(url)
@@ -477,7 +477,7 @@ impl SegmentDownloader {
         let content = response.text().await
             .map_err(|e| anyhow!("读取播放列表内容失败: {}", e))?;
 
-        debug!("播放列表大小: {} bytes", content.len());
+        live_debug!("播放列表大小: {} bytes", content.len());
         Ok(content)
     }
 
@@ -487,7 +487,7 @@ impl SegmentDownloader {
         let filename = format!("segment_{:06}.ts", segment.sequence);
         let file_path = self.work_dir.join(&filename);
         
-        debug!("下载分片: {} -> {:?}", segment.url, file_path);
+        live_debug!("下载分片: {} -> {:?}", segment.url, file_path);
         
         let start_time = Instant::now();
         
@@ -515,7 +515,7 @@ impl SegmentDownloader {
         let download_time = start_time.elapsed();
         self.download_stats.total_bytes += size;
         
-        debug!(
+        live_debug!(
             "分片 {} 下载完成，大小: {} bytes，耗时: {:?}",
             segment.sequence, size, download_time
         );

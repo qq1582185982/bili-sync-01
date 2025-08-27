@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
 use tokio::time::{Duration, Instant};
-use tracing::{debug, warn};
+use crate::{live_debug, live_warn};
 
 use crate::bilibili::BiliClient;
 
@@ -263,7 +263,7 @@ impl StreamUrlPool {
                 }
             }
             
-            debug!("URL池添加新URL，CDN: {}, 总数: {}", cdn_node, self.urls.len());
+            live_debug!("URL池添加新URL，CDN: {}, 总数: {}", cdn_node, self.urls.len());
         }
     }
     
@@ -282,7 +282,7 @@ impl StreamUrlPool {
             .collect();
         
         if valid_urls.is_empty() {
-            warn!("没有有效的URL，使用第一个URL");
+            live_warn!("没有有效的URL，使用第一个URL");
             self.current_index = 0;
             return self.urls.get(0);
         }
@@ -296,7 +296,7 @@ impl StreamUrlPool {
         
         if let Some((index, _)) = valid_urls.first() {
             self.current_index = *index;
-            debug!("选择最佳URL: CDN={}, 成功率={:.2}", 
+            live_debug!("选择最佳URL: CDN={}, 成功率={:.2}", 
                 self.urls[*index].cdn_node, self.urls[*index].success_rate);
         }
         
@@ -309,7 +309,7 @@ impl StreamUrlPool {
         self.urls.retain(|url| !url.is_expired());
         
         if self.urls.len() != original_len {
-            debug!("清理过期URL: {} -> {}", original_len, self.urls.len());
+            live_debug!("清理过期URL: {} -> {}", original_len, self.urls.len());
             
             // 调整当前索引
             if self.current_index >= self.urls.len() && !self.urls.is_empty() {
@@ -338,7 +338,7 @@ impl StreamUrlPool {
     pub fn clear(&mut self) {
         self.urls.clear();
         self.current_index = 0;
-        debug!("URL池已清空，将强制获取新的流地址");
+        live_debug!("URL池已清空，将强制获取新的流地址");
     }
 }
 
@@ -403,24 +403,24 @@ impl<'a> LiveApiClient<'a> {
     /// # Arguments  
     /// * `room_id` - 房间ID
     pub async fn get_live_status_by_room_id(&self, room_id: i64) -> Result<(LiveStatus, Option<LiveRoomInfo>)> {
-        use tracing::debug;
+        use crate::live_debug;
         let url = format!("https://api.live.bilibili.com/room/v1/Room/get_info?room_id={}", room_id);
-        debug!("请求直播API: {}", url);
+        live_debug!("请求直播API: {}", url);
         
         match self.client.get_json::<ApiResponse<LiveRoomInfo>>(&url).await {
             Ok(response) => {
-                debug!("API响应: code={}, message={}", response.code, response.message);
+                live_debug!("API响应: code={}, message={}", response.code, response.message);
                 if response.code == 0 {
                     let status = LiveStatus::from(response.data.live_status);
-                    debug!("解析的直播状态: live_status={} -> {:?}", response.data.live_status, status);
+                    live_debug!("解析的直播状态: live_status={} -> {:?}", response.data.live_status, status);
                     Ok((status, Some(response.data)))
                 } else {
-                    debug!("API返回错误: {} - {}", response.code, response.message);
+                    live_debug!("API返回错误: {} - {}", response.code, response.message);
                     Ok((LiveStatus::NotLive, None))
                 }
             }
             Err(e) => {
-                debug!("请求失败: {}", e);
+                live_debug!("请求失败: {}", e);
                 Ok((LiveStatus::NotLive, None))
             }
         }
@@ -460,7 +460,7 @@ impl<'a> LiveApiClient<'a> {
     /// * `room_id` - 房间ID
     /// * `quality` - 画质质量
     pub async fn get_play_urls_multi(&self, room_id: i64, quality: Quality) -> Result<Vec<EnhancedStreamUrl>> {
-        debug!("获取房间 {} 的多个CDN节点URL，质量: {:?}", room_id, quality);
+        live_debug!("获取房间 {} 的多个CDN节点URL，质量: {:?}", room_id, quality);
         
         let play_info = self.get_play_url(room_id, quality).await?;
         let mut enhanced_urls = Vec::new();
@@ -489,9 +489,9 @@ impl<'a> LiveApiClient<'a> {
             first_url.is_primary = true;
         }
         
-        debug!("获取到 {} 个CDN节点URL", enhanced_urls.len());
+        live_debug!("获取到 {} 个CDN节点URL", enhanced_urls.len());
         for (i, url) in enhanced_urls.iter().enumerate() {
-            debug!("  {}. CDN: {}, 主要: {}, 过期时间: {:?}", 
+            live_debug!("  {}. CDN: {}, 主要: {}, 过期时间: {:?}", 
                 i + 1, url.cdn_node, url.is_primary, 
                 url.expires_at.saturating_duration_since(Instant::now()));
         }
@@ -506,7 +506,7 @@ impl<'a> LiveApiClient<'a> {
     /// * `quality` - 画质质量
     /// * `pool` - URL池
     pub async fn refresh_url_pool(&self, room_id: i64, quality: Quality, pool: &mut StreamUrlPool) -> Result<()> {
-        debug!("刷新房间 {} 的URL池", room_id);
+        live_debug!("刷新房间 {} 的URL池", room_id);
         
         let new_urls = self.get_play_urls_multi(room_id, quality).await?;
         
@@ -522,7 +522,7 @@ impl<'a> LiveApiClient<'a> {
         // 清理过期的URL
         pool.cleanup_expired();
         
-        debug!("URL池刷新完成，新增: {}, 当前总数: {}, 即将过期: {}", 
+        live_debug!("URL池刷新完成，新增: {}, 当前总数: {}, 即将过期: {}", 
             added_count, pool.len(), pool.expiring_soon_count());
         
         Ok(())

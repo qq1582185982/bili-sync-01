@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tracing::{debug, info, warn};
+use crate::{live_debug, live_info, live_warn};
 
 use super::m3u8_parser::SegmentInfo;
 use super::config::AutoMergeConfig;
@@ -82,13 +82,13 @@ impl SegmentManager {
         // 加载已有的分片信息
         manager.load_existing_segments().await?;
 
-        info!("分片管理器已初始化，工作目录: {:?}", work_dir);
+        live_info!("分片管理器已初始化，工作目录: {:?}", work_dir);
         Ok(manager)
     }
 
     /// 添加分片记录
     pub async fn add_segment(&mut self, segment_info: &SegmentInfo, file_size: u64, file_path: PathBuf) -> Result<()> {
-        debug!("add_segment调用 - 序列号: {}, 时长: {:.2}秒, 文件大小: {} bytes, 路径: {:?}", 
+        live_debug!("add_segment调用 - 序列号: {}, 时长: {:.2}秒, 文件大小: {} bytes, 路径: {:?}", 
                segment_info.sequence, segment_info.duration, file_size, file_path);
 
         let record = SegmentRecord {
@@ -107,17 +107,17 @@ impl SegmentManager {
         // 添加到内存列表
         self.segments.push(record);
         
-        debug!("分片已添加到管理器 - 总分片数: {}, 当前总时长: {:.2}秒", 
+        live_debug!("分片已添加到管理器 - 总分片数: {}, 当前总时长: {:.2}秒", 
                self.segments.len(), self.stats.total_duration);
         
         // 更新统计
         self.update_stats();
         
-        debug!("添加分片记录: 序列号={}, 大小={} bytes", segment_info.sequence, file_size);
+        live_debug!("添加分片记录: 序列号={}, 大小={} bytes", segment_info.sequence, file_size);
         
         // 检查是否需要触发自动合并
         if self.should_auto_merge() {
-            info!("触发自动合并条件，当前时长: {:.2}秒", self.stats.total_duration);
+            live_info!("触发自动合并条件，当前时长: {:.2}秒", self.stats.total_duration);
         }
         
         Ok(())
@@ -145,7 +145,7 @@ impl SegmentManager {
         // 添加到内存列表
         self.segments.push(record);
         
-        warn!("标记分片下载失败: 序列号={}", segment_info.sequence);
+        live_warn!("标记分片下载失败: 序列号={}", segment_info.sequence);
         Ok(())
     }
 
@@ -206,7 +206,7 @@ impl SegmentManager {
         tokio::fs::write(&playlist_path, playlist_content).await
             .map_err(|e| anyhow!("保存M3U8播放列表失败: {}", e))?;
         
-        debug!("M3U8播放列表已保存: {:?}", playlist_path);
+        live_debug!("M3U8播放列表已保存: {:?}", playlist_path);
         Ok(playlist_path)
     }
 
@@ -225,10 +225,10 @@ impl SegmentManager {
                 match tokio::fs::remove_file(&segment.file_path).await {
                     Ok(_) => {
                         removed += 1;
-                        debug!("清理分片文件: {:?}", segment.file_path);
+                        live_debug!("清理分片文件: {:?}", segment.file_path);
                     }
                     Err(e) => {
-                        warn!("清理分片文件失败: {:?}, 错误: {}", segment.file_path, e);
+                        live_warn!("清理分片文件失败: {:?}, 错误: {}", segment.file_path, e);
                     }
                 }
             }
@@ -240,7 +240,7 @@ impl SegmentManager {
         // 更新统计信息
         self.update_stats();
 
-        info!("清理了 {} 个旧分片文件", removed);
+        live_info!("清理了 {} 个旧分片文件", removed);
         Ok(removed)
     }
 
@@ -267,10 +267,10 @@ impl SegmentManager {
                     Ok(_) => {
                         removed_size += segment.size;
                         removed_count += 1;
-                        debug!("按大小清理分片: {:?}, 大小: {} bytes", segment.file_path, segment.size);
+                        live_debug!("按大小清理分片: {:?}, 大小: {} bytes", segment.file_path, segment.size);
                     }
                     Err(e) => {
-                        warn!("清理分片文件失败: {:?}, 错误: {}", segment.file_path, e);
+                        live_warn!("清理分片文件失败: {:?}, 错误: {}", segment.file_path, e);
                         // 删除失败的分片仍保留在列表中
                         segments_to_keep.push(segment.clone());
                     }
@@ -286,7 +286,7 @@ impl SegmentManager {
         // 更新统计信息
         self.update_stats();
 
-        info!("按大小清理了 {} 个分片文件，释放 {} MB 空间", 
+        live_info!("按大小清理了 {} 个分片文件，释放 {} MB 空间", 
               removed_count, removed_size / 1024 / 1024);
         Ok(removed_count)
     }
@@ -298,19 +298,19 @@ impl SegmentManager {
         
         // 策略1: 如果分片数量过多（超过200个），保留最近150个
         if segment_count > 200 {
-            info!("分片数量过多 ({}个)，执行数量清理", segment_count);
+            live_info!("分片数量过多 ({}个)，执行数量清理", segment_count);
             return self.cleanup_segments(150).await;
         }
         
         // 策略2: 如果总大小超过500MB，清理到400MB以下
         if total_size_mb > 500 {
-            info!("分片总大小过大 ({} MB)，执行大小清理", total_size_mb);
+            live_info!("分片总大小过大 ({} MB)，执行大小清理", total_size_mb);
             return self.cleanup_by_size(400).await;
         }
         
         // 策略3: 正常情况下保留最近100个分片
         if segment_count > 100 {
-            debug!("执行常规清理，保留最近100个分片");
+            live_debug!("执行常规清理，保留最近100个分片");
             return self.cleanup_segments(100).await;
         }
 
@@ -320,14 +320,14 @@ impl SegmentManager {
     /// 紧急清理（磁盘空间不足时使用）
     #[allow(dead_code)]
     pub async fn emergency_cleanup(&mut self) -> Result<usize> {
-        warn!("执行紧急清理：磁盘空间不足！");
+        live_warn!("执行紧急清理：磁盘空间不足！");
         
         // 紧急情况：只保留最近30个分片
         let keep_count = 30.min(self.segments.len());
         let cleaned = self.cleanup_segments(keep_count).await?;
         
         if cleaned > 0 {
-            warn!("紧急清理完成：删除了 {} 个分片文件，仅保留最近 {} 个", cleaned, keep_count);
+            live_warn!("紧急清理完成：删除了 {} 个分片文件，仅保留最近 {} 个", cleaned, keep_count);
         }
         
         Ok(cleaned)
@@ -354,7 +354,7 @@ impl SegmentManager {
         let available = self.get_available_disk_space().await?;
         
         if available < min_free_mb {
-            warn!("磁盘空间不足：可用 {} MB，需要 {} MB", available, min_free_mb);
+            live_warn!("磁盘空间不足：可用 {} MB，需要 {} MB", available, min_free_mb);
             
             // 尝试紧急清理
             self.emergency_cleanup().await?;
@@ -395,7 +395,7 @@ impl SegmentManager {
             .map_err(|e| anyhow!("打开日志文件失败: {}", e))?;
         
         self.log_file = Some(file);
-        debug!("分片日志文件已初始化: {:?}", log_path);
+        live_debug!("分片日志文件已初始化: {:?}", log_path);
         Ok(())
     }
 
@@ -426,7 +426,7 @@ impl SegmentManager {
         let log_path = self.work_dir.join("segments.log");
         
         if !log_path.exists() {
-            debug!("分片日志文件不存在，跳过加载");
+            live_debug!("分片日志文件不存在，跳过加载");
             return Ok(());
         }
         
@@ -446,7 +446,7 @@ impl SegmentManager {
         // 更新统计
         self.update_stats();
         
-        info!("从日志文件加载了 {} 个分片记录", loaded_count);
+        live_info!("从日志文件加载了 {} 个分片记录", loaded_count);
         Ok(())
     }
 
@@ -486,7 +486,7 @@ impl SegmentManager {
 
     /// 合并segments到MP4（完全复刻bili-shadowreplay的方法）
     pub async fn merge_segments_to_mp4(&self, output_path: &Path) -> Result<PathBuf> {
-        info!("🎬 开始合并segments到MP4（bili-shadowreplay方式）: {:?}", output_path);
+        live_info!("🎬 开始合并segments到MP4（bili-shadowreplay方式）: {:?}", output_path);
         
         // 获取所有成功下载的分片文件
         let downloaded_segments: Vec<_> = self.segments
@@ -498,7 +498,7 @@ impl SegmentManager {
             return Err(anyhow!("没有可合并的分片文件"));
         }
         
-        info!("找到 {} 个可合并的分片文件", downloaded_segments.len());
+        live_info!("找到 {} 个可合并的分片文件", downloaded_segments.len());
         
         // 1. 生成完整的M3U8索引文件（复刻bili-shadowreplay的entry_store.manifest()）
         let m3u8_path = self.work_dir.join("index.m3u8");
@@ -515,7 +515,7 @@ impl SegmentManager {
 
     /// 生成M3U8清单文件（复刻bili-shadowreplay的EntryStore::manifest()）
     async fn generate_bili_shadowreplay_m3u8(&self, segments: &[&SegmentRecord], m3u8_path: &Path) -> Result<()> {
-        info!("生成M3U8清单文件（bili-shadowreplay格式）: {:?}", m3u8_path);
+        live_info!("生成M3U8清单文件（bili-shadowreplay格式）: {:?}", m3u8_path);
         
         let mut m3u8_content = String::new();
         
@@ -540,7 +540,7 @@ impl SegmentManager {
                 .and_then(|s| s.to_str())
                 .unwrap_or("header.m4s");
             m3u8_content.push_str(&format!("#EXT-X-MAP:URI=\"{}\"\n", init_filename));
-            info!("在M3U8中包含初始化段: {}", init_filename);
+            live_info!("在M3U8中包含初始化段: {}", init_filename);
         }
         
         // 排序segments（按序列号）
@@ -570,13 +570,13 @@ impl SegmentManager {
         tokio::fs::write(m3u8_path, m3u8_content).await
             .map_err(|e| anyhow!("写入M3U8文件失败: {}", e))?;
         
-        info!("✅ M3U8清单生成完成，包含 {} 个分片", sorted_segments.len());
+        live_info!("✅ M3U8清单生成完成，包含 {} 个分片", sorted_segments.len());
         Ok(())
     }
 
     /// 从M3U8文件转换为MP4（完全复刻bili-shadowreplay的clip_from_m3u8）
     async fn bili_shadowreplay_clip_from_m3u8(&self, m3u8_path: &Path, output_path: &Path) -> Result<()> {
-        info!("🔄 使用FFmpeg从M3U8转换为MP4（bili-shadowreplay方式）...");
+        live_info!("🔄 使用FFmpeg从M3U8转换为MP4（bili-shadowreplay方式）...");
         
         // 确保输出目录存在
         if let Some(output_dir) = output_path.parent() {
@@ -598,7 +598,7 @@ impl SegmentManager {
             &output_path.to_string_lossy()
         ]);
 
-        info!("执行FFmpeg命令: ffmpeg -i {:?} -c copy -y {:?}", m3u8_path, output_path);
+        live_info!("执行FFmpeg命令: ffmpeg -i {:?} -c copy -y {:?}", m3u8_path, output_path);
         
         let output = cmd.output().await
             .map_err(|e| anyhow!("FFmpeg执行失败: {}", e))?;
@@ -612,7 +612,7 @@ impl SegmentManager {
             error!("stderr: {}", stderr);
             
             // 如果copy模式失败，尝试重编码模式（bili-shadowreplay的fallback策略）
-            warn!("流复制失败，尝试重编码模式...");
+            live_warn!("流复制失败，尝试重编码模式...");
             return self.bili_shadowreplay_clip_with_reencoding(m3u8_path, output_path).await;
         }
 
@@ -626,14 +626,14 @@ impl SegmentManager {
             return Err(anyhow!("输出文件大小为0"));
         }
 
-        info!("✅ MP4转换完成，文件大小: {:.2} MB", metadata.len() as f64 / 1024.0 / 1024.0);
+        live_info!("✅ MP4转换完成，文件大小: {:.2} MB", metadata.len() as f64 / 1024.0 / 1024.0);
         
         Ok(())
     }
 
     /// 重编码模式的M3U8到MP4转换（bili-shadowreplay的fallback）
     async fn bili_shadowreplay_clip_with_reencoding(&self, m3u8_path: &Path, output_path: &Path) -> Result<()> {
-        info!("🔄 使用重编码模式转换M3U8到MP4...");
+        live_info!("🔄 使用重编码模式转换M3U8到MP4...");
         
         let mut cmd = tokio::process::Command::new("ffmpeg");
         
@@ -650,7 +650,7 @@ impl SegmentManager {
             &output_path.to_string_lossy()
         ]);
 
-        info!("执行重编码FFmpeg命令: {:?}", cmd);
+        live_info!("执行重编码FFmpeg命令: {:?}", cmd);
         
         let output = cmd.output().await
             .map_err(|e| anyhow!("重编码FFmpeg执行失败: {}", e))?;
@@ -661,7 +661,7 @@ impl SegmentManager {
         }
 
         let metadata = tokio::fs::metadata(output_path).await?;
-        info!("✅ 重编码转换完成，文件大小: {:.2} MB", metadata.len() as f64 / 1024.0 / 1024.0);
+        live_info!("✅ 重编码转换完成，文件大小: {:.2} MB", metadata.len() as f64 / 1024.0 / 1024.0);
         
         Ok(())
     }
@@ -676,7 +676,7 @@ impl SegmentManager {
                 if let Some(filename) = path.file_name() {
                     if let Some(name_str) = filename.to_str() {
                         if name_str.starts_with('h') && name_str.ends_with(".m4s") {
-                            info!("发现初始化段: {:?}", path);
+                            live_info!("发现初始化段: {:?}", path);
                             return Some(path);
                         }
                     }
@@ -712,7 +712,7 @@ impl SegmentManager {
     async fn run_ffmpeg_merge(&self, concat_list: &Path, output_path: &Path) -> Result<bool> {
         use tokio::process::Command;
         
-        debug!("执行FFmpeg合并命令...");
+        live_debug!("执行FFmpeg合并命令...");
         
         // 检查第一个分片文件的格式来决定合并策略
         let is_m4s_format = self.detect_segment_format().await;
@@ -720,7 +720,7 @@ impl SegmentManager {
         let mut cmd = Command::new("ffmpeg");
         
         if is_m4s_format {
-            info!("检测到M4S格式分片，使用MPEG-DASH合并策略");
+            live_info!("检测到M4S格式分片，使用MPEG-DASH合并策略");
             // 对于M4S文件，不能直接使用concat协议，需要重新封装
             cmd.args(&[
                 "-f", "concat",
@@ -733,7 +733,7 @@ impl SegmentManager {
                 &output_path.to_string_lossy(),
             ]);
         } else {
-            info!("使用标准TS合并策略");
+            live_info!("使用标准TS合并策略");
             // 标准TS文件合并
             cmd.args(&[
                 "-f", "concat",
@@ -745,14 +745,14 @@ impl SegmentManager {
             ]);
         }
         
-        info!("FFmpeg命令: {:?}", cmd);
+        live_info!("FFmpeg命令: {:?}", cmd);
         
         // 执行命令
         let output = cmd.output().await
             .map_err(|e| anyhow!("启动FFmpeg失败: {}", e))?;
         
         if output.status.success() {
-            info!("FFmpeg合并成功完成");
+            live_info!("FFmpeg合并成功完成");
             Ok(true)
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -764,7 +764,7 @@ impl SegmentManager {
             
             // 如果标准方法失败，尝试其他合并策略
             if is_m4s_format {
-                warn!("M4S合并失败，尝试替代方法");
+                live_warn!("M4S合并失败，尝试替代方法");
                 self.try_alternative_m4s_merge(output_path).await
             } else {
                 Ok(false)
@@ -804,7 +804,7 @@ impl SegmentManager {
     async fn try_alternative_m4s_merge(&self, output_path: &Path) -> Result<bool> {
         use tokio::process::Command;
         
-        warn!("尝试M4S文件的替代合并方法");
+        live_warn!("尝试M4S文件的替代合并方法");
         
         // 方法1: 使用输入列表而不是concat协议
         let input_list_path = self.work_dir.join("input_list.txt");
@@ -835,7 +835,7 @@ impl SegmentManager {
             &output_path.to_string_lossy(),
         ]);
         
-        info!("尝试替代FFmpeg命令: {:?}", cmd);
+        live_info!("尝试替代FFmpeg命令: {:?}", cmd);
         
         let output = cmd.output().await
             .map_err(|e| anyhow!("启动替代FFmpeg失败: {}", e))?;
@@ -844,7 +844,7 @@ impl SegmentManager {
         let _ = tokio::fs::remove_file(&input_list_path).await;
         
         if output.status.success() {
-            info!("✅ 替代M4S合并方法成功");
+            live_info!("✅ 替代M4S合并方法成功");
             Ok(true)
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -855,7 +855,7 @@ impl SegmentManager {
     
     /// 合并分片并清理源文件（录制结束时调用）
     pub async fn finalize_recording(&mut self, output_path: &Path, cleanup_segments: bool) -> Result<PathBuf> {
-        info!("完成录制，开始最终化处理...");
+        live_info!("完成录制，开始最终化处理...");
         
         // 1. 保存最终的M3U8播放列表（VOD模式）
         self.save_m3u8_playlist(false).await?;
@@ -865,7 +865,7 @@ impl SegmentManager {
         
         // 3. 可选：清理分片文件
         if cleanup_segments {
-            info!("清理分片源文件...");
+            live_info!("清理分片源文件...");
             let mut cleaned_count = 0;
             
             for segment in &self.segments {
@@ -873,10 +873,10 @@ impl SegmentManager {
                     match tokio::fs::remove_file(&segment.file_path).await {
                         Ok(_) => {
                             cleaned_count += 1;
-                            debug!("删除分片文件: {:?}", segment.file_path);
+                            live_debug!("删除分片文件: {:?}", segment.file_path);
                         }
                         Err(e) => {
-                            warn!("删除分片文件失败: {:?}, 错误: {}", segment.file_path, e);
+                            live_warn!("删除分片文件失败: {:?}, 错误: {}", segment.file_path, e);
                         }
                     }
                 }
@@ -894,16 +894,16 @@ impl SegmentManager {
                 }
             }
             
-            info!("已清理 {} 个分片源文件", cleaned_count);
+            live_info!("已清理 {} 个分片源文件", cleaned_count);
         }
         
-        info!("录制最终化处理完成，输出文件: {:?}", merged_file);
+        live_info!("录制最终化处理完成，输出文件: {:?}", merged_file);
         Ok(merged_file)
     }
 
     /// 设置自动合并配置
     pub fn set_auto_merge_config(&mut self, config: AutoMergeConfig) {
-        info!("已设置自动合并配置: 启用={}, 阈值={}秒", 
+        live_info!("已设置自动合并配置: 启用={}, 阈值={}秒", 
               config.enabled, config.duration_threshold);
         self.auto_merge_config = Some(config);
     }
@@ -917,7 +917,7 @@ impl SegmentManager {
     /// 检查是否应该触发自动合并
     pub fn should_auto_merge(&self) -> bool {
         if let Some(config) = &self.auto_merge_config {
-            debug!("auto_merge配置检查 - enabled: {}, 时长: {:.2}秒, 阈值: {}秒", 
+            live_debug!("auto_merge配置检查 - enabled: {}, 时长: {:.2}秒, 阈值: {}秒", 
                    config.enabled, self.stats.total_duration, config.duration_threshold);
             
             if config.enabled && config.should_auto_merge(self.stats.total_duration) {
@@ -926,24 +926,24 @@ impl SegmentManager {
                     // 获取当前最新分片的时间戳
                     if let Some(latest_timestamp) = self.stats.end_timestamp {
                         let time_since_last_merge = (latest_timestamp - last_merge_time) as f64 / 1000.0;
-                        debug!("上次合并后时间: {:.2}秒", time_since_last_merge);
+                        live_debug!("上次合并后时间: {:.2}秒", time_since_last_merge);
                         return time_since_last_merge >= config.duration_threshold as f64;
                     }
                 } else {
                     // 第一次检查，直接根据总时长判断
-                    debug!("首次检查，时长达到阈值: {}", true);
+                    live_debug!("首次检查，时长达到阈值: {}", true);
                     return true;
                 }
             }
         } else {
-            debug!("未找到auto_merge配置");
+            live_debug!("未找到auto_merge配置");
         }
         false
     }
 
     /// 执行自动合并
     pub async fn perform_auto_merge(&mut self) -> Result<Option<PathBuf>> {
-        debug!("perform_auto_merge调用 - 当前时长: {:.2}秒, should_auto_merge: {}", 
+        live_debug!("perform_auto_merge调用 - 当前时长: {:.2}秒, should_auto_merge: {}", 
                self.stats.total_duration, self.should_auto_merge());
         
         if !self.should_auto_merge() {
@@ -954,7 +954,7 @@ impl SegmentManager {
             return Ok(None);
         };
 
-        info!("开始执行自动合并，当前时长: {:.2}秒", self.stats.total_duration);
+        live_info!("开始执行自动合并，当前时长: {:.2}秒", self.stats.total_duration);
 
         // 生成带时间戳的输出文件名
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
@@ -967,16 +967,16 @@ impl SegmentManager {
                 // 更新最后一次自动合并的时间戳
                 self.last_auto_merge_timestamp = self.stats.end_timestamp;
                 
-                info!("自动合并成功: {:?}", merged_file);
+                live_info!("自动合并成功: {:?}", merged_file);
 
                 // 根据配置决定是否清理分片文件
                 if !config.keep_segments_after_merge {
-                    info!("正在清理已合并的分片文件...");
+                    live_info!("正在清理已合并的分片文件...");
                     let segments_to_clean = self.segments.clone();
                     for segment in &segments_to_clean {
                         if segment.downloaded && segment.file_path.exists() {
                             if let Err(e) = tokio::fs::remove_file(&segment.file_path).await {
-                                warn!("删除分片文件失败: {:?}, 错误: {}", segment.file_path, e);
+                                live_warn!("删除分片文件失败: {:?}, 错误: {}", segment.file_path, e);
                             }
                         }
                     }
@@ -985,13 +985,13 @@ impl SegmentManager {
                     self.segments.clear();
                     self.update_stats();
                     
-                    info!("已清理 {} 个分片文件", segments_to_clean.len());
+                    live_info!("已清理 {} 个分片文件", segments_to_clean.len());
                 }
 
                 Ok(Some(merged_file))
             }
             Err(e) => {
-                warn!("自动合并失败: {}", e);
+                live_warn!("自动合并失败: {}", e);
                 Err(e)
             }
         }
@@ -1013,7 +1013,7 @@ impl SegmentManager {
             return Err(anyhow!("没有可合并的分片"));
         }
 
-        info!("开始自动合并 {} 个分片", downloaded_segments.len());
+        live_info!("开始自动合并 {} 个分片", downloaded_segments.len());
 
         // 1. 生成M3U8索引文件
         let m3u8_path = self.work_dir.join("auto_merge_index.m3u8");
@@ -1048,9 +1048,9 @@ impl SegmentManager {
                 "#EXT-X-MAP:URI=\"{}\"\n", 
                 init_segment_path.file_name().unwrap().to_string_lossy()
             ));
-            debug!("添加初始化段到M3U8: {:?}", init_segment_path.file_name().unwrap());
+            live_debug!("添加初始化段到M3U8: {:?}", init_segment_path.file_name().unwrap());
         } else {
-            warn!("未找到初始化段文件");
+            live_warn!("未找到初始化段文件");
         }
 
         // 添加所有分片
@@ -1066,7 +1066,7 @@ impl SegmentManager {
         tokio::fs::write(m3u8_path, m3u8_content).await
             .map_err(|e| anyhow!("写入M3U8文件失败: {}", e))?;
 
-        debug!("自动合并M3U8文件已生成: {:?}", m3u8_path);
+        live_debug!("自动合并M3U8文件已生成: {:?}", m3u8_path);
         Ok(())
     }
 
@@ -1089,7 +1089,7 @@ impl SegmentManager {
         args.extend(config.output_quality.get_ffmpeg_args());
         args.push(output_path.to_string_lossy().to_string());
 
-        info!("执行FFmpeg自动合并: ffmpeg {}", args.join(" "));
+        live_info!("执行FFmpeg自动合并: ffmpeg {}", args.join(" "));
 
         let cmd = Command::new("ffmpeg")
             .args(&args)
@@ -1103,18 +1103,18 @@ impl SegmentManager {
             .map_err(|e| anyhow!("等待FFmpeg完成失败: {}", e))?;
 
         if output.status.success() {
-            info!("FFmpeg自动合并成功");
+            live_info!("FFmpeg自动合并成功");
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            warn!("FFmpeg自动合并失败，尝试重编码: {}", stderr);
+            live_warn!("FFmpeg自动合并失败，尝试重编码: {}", stderr);
 
             // 尝试使用重编码参数
             let mut fallback_args = vec!["-i".to_string(), m3u8_path.to_string_lossy().to_string()];
             fallback_args.extend(config.output_quality.get_fallback_ffmpeg_args());
             fallback_args.push(output_path.to_string_lossy().to_string());
 
-            info!("执行FFmpeg重编码: ffmpeg {}", fallback_args.join(" "));
+            live_info!("执行FFmpeg重编码: ffmpeg {}", fallback_args.join(" "));
 
             let fallback_cmd = Command::new("ffmpeg")
                 .args(&fallback_args)
@@ -1128,7 +1128,7 @@ impl SegmentManager {
                 .map_err(|e| anyhow!("等待FFmpeg重编码完成失败: {}", e))?;
 
             if fallback_output.status.success() {
-                info!("FFmpeg重编码合并成功");
+                live_info!("FFmpeg重编码合并成功");
                 Ok(())
             } else {
                 let fallback_stderr = String::from_utf8_lossy(&fallback_output.stderr);

@@ -6,6 +6,36 @@
 //! - 自动录制管理
 //! - 录制文件管理
 
+/// 直播模块专用的日志宏
+/// 这些宏会将日志标记为 "live" 级别，便于单独过滤和查看
+#[macro_export]
+macro_rules! live_debug {
+    ($($arg:tt)*) => {
+        tracing::event!(target: "bili_sync::live", tracing::Level::DEBUG, $($arg)*);
+    };
+}
+
+#[macro_export]
+macro_rules! live_info {
+    ($($arg:tt)*) => {
+        tracing::event!(target: "bili_sync::live", tracing::Level::INFO, $($arg)*);
+    };
+}
+
+#[macro_export]
+macro_rules! live_warn {
+    ($($arg:tt)*) => {
+        tracing::event!(target: "bili_sync::live", tracing::Level::WARN, $($arg)*);
+    };
+}
+
+#[macro_export]
+macro_rules! live_error {
+    ($($arg:tt)*) => {
+        tracing::event!(target: "bili_sync::live", tracing::Level::ERROR, $($arg)*);
+    };
+}
+
 pub mod api;
 pub mod monitor;
 pub mod recorder;

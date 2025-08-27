@@ -7,10 +7,10 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import api from '$lib/api';
-	import { RefreshCw, Download, AlertTriangle, XCircle, Info, Bug } from '@lucide/svelte';
+	import { RefreshCw, Download, AlertTriangle, XCircle, Info, Bug, Radio } from '@lucide/svelte';
 
 	// 日志级别类型
-	type LogLevel = 'info' | 'warn' | 'error' | 'debug';
+	type LogLevel = 'info' | 'warn' | 'error' | 'debug' | 'live';
 
 	// 日志条目类型
 	interface LogEntry {
@@ -52,7 +52,8 @@
 		info: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
 		warn: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
 		error: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-		debug: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+		debug: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200',
+		live: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
 	};
 
 	// 日志级别图标映射
@@ -61,7 +62,8 @@
 		info: Info,
 		warn: AlertTriangle,
 		error: XCircle,
-		debug: Bug
+		debug: Bug,
+		live: Radio
 	};
 
 	// 检查认证状态
@@ -578,6 +580,19 @@
 				>
 					调试
 				</button>
+				<button
+					class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors {currentTab ===
+					'live'
+						? 'bg-background text-foreground shadow-sm'
+						: 'text-muted-foreground hover:text-foreground'}"
+					on:click={() => {
+						currentTab = 'live';
+						currentPage = 1;
+						loadLogs('live', 1);
+					}}
+				>
+					直播
+				</button>
 			</div>
 
 			<!-- 日志内容 -->
@@ -621,7 +636,9 @@
 															? 'yellow'
 															: log.level === 'info'
 																? 'blue'
-																: 'gray'}-500"
+																: log.level === 'live'
+																	? 'purple'
+																	: 'gray'}-500"
 												/>
 												<div class="min-w-0 flex-1">
 													<div

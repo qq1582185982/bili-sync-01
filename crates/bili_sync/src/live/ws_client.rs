@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
-use tracing::{debug, error, info, warn};
+use crate::{live_debug, live_error, live_info, live_warn};
 
 use super::api::LiveStatus;
 
@@ -83,7 +83,7 @@ impl BilibiliWebSocketClient {
 
     /// 启动 WebSocket 连接
     pub async fn start(&mut self) -> Result<()> {
-        info!("启动房间 {} 的 WebSocket 连接", self.room_id);
+        live_info!("启动房间 {} 的 WebSocket 连接", self.room_id);
 
         let room_id = self.room_id;
         let event_sender = self.event_sender.clone();
@@ -107,12 +107,12 @@ impl BilibiliWebSocketClient {
         loop {
             match Self::handle_connection(room_id, &event_sender).await {
                 Ok(_) => {
-                    info!("房间 {} WebSocket 连接正常结束", room_id);
+                    live_info!("房间 {} WebSocket 连接正常结束", room_id);
                     break;
                 }
                 Err(e) => {
                     retry_count += 1;
-                    error!(
+                    live_error!(
                         "房间 {} WebSocket 连接失败 (重试 {}/{}): {}",
                         room_id, retry_count, max_retries, e
                     );
@@ -123,17 +123,17 @@ impl BilibiliWebSocketClient {
                         connected: false,
                         error: Some(e.to_string()),
                     }) {
-                        error!("发送连接状态事件失败: {}", send_err);
+                        live_error!("发送连接状态事件失败: {}", send_err);
                     }
 
                     if retry_count >= max_retries {
-                        error!("房间 {} WebSocket 连接重试次数已达上限，停止重连", room_id);
+                        live_error!("房间 {} WebSocket 连接重试次数已达上限，停止重连", room_id);
                         break;
                     }
 
                     // 指数退避策略
                     let delay = std::time::Duration::from_secs(2_u64.pow(retry_count.min(6)));
-                    debug!("房间 {} 等待 {:?} 后重连", room_id, delay);
+                    live_debug!("房间 {} 等待 {:?} 后重连", room_id, delay);
                     tokio::time::sleep(delay).await;
                 }
             }
@@ -145,17 +145,17 @@ impl BilibiliWebSocketClient {
         room_id: i64,
         event_sender: &mpsc::UnboundedSender<WebSocketEvent>,
     ) -> Result<()> {
-        debug!("房间 {} 开始建立 WebSocket 连接", room_id);
+        live_debug!("房间 {} 开始建立 WebSocket 连接", room_id);
 
         // 获取WebSocket连接信息
         let ws_info = Self::get_websocket_info(room_id).await?;
-        debug!("房间 {} 获取到WebSocket信息: host={}, token长度={}", room_id, ws_info.host, ws_info.token.len());
+        live_debug!("房间 {} 获取到WebSocket信息: host={}, token长度={}", room_id, ws_info.host, ws_info.token.len());
 
         // 连接到B站WebSocket服务器
         let ws_url = format!("wss://{}/sub", ws_info.host);
         let (ws_stream, _) = connect_async(&ws_url).await?;
         
-        info!("房间 {} WebSocket 连接已建立", room_id);
+        live_info!("房间 {} WebSocket 连接已建立", room_id);
 
         // 发送连接成功事件
         event_sender.send(WebSocketEvent::ConnectionStatusChanged {
@@ -167,10 +167,10 @@ impl BilibiliWebSocketClient {
         // 连接建立后立即查询当前直播状态
         match Self::check_initial_live_status(room_id, event_sender).await {
             Ok(_) => {
-                debug!("房间 {} 初始状态检查完成", room_id);
+                live_debug!("房间 {} 初始状态检查完成", room_id);
             }
             Err(e) => {
-                warn!("房间 {} 初始状态检查失败: {}", room_id, e);
+                live_warn!("房间 {} 初始状态检查失败: {}", room_id, e);
                 // 不中断连接，继续监听WebSocket事件
             }
         }
@@ -179,7 +179,7 @@ impl BilibiliWebSocketClient {
 
         // 发送认证包
         let auth_packet = Self::build_auth_packet(room_id, &ws_info.token)?;
-        debug!("房间 {} 发送认证包，长度: {} bytes", room_id, auth_packet.len());
+        live_debug!("房间 {} 发送认证包，长度: {} bytes", room_id, auth_packet.len());
         ws_sender.send(Message::Binary(auth_packet)).await?;
 
         let mut last_live_status: Option<LiveStatus> = None;
@@ -198,22 +198,22 @@ impl BilibiliWebSocketClient {
                                 &data,
                                 &mut last_live_status,
                             ).await {
-                                warn!("处理房间 {} 二进制消息失败: {}", room_id, e);
+                                live_warn!("处理房间 {} 二进制消息失败: {}", room_id, e);
                             }
                         }
                         Some(Ok(Message::Close(_))) => {
-                            info!("房间 {} WebSocket 连接被服务器关闭", room_id);
+                            live_info!("房间 {} WebSocket 连接被服务器关闭", room_id);
                             break;
                         }
                         Some(Ok(_)) => {
                             // 忽略其他类型消息
                         }
                         Some(Err(e)) => {
-                            warn!("房间 {} 接收消息出错: {}", room_id, e);
+                            live_warn!("房间 {} 接收消息出错: {}", room_id, e);
                             return Err(anyhow!("接收消息失败: {}", e));
                         }
                         None => {
-                            warn!("房间 {} WebSocket 连接流结束", room_id);
+                            live_warn!("房间 {} WebSocket 连接流结束", room_id);
                             break;
                         }
                     }
@@ -223,15 +223,15 @@ impl BilibiliWebSocketClient {
                 _ = heartbeat_interval.tick() => {
                     let heartbeat_packet = Self::build_heartbeat_packet();
                     if let Err(e) = ws_sender.send(Message::Binary(heartbeat_packet)).await {
-                        error!("发送心跳包失败: {}", e);
+                        live_error!("发送心跳包失败: {}", e);
                         break;
                     }
-                    debug!("房间 {} 发送心跳包", room_id);
+                    live_debug!("房间 {} 发送心跳包", room_id);
                 }
             }
         }
 
-        warn!("房间 {} WebSocket 连接流结束", room_id);
+        live_warn!("房间 {} WebSocket 连接流结束", room_id);
         Ok(())
     }
 
@@ -240,7 +240,7 @@ impl BilibiliWebSocketClient {
         room_id: i64,
         event_sender: &mpsc::UnboundedSender<WebSocketEvent>,
     ) -> Result<()> {
-        debug!("检查房间 {} 的初始直播状态", room_id);
+        live_debug!("检查房间 {} 的初始直播状态", room_id);
 
         // 使用HTTP API查询当前直播状态
         let url = format!("https://api.live.bilibili.com/room/v1/Room/get_info?room_id={}", room_id);
@@ -254,7 +254,7 @@ impl BilibiliWebSocketClient {
             .await?;
 
         let response_text = response.text().await?;
-        debug!("房间 {} 状态查询响应: {}", room_id, response_text);
+        live_debug!("房间 {} 状态查询响应: {}", room_id, response_text);
 
         // 解析JSON响应
         let json_value: serde_json::Value = serde_json::from_str(&response_text)?;
@@ -272,7 +272,7 @@ impl BilibiliWebSocketClient {
                             .and_then(|t| t.as_str())
                             .map(|s| s.to_string());
                         
-                        info!("房间 {} 初始状态检查结果: live_status={} -> {:?}, title: {:?}", 
+                        live_info!("房间 {} 初始状态检查结果: live_status={} -> {:?}, title: {:?}", 
                             room_id, live_status, status, title);
 
                         // 发送初始状态事件
@@ -286,7 +286,7 @@ impl BilibiliWebSocketClient {
                     }
                 }
             } else {
-                warn!("房间 {} 状态查询API返回错误: code={}", room_id, code);
+                live_warn!("房间 {} 状态查询API返回错误: code={}", room_id, code);
             }
         }
 
@@ -300,7 +300,7 @@ impl BilibiliWebSocketClient {
             room_id
         );
         
-        debug!("获取房间 {} 的WebSocket配置", room_id);
+        live_debug!("获取房间 {} 的WebSocket配置", room_id);
         let client = reqwest::Client::new();
         let response = client
             .get(&url)
@@ -310,7 +310,7 @@ impl BilibiliWebSocketClient {
             .await?;
 
         let config: DanmuConfigResponse = response.json().await?;
-        debug!("房间 {} WebSocket配置响应: code={}", room_id, config.code);
+        live_debug!("房间 {} WebSocket配置响应: code={}", room_id, config.code);
         
         if config.code != 0 {
             return Err(anyhow!("获取WebSocket配置失败，错误码: {}", config.code));
@@ -320,12 +320,12 @@ impl BilibiliWebSocketClient {
             return Err(anyhow!("WebSocket主机列表为空"));
         }
 
-        debug!("房间 {} 获取到 {} 个WebSocket主机", room_id, config.data.host_list.len());
+        live_debug!("房间 {} 获取到 {} 个WebSocket主机", room_id, config.data.host_list.len());
         
         // 选择第一个可用的主机
         let host_info = &config.data.host_list[0];
         let host = format!("{}:{}", host_info.host, host_info.wss_port);
-        debug!("房间 {} 选择WebSocket主机: {}:{}", room_id, host_info.host, host_info.wss_port);
+        live_debug!("房间 {} 选择WebSocket主机: {}:{}", room_id, host_info.host, host_info.wss_port);
 
         Ok(WebSocketInfo {
             host,
@@ -416,7 +416,7 @@ impl BilibiliWebSocketClient {
         let operation = cursor.read_u32::<BigEndian>()?;
         let _seq_id = cursor.read_u32::<BigEndian>()?;
         
-        debug!("房间 {} 收到消息: len={}, header_len={}, proto_ver={}, op={}", 
+        live_debug!("房间 {} 收到消息: len={}, header_len={}, proto_ver={}, op={}", 
             room_id, packet_len, header_len, protocol_ver, operation);
         
         // 获取消息体数据
@@ -426,7 +426,7 @@ impl BilibiliWebSocketClient {
             let mut decoder = ZlibDecoder::new(compressed_data);
             let mut decompressed = Vec::new();
             decoder.read_to_end(&mut decompressed)?;
-            debug!("房间 {} 解压缩数据: {} bytes -> {} bytes", room_id, compressed_data.len(), decompressed.len());
+            live_debug!("房间 {} 解压缩数据: {} bytes -> {} bytes", room_id, compressed_data.len(), decompressed.len());
             
             // 递归处理解压后的数据包（可能包含多个包）
             Box::pin(Self::parse_compressed_packets(room_id, event_sender, &decompressed, last_live_status)).await?;
@@ -442,7 +442,7 @@ impl BilibiliWebSocketClient {
                     let mut cursor = Cursor::new(body_data);
                     let popularity = cursor.read_u32::<BigEndian>()? as i64;
                     
-                    debug!("房间 {} 人气值: {}", room_id, popularity);
+                    live_debug!("房间 {} 人气值: {}", room_id, popularity);
                     
                     event_sender.send(WebSocketEvent::PopularityChanged {
                         room_id,
@@ -453,35 +453,35 @@ impl BilibiliWebSocketClient {
             5 => {
                 // 通知消息 - 解析JSON
                 if let Ok(json_str) = std::str::from_utf8(body_data) {
-                    debug!("房间 {} 收到通知消息: {}", room_id, json_str);
+                    live_debug!("房间 {} 收到通知消息: {}", room_id, json_str);
                     Self::handle_notification_message(room_id, event_sender, json_str, last_live_status).await?;
                 } else {
-                    debug!("房间 {} 收到非UTF8通知消息: {:?}", room_id, body_data);
+                    live_debug!("房间 {} 收到非UTF8通知消息: {:?}", room_id, body_data);
                 }
             }
             8 => {
                 // 认证回复
-                debug!("房间 {} 认证回复: {:?}", room_id, std::str::from_utf8(body_data));
+                live_debug!("房间 {} 认证回复: {:?}", room_id, std::str::from_utf8(body_data));
                 // 尝试解析为JSON
                 if let Ok(json_str) = std::str::from_utf8(body_data) {
                     if json_str.contains("\"code\":0") {
-                        info!("房间 {} 认证成功", room_id);
+                        live_info!("房间 {} 认证成功", room_id);
                     } else {
-                        warn!("房间 {} 认证失败: {}", room_id, json_str);
+                        live_warn!("房间 {} 认证失败: {}", room_id, json_str);
                     }
                 } else if body_data.len() >= 4 {
                     // 如果不是JSON，尝试解析为二进制
                     let mut cursor = Cursor::new(body_data);
                     let auth_result = cursor.read_u32::<BigEndian>()?;
                     if auth_result == 0 {
-                        info!("房间 {} 认证成功", room_id);
+                        live_info!("房间 {} 认证成功", room_id);
                     } else {
-                        warn!("房间 {} 认证失败: {}", room_id, auth_result);
+                        live_warn!("房间 {} 认证失败: {}", room_id, auth_result);
                     }
                 }
             }
             _ => {
-                debug!("房间 {} 收到未知操作码: {}, 数据: {:?}", room_id, operation, 
+                live_debug!("房间 {} 收到未知操作码: {}, 数据: {:?}", room_id, operation, 
                     std::str::from_utf8(body_data).unwrap_or("non-utf8"));
             }
         }
@@ -537,11 +537,11 @@ impl BilibiliWebSocketClient {
         match serde_json::from_str::<Value>(json_str) {
             Ok(json) => {
                 if let Some(cmd) = json.get("cmd").and_then(|c| c.as_str()) {
-                    debug!("房间 {} 收到命令: {}", room_id, cmd);
+                    live_debug!("房间 {} 收到命令: {}", room_id, cmd);
                     
                     match cmd {
                         "LIVE" => {
-                            info!("房间 {} 开播通知", room_id);
+                            live_info!("房间 {} 开播通知", room_id);
                             
                             // 检查状态是否变化
                             if *last_live_status != Some(LiveStatus::Live) {
@@ -561,7 +561,7 @@ impl BilibiliWebSocketClient {
                             }
                         }
                         "PREPARING" => {
-                            info!("房间 {} 准备中通知", room_id);
+                            live_info!("房间 {} 准备中通知", room_id);
                             
                             // 检查状态是否变化  
                             if *last_live_status != Some(LiveStatus::NotLive) {
@@ -584,7 +584,7 @@ impl BilibiliWebSocketClient {
                                     };
                                     
                                     if *last_live_status != Some(status) {
-                                        info!("房间 {} 状态变化: {:?} -> {:?}", room_id, last_live_status, status);
+                                        live_info!("房间 {} 状态变化: {:?} -> {:?}", room_id, last_live_status, status);
                                         *last_live_status = Some(status);
                                         
                                         let title = data.get("title")
@@ -603,21 +603,21 @@ impl BilibiliWebSocketClient {
                         _ => {
                             // 其他命令类型，记录但不处理
                             if cmd != "DANMU_MSG" && cmd != "SEND_GIFT" && cmd != "GUARD_BUY" {
-                                debug!("房间 {} 收到其他命令: {}", room_id, cmd);
+                                live_debug!("房间 {} 收到其他命令: {}", room_id, cmd);
                             }
                         }
                     }
                 } else {
-                    debug!("房间 {} JSON消息缺少cmd字段", room_id);
+                    live_debug!("房间 {} JSON消息缺少cmd字段", room_id);
                 }
             }
             Err(e) => {
                 // JSON解析失败，可能不是JSON格式或格式不正确
-                debug!("房间 {} JSON解析失败: {}, 原始数据: {}", room_id, e, json_str);
+                live_debug!("房间 {} JSON解析失败: {}, 原始数据: {}", room_id, e, json_str);
                 
                 // 保留原来的字符串匹配方式作为后备
                 if json_str.contains("\"cmd\":\"LIVE\"") {
-                    info!("房间 {} 开播通知 (字符串匹配)", room_id);
+                    live_info!("房间 {} 开播通知 (字符串匹配)", room_id);
                     
                     if *last_live_status != Some(LiveStatus::Live) {
                         *last_live_status = Some(LiveStatus::Live);
@@ -629,7 +629,7 @@ impl BilibiliWebSocketClient {
                         })?;
                     }
                 } else if json_str.contains("\"cmd\":\"PREPARING\"") {
-                    info!("房间 {} 准备中通知 (字符串匹配)", room_id);
+                    live_info!("房间 {} 准备中通知 (字符串匹配)", room_id);
                     
                     if *last_live_status != Some(LiveStatus::NotLive) {
                         *last_live_status = Some(LiveStatus::NotLive);
@@ -649,7 +649,7 @@ impl BilibiliWebSocketClient {
 
     /// 停止连接
     pub async fn stop(&mut self) {
-        info!("停止房间 {} 的 WebSocket 连接", self.room_id);
+        live_info!("停止房间 {} 的 WebSocket 连接", self.room_id);
         
         if let Some(handle) = self.connection_handle.take() {
             handle.abort();
@@ -692,7 +692,7 @@ impl WebSocketManager {
         let mut clients = self.clients.write().await;
         
         if clients.contains_key(&room_id) {
-            debug!("房间 {} 的 WebSocket 连接已存在", room_id);
+            live_debug!("房间 {} 的 WebSocket 连接已存在", room_id);
             return Ok(());
         }
 
@@ -700,7 +700,7 @@ impl WebSocketManager {
         client.start().await?;
         clients.insert(room_id, client);
 
-        info!("已添加房间 {} 的 WebSocket 监控", room_id);
+        live_info!("已添加房间 {} 的 WebSocket 监控", room_id);
         Ok(())
     }
 
@@ -720,7 +720,7 @@ impl WebSocketManager {
         let mut clients = self.clients.write().await;
         
         for (room_id, client) in clients.iter_mut() {
-            info!("停止房间 {} 的 WebSocket 连接", room_id);
+            live_info!("停止房间 {} 的 WebSocket 连接", room_id);
             client.stop().await;
         }
         

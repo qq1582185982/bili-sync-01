@@ -6284,6 +6284,8 @@ pub enum LogLevel {
     Error,
     #[serde(rename = "debug")]
     Debug,
+    #[serde(rename = "live")]
+    Live,
 }
 
 /// 日志条目结构
@@ -6310,6 +6312,8 @@ lazy_static::lazy_static! {
     static ref LOG_BUFFER: Arc<Mutex<VecDeque<LogEntry>>> = Arc::new(Mutex::new(VecDeque::with_capacity(100000)));
     // 为debug日志单独设置缓冲区，容量较小
     static ref DEBUG_LOG_BUFFER: Arc<Mutex<VecDeque<LogEntry>>> = Arc::new(Mutex::new(VecDeque::with_capacity(10000)));
+    // 为直播日志单独设置缓冲区
+    static ref LIVE_LOG_BUFFER: Arc<Mutex<VecDeque<LogEntry>>> = Arc::new(Mutex::new(VecDeque::with_capacity(20000)));
     static ref LOG_BROADCASTER: broadcast::Sender<LogEntry> = {
         let (sender, _) = broadcast::channel(100);
         sender
@@ -6336,11 +6340,21 @@ pub fn add_log_entry(level: LogLevel, message: String, target: Option<String>) {
                 }
             }
         }
+        LogLevel::Live => {
+            // 直播日志使用单独的缓冲区
+            if let Ok(mut buffer) = LIVE_LOG_BUFFER.lock() {
+                buffer.push_back(entry.clone());
+                // 直播日志保持在20000条以内
+                if buffer.len() > 20000 {
+                    buffer.pop_front();
+                }
+            }
+        }
         _ => {
             // 其他级别日志使用主缓冲区
             if let Ok(mut buffer) = LOG_BUFFER.lock() {
                 buffer.push_back(entry.clone());
-                // 主缓冲区保持在50000条以内（给debug留出空间）
+                // 主缓冲区保持在50000条以内（给debug和live留出空间）
                 if buffer.len() > 50000 {
                     buffer.pop_front();
                 }
@@ -6374,6 +6388,7 @@ pub async fn get_logs(
         "warn" => Some(LogLevel::Warn),
         "error" => Some(LogLevel::Error),
         "debug" => Some(LogLevel::Debug),
+        "live" => Some(LogLevel::Live),
         _ => None,
     });
 
@@ -6393,6 +6408,36 @@ pub async fn get_logs(
         if *filter_level == LogLevel::Debug {
             // 如果筛选debug级别，从debug专用缓冲区获取
             if let Ok(buffer) = DEBUG_LOG_BUFFER.lock() {
+                let total_logs: Vec<LogEntry> = buffer
+                    .iter()
+                    .rev() // 最新的在前
+                    .cloned()
+                    .collect();
+
+                let total = total_logs.len();
+                let offset = (page - 1) * limit;
+                let total_pages = if total == 0 { 0 } else { total.div_ceil(limit) };
+                let logs = total_logs.into_iter().skip(offset).take(limit).collect();
+
+                LogsResponse {
+                    logs,
+                    total,
+                    page,
+                    per_page: limit,
+                    total_pages,
+                }
+            } else {
+                LogsResponse {
+                    logs: vec![],
+                    total: 0,
+                    page: 1,
+                    per_page: limit,
+                    total_pages: 0,
+                }
+            }
+        } else if *filter_level == LogLevel::Live {
+            // 如果筛选live级别，从live专用缓冲区获取
+            if let Ok(buffer) = LIVE_LOG_BUFFER.lock() {
                 let total_logs: Vec<LogEntry> = buffer
                     .iter()
                     .rev() // 最新的在前

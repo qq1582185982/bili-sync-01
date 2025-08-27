@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration, Instant};
-use tracing::{debug, error, info, warn};
+use crate::{live_debug, live_error, live_info, live_warn};
 
 use bili_sync_entity::{live_monitor, live_record};
 use crate::bilibili::BiliClient;
@@ -146,7 +146,7 @@ impl LiveMonitor {
             return Ok(()); // 已经在运行中
         }
 
-        info!("启动直播监控服务");
+        live_info!("启动直播监控服务");
 
         // 加载监控配置
         self.reload_configs().await?;
@@ -163,7 +163,7 @@ impl LiveMonitor {
 
     /// 停止监控服务  
     pub async fn stop(&self) -> Result<()> {
-        info!("停止直播监控服务");
+        live_info!("停止直播监控服务");
 
         let mut running = self.running.write().await;
         *running = false;
@@ -192,11 +192,11 @@ impl LiveMonitor {
 
         let configs: Vec<MonitorConfig> = models.into_iter().map(MonitorConfig::from).collect();
         
-        info!("加载了 {} 个直播监控配置", configs.len());
+        live_info!("加载了 {} 个直播监控配置", configs.len());
         
         // 详细显示每个监控配置的状态
         for config in &configs {
-            debug!(
+            live_debug!(
                 "监控配置 - ID: {}, UP主: {}, 房间: {}, 当前状态: {:?}", 
                 config.id, config.upper_name, config.room_id, config.last_status
             );
@@ -229,20 +229,20 @@ impl LiveMonitor {
         let has_changes = old_rooms != new_rooms;
         
         if has_changes {
-            info!(
+            live_info!(
                 "监控配置发生变化 - 旧房间: {:?}, 新房间: {:?}", 
                 old_rooms, new_rooms
             );
             
             // 详细显示每个监控配置的状态
             for config in &new_configs {
-                debug!(
+                live_debug!(
                     "更新配置 - ID: {}, UP主: {}, 房间: {}, 当前状态: {:?}", 
                     config.id, config.upper_name, config.room_id, config.last_status
                 );
             }
         } else {
-            debug!("监控配置无变化，跳过WebSocket连接更新");
+            live_debug!("监控配置无变化，跳过WebSocket连接更新");
         }
 
         *configs_guard = new_configs;
@@ -303,7 +303,7 @@ impl LiveMonitor {
                                 &url_pools,
                                 event
                             ).await {
-                                error!("处理WebSocket事件失败: {}", e);
+                                live_error!("处理WebSocket事件失败: {}", e);
                             }
                         }
                     }
@@ -326,7 +326,7 @@ impl LiveMonitor {
                                 }
                             }
                             Err(e) => {
-                                error!("重新加载监控配置失败: {}", e);
+                                live_error!("重新加载监控配置失败: {}", e);
                             }
                         }
                     }
@@ -346,7 +346,7 @@ impl LiveMonitor {
                 }
             }
 
-            info!("直播监控循环已停止");
+            live_info!("直播监控循环已停止");
         })
     }
 
@@ -361,8 +361,8 @@ impl LiveMonitor {
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
         url_pools: &Arc<Mutex<HashMap<i32, StreamUrlPool>>>,
     ) -> Result<()> {
-        info!("开始录制 {} 的直播: {}", config.upper_name, room_info.title);
-        debug!("录制配置 - 房间ID: {}, 质量: {:?}, 格式: {}", config.room_id, config.quality, config.format);
+        live_info!("开始录制 {} 的直播: {}", config.upper_name, room_info.title);
+        live_debug!("录制配置 - 房间ID: {}, 质量: {:?}, 格式: {}", config.room_id, config.quality, config.format);
 
         // 初始化或获取URL池，每次录制都强制刷新URL（复刻bililive-go行为）
         let mut url_pools_guard = url_pools.lock().await;
@@ -370,13 +370,13 @@ impl LiveMonitor {
         
         // 强制清空URL池，每次都获取全新的URL
         url_pool.clear();
-        info!("强制刷新URL池，获取最新的直播流地址");
+        live_info!("强制刷新URL池，获取最新的直播流地址");
         
         // 获取新的URL列表
         if true { // 总是获取新URL
-            debug!("初始化URL池，获取多个CDN节点地址...");
+            live_debug!("初始化URL池，获取多个CDN节点地址...");
             if let Err(e) = live_client.refresh_url_pool(config.room_id, config.quality, url_pool).await {
-                error!("刷新URL池失败: {}", e);
+                live_error!("刷新URL池失败: {}", e);
                 // 作为后备，尝试使用旧的单URL方式
                 match live_client.get_play_url(config.room_id, config.quality).await {
                     Ok(play_info) if !play_info.durl.is_empty() => {
@@ -395,7 +395,7 @@ impl LiveMonitor {
             .ok_or_else(|| anyhow!("URL池为空，无法开始录制"))?;
             
         let stream_url = &current_url.url;
-        debug!("选择录制URL: CDN={}, URL={}", current_url.cdn_node, stream_url);
+        live_debug!("选择录制URL: CDN={}, URL={}", current_url.cdn_node, stream_url);
 
         // 生成输出文件名（bililive-go风格：包含精确时间戳避免重复）
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S");
@@ -413,15 +413,15 @@ impl LiveMonitor {
 
         // 确保输出目录存在
         if let Some(parent) = output_path.parent() {
-            debug!("创建输出目录: {:?}", parent);
+            live_debug!("创建输出目录: {:?}", parent);
             tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                error!("创建输出目录失败: {}", e);
+                live_error!("创建输出目录失败: {}", e);
                 anyhow!("创建输出目录失败: {}", e)
             })?;
         }
 
         // 创建录制记录
-        debug!("创建录制记录到数据库");
+        live_debug!("创建录制记录到数据库");
         let record = live_record::ActiveModel {
             id: ActiveValue::NotSet,
             monitor_id: ActiveValue::Set(config.id),
@@ -436,24 +436,24 @@ impl LiveMonitor {
 
         let record_result = match record.insert(db).await {
             Ok(result) => {
-                debug!("录制记录已创建，ID: {}", result.id);
+                live_debug!("录制记录已创建，ID: {}", result.id);
                 result
             }
             Err(e) => {
-                error!("创建录制记录失败: {}", e);
+                live_error!("创建录制记录失败: {}", e);
                 return Err(anyhow!("创建录制记录失败: {}", e));
             }
         };
 
         // 根据配置启动对应模式的录制器
-        debug!("启动录制器，输出文件: {:?}，模式: {:?}", output_path, config.recording_mode);
+        live_debug!("启动录制器，输出文件: {:?}，模式: {:?}", output_path, config.recording_mode);
         let mut recorder = match config.recording_mode {
             RecordingMode::FFmpeg => {
-                info!("使用FFmpeg模式录制");
+                live_info!("使用FFmpeg模式录制");
                 LiveRecorder::new_ffmpeg(output_path.clone(), config.max_file_size)
             }
             RecordingMode::Segment => {
-                info!("使用分片模式录制（HLS API），工作目录: {:?}", output_path.parent().unwrap_or(&output_path));
+                live_info!("使用分片模式录制（HLS API），工作目录: {:?}", output_path.parent().unwrap_or(&output_path));
                 
                 // 分片模式使用父目录作为工作目录
                 let work_dir = output_path.parent().unwrap_or(&output_path);
@@ -466,8 +466,8 @@ impl LiveMonitor {
                 ).await {
                     Ok(recorder) => recorder,
                     Err(e) => {
-                        error!("创建分片模式录制器失败: {}，回退到FFmpeg模式", e);
-                        warn!("分片模式启动失败，当前使用FFmpeg模式");
+                        live_error!("创建分片模式录制器失败: {}，回退到FFmpeg模式", e);
+                        live_warn!("分片模式启动失败，当前使用FFmpeg模式");
                         LiveRecorder::new_ffmpeg(output_path.clone(), config.max_file_size)
                     }
                 }
@@ -475,25 +475,25 @@ impl LiveMonitor {
         };
         // 启动录制器
         if let Err(e) = recorder.start(stream_url.clone()).await {
-            error!("启动录制器失败: {}", e);
+            live_error!("启动录制器失败: {}", e);
             
             // 如果是分片模式失败，尝试自动回退到FFmpeg模式
             if config.recording_mode == RecordingMode::Segment {
-                warn!("分片模式启动失败，自动回退到FFmpeg模式");
+                live_warn!("分片模式启动失败，自动回退到FFmpeg模式");
                 
                 // 重新创建FFmpeg录制器
                 let mut ffmpeg_recorder = LiveRecorder::new_ffmpeg(output_path.clone(), config.max_file_size);
                 
                 match ffmpeg_recorder.start(stream_url.clone()).await {
                     Ok(_) => {
-                        info!("✅ FFmpeg模式启动成功，作为分片模式的回退");
+                        live_info!("✅ FFmpeg模式启动成功，作为分片模式的回退");
                         recorder = ffmpeg_recorder;
                     }
                     Err(ffmpeg_err) => {
-                        error!("FFmpeg模式也启动失败: {}", ffmpeg_err);
+                        live_error!("FFmpeg模式也启动失败: {}", ffmpeg_err);
                         // 启动失败时，更新录制记录状态为错误
                         if let Err(db_err) = Self::update_record_status(db, record_result.id, 3).await {
-                            error!("更新录制记录状态失败: {}", db_err);
+                            live_error!("更新录制记录状态失败: {}", db_err);
                         }
                         return Err(anyhow!("分片模式和FFmpeg模式都启动失败: 分片={}, FFmpeg={}", e, ffmpeg_err));
                     }
@@ -501,7 +501,7 @@ impl LiveMonitor {
             } else {
                 // FFmpeg模式失败，直接返回错误
                 if let Err(db_err) = Self::update_record_status(db, record_result.id, 3).await {
-                    error!("更新录制记录状态失败: {}", db_err);
+                    live_error!("更新录制记录状态失败: {}", db_err);
                 }
                 return Err(anyhow!("启动录制器失败: {}", e));
             }
@@ -509,7 +509,7 @@ impl LiveMonitor {
 
         // 录制器启动成功，确保状态为录制中
         if let Err(e) = Self::update_record_status(db, record_result.id, 1).await {
-            error!("更新录制状态为录制中失败: {}", e);
+            live_error!("更新录制状态为录制中失败: {}", e);
         }
 
         // 克隆URL池以保存到录制器信息中
@@ -530,7 +530,7 @@ impl LiveMonitor {
 
         recorders.lock().await.insert(config.id, recorder_info);
 
-        info!("录制已启动，输出文件: {:?}", output_path);
+        live_info!("录制已启动，输出文件: {:?}", output_path);
         Ok(())
     }
 
@@ -543,16 +543,16 @@ impl LiveMonitor {
         let mut recorders_guard = recorders.lock().await;
         
         if let Some(recorder_info) = recorders_guard.remove(&monitor_id) {
-            info!("停止录制，监控ID: {}", monitor_id);
+            live_info!("停止录制，监控ID: {}", monitor_id);
 
             // 停止录制器
             let mut recorder = recorder_info.recorder;
             if let Err(e) = recorder.stop().await {
-                error!("停止录制器失败: {}", e);
+                live_error!("停止录制器失败: {}", e);
             }
 
             // FFmpeg模式不需要合并和清理操作，直接录制到最终文件
-            debug!("监控ID {} FFmpeg模式录制完成", monitor_id);
+            live_debug!("监控ID {} FFmpeg模式录制完成", monitor_id);
 
             // 获取最终文件大小和路径（支持分片模式）
             let (file_size, final_path) = {
@@ -564,7 +564,7 @@ impl LiveMonitor {
                     match tokio::fs::metadata(path).await {
                         Ok(metadata) => Some(metadata.len() as i64),
                         Err(e) => {
-                            warn!("无法获取录制文件大小: {}", e);
+                            live_warn!("无法获取录制文件大小: {}", e);
                             None
                         }
                     }
@@ -598,7 +598,7 @@ impl LiveMonitor {
 
             record.update(db).await?;
 
-            info!("录制已停止并保存，记录ID: {}", recorder_info.record_id);
+            live_info!("录制已停止并保存，记录ID: {}", recorder_info.record_id);
         }
 
         Ok(())
@@ -613,7 +613,7 @@ impl LiveMonitor {
 
         for monitor_id in monitor_ids {
             if let Err(e) = Self::stop_recording(&self.db, monitor_id, &self.recorders).await {
-                error!("停止录制失败，监控ID {}: {}", monitor_id, e);
+                live_error!("停止录制失败，监控ID {}: {}", monitor_id, e);
             }
         }
 
@@ -684,12 +684,12 @@ impl LiveMonitor {
                 match recorder_info.recorder.check_process_status() {
                     Ok(is_running) => {
                         if !is_running {
-                            info!("录制器进程已停止，监控ID: {}，将尝试重启", monitor_id);
+                            live_info!("录制器进程已停止，监控ID: {}，将尝试重启", monitor_id);
                             failed_monitors.push(*monitor_id);
                         }
                     }
                     Err(e) => {
-                        error!("检查录制器进程状态失败，监控ID: {}, 错误: {}，将尝试重启", monitor_id, e);
+                        live_error!("检查录制器进程状态失败，监控ID: {}, 错误: {}，将尝试重启", monitor_id, e);
                         failed_monitors.push(*monitor_id);
                     }
                 }
@@ -710,11 +710,11 @@ impl LiveMonitor {
                     Ok((live_status, room_info)) => {
                         if live_status == super::api::LiveStatus::Live {
                             if let Some(room_info) = room_info {
-                                info!("房间 {} 仍在直播中，重新开始录制", config.room_id);
+                                live_info!("房间 {} 仍在直播中，重新开始录制", config.room_id);
                                 
                                 // 停止当前录制器
                                 if let Err(e) = Self::stop_recording(db, monitor_id, recorders).await {
-                                    error!("停止录制失败: {}", e);
+                                    live_error!("停止录制失败: {}", e);
                                 }
                                 
                                 // 清空该监控器的URL池，强制获取新URL
@@ -722,7 +722,7 @@ impl LiveMonitor {
                                     let mut url_pools_guard = url_pools.lock().await;
                                     if let Some(url_pool) = url_pools_guard.get_mut(&config.id) {
                                         url_pool.clear();
-                                        info!("清空监控器 {} 的URL池，将使用全新URL重启", monitor_id);
+                                        live_info!("清空监控器 {} 的URL池，将使用全新URL重启", monitor_id);
                                     }
                                 }
                                 
@@ -730,22 +730,22 @@ impl LiveMonitor {
                                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                                 
                                 if let Err(e) = Self::start_recording(db, live_client, &bili_client, &config, &room_info, recorders, url_pools).await {
-                                    error!("重新开始录制失败: {}", e);
+                                    live_error!("重新开始录制失败: {}", e);
                                 }
                             }
                         } else {
-                            info!("房间 {} 已停播，停止录制", config.room_id);
+                            live_info!("房间 {} 已停播，停止录制", config.room_id);
                             if let Err(e) = Self::stop_recording(db, monitor_id, recorders).await {
-                                error!("停止录制失败: {}", e);
+                                live_error!("停止录制失败: {}", e);
                             }
                         }
                     }
                     Err(e) => {
-                        warn!("检查房间 {} 状态失败: {}，稍后重试", config.room_id, e);
+                        live_warn!("检查房间 {} 状态失败: {}，稍后重试", config.room_id, e);
                     }
                 }
             } else {
-                debug!("监控ID {} 不在当前配置中或已禁用", monitor_id);
+                live_debug!("监控ID {} 不在当前配置中或已禁用", monitor_id);
             }
         }
     }
@@ -769,11 +769,11 @@ impl LiveMonitor {
             .map(|config| config.room_id)
             .collect();
 
-        debug!("需要监控的房间: {:?}", enabled_rooms);
+        live_debug!("需要监控的房间: {:?}", enabled_rooms);
 
         // 获取当前已连接的房间数量
         let current_connections = manager.connection_count().await;
-        debug!("当前WebSocket连接数: {}", current_connections);
+        live_debug!("当前WebSocket连接数: {}", current_connections);
 
         // 如果房间数量相同，可能不需要更新（但这里仍然尝试添加，因为add_room有防重复逻辑）
         let mut added_count = 0;
@@ -786,7 +786,7 @@ impl LiveMonitor {
                     added_count += 1;
                 }
                 Err(e) => {
-                    error!("添加房间 {} 的WebSocket连接失败: {}", room_id, e);
+                    live_error!("添加房间 {} 的WebSocket连接失败: {}", room_id, e);
                     failed_count += 1;
                 }
             }
@@ -795,12 +795,12 @@ impl LiveMonitor {
         let final_connections = manager.connection_count().await;
         
         if added_count > 0 || failed_count > 0 {
-            info!(
+            live_info!(
                 "WebSocket连接更新完成 - 目标房间: {}, 最终连接数: {}, 新增: {}, 失败: {}", 
                 enabled_rooms.len(), final_connections, added_count, failed_count
             );
         } else {
-            debug!("WebSocket连接无需更新，当前监控 {} 个房间", final_connections);
+            live_debug!("WebSocket连接无需更新，当前监控 {} 个房间", final_connections);
         }
     }
 
@@ -816,7 +816,7 @@ impl LiveMonitor {
     ) -> Result<()> {
         match event {
             WebSocketEvent::LiveStatusChanged { room_id, status, title } => {
-                info!(
+                live_info!(
                     "房间 {} 状态变化: {:?}, 标题: {:?}",
                     room_id, status, title
                 );
@@ -831,68 +831,68 @@ impl LiveMonitor {
                     match status {
                         LiveStatus::Live => {
                             // 开播，启动录制
-                            debug!("房间 {} 开播，获取直播信息并启动录制", room_id);
+                            live_debug!("房间 {} 开播，获取直播信息并启动录制", room_id);
                             if let Ok((_, room_info)) = live_client.get_live_status_by_room_id(room_id).await {
                                 if let Some(room_info) = room_info {
                                     if let Err(e) = Self::start_recording(db, live_client, &bili_client, config, &room_info, recorders, url_pools).await {
-                                        error!("启动录制失败: {}", e);
+                                        live_error!("启动录制失败: {}", e);
                                     }
                                 } else {
-                                    warn!("无法获取房间 {} 的详细信息", room_id);
+                                    live_warn!("无法获取房间 {} 的详细信息", room_id);
                                 }
                             } else {
-                                warn!("获取房间 {} 状态失败", room_id);
+                                live_warn!("获取房间 {} 状态失败", room_id);
                             }
                         }
                         LiveStatus::NotLive => {
                             // 关播，停止录制
-                            debug!("房间 {} 关播，停止录制", room_id);
+                            live_debug!("房间 {} 关播，停止录制", room_id);
                             if let Err(e) = Self::stop_recording(db, config.id, recorders).await {
-                                error!("停止录制失败: {}", e);
+                                live_error!("停止录制失败: {}", e);
                             }
                         }
                     }
 
                     // 更新数据库中的状态
                     if let Err(e) = Self::update_monitor_status(db, config.id, status).await {
-                        error!("更新监控状态失败: {}", e);
+                        live_error!("更新监控状态失败: {}", e);
                     }
                 } else {
-                    debug!("房间 {} 不在当前监控列表中或已禁用", room_id);
+                    live_debug!("房间 {} 不在当前监控列表中或已禁用", room_id);
                 }
             }
             WebSocketEvent::ConnectionStatusChanged { room_id, connected, error } => {
                 if connected {
-                    info!("房间 {} WebSocket 连接已建立", room_id);
+                    live_info!("房间 {} WebSocket 连接已建立", room_id);
                 } else {
-                    warn!("房间 {} WebSocket 连接断开: {:?}", room_id, error);
+                    live_warn!("房间 {} WebSocket 连接断开: {:?}", room_id, error);
                     
                     // WebSocket断开时立即检查实际直播状态
                     let configs_guard = configs.read().await;
                     if let Some(config) = configs_guard.iter().find(|c| c.room_id == room_id && c.enabled) {
-                        debug!("WebSocket断开，检查房间 {} 的实际直播状态", room_id);
+                        live_debug!("WebSocket断开，检查房间 {} 的实际直播状态", room_id);
                         match live_client.get_live_status_by_room_id(room_id).await {
                             Ok((actual_status, _)) => {
                                 // 检查状态是否与数据库中的不一致
                                 if config.last_status != actual_status {
-                                    info!("检测到状态不一致，房间 {}: 数据库={:?}, 实际={:?}, 更新数据库", 
+                                    live_info!("检测到状态不一致，房间 {}: 数据库={:?}, 实际={:?}, 更新数据库", 
                                         room_id, config.last_status, actual_status);
                                     
                                     if let Err(e) = Self::update_monitor_status(db, config.id, actual_status).await {
-                                        error!("更新监控状态失败: {}", e);
+                                        live_error!("更新监控状态失败: {}", e);
                                     }
                                     
                                     // 如果实际已经停播但数据库显示直播中，停止录制
                                     if config.last_status == LiveStatus::Live && actual_status == LiveStatus::NotLive {
-                                        debug!("房间 {} 实际已停播，停止录制", room_id);
+                                        live_debug!("房间 {} 实际已停播，停止录制", room_id);
                                         if let Err(e) = Self::stop_recording(db, config.id, recorders).await {
-                                            error!("停止录制失败: {}", e);
+                                            live_error!("停止录制失败: {}", e);
                                         }
                                     }
                                 }
                             }
                             Err(e) => {
-                                warn!("检查房间 {} 状态失败: {}", room_id, e);
+                                live_warn!("检查房间 {} 状态失败: {}", room_id, e);
                             }
                         }
                     }
@@ -900,7 +900,7 @@ impl LiveMonitor {
                 }
             }
             WebSocketEvent::PopularityChanged { room_id, popularity } => {
-                debug!("房间 {} 人气值更新: {}", room_id, popularity);
+                live_debug!("房间 {} 人气值更新: {}", room_id, popularity);
                 // 暂时不处理人气值变化
             }
         }
@@ -915,7 +915,7 @@ impl LiveMonitor {
         configs: &Arc<RwLock<Vec<MonitorConfig>>>,
         recorders: &Arc<Mutex<HashMap<i32, RecorderInfo>>>,
     ) {
-        debug!("开始验证所有监控房间的直播状态");
+        live_debug!("开始验证所有监控房间的直播状态");
         
         let configs_guard = configs.read().await;
         let mut status_updates = Vec::new();
@@ -929,14 +929,14 @@ impl LiveMonitor {
                 Ok((actual_status, _)) => {
                     // 检查状态是否与数据库中的不一致
                     if config.last_status != actual_status {
-                        info!("检测到状态不一致，房间 {} ({}): 数据库={:?}, 实际={:?}", 
+                        live_info!("检测到状态不一致，房间 {} ({}): 数据库={:?}, 实际={:?}", 
                             config.room_id, config.upper_name, config.last_status, actual_status);
                         
                         status_updates.push((config.id, config.room_id, config.last_status, actual_status));
                     }
                 }
                 Err(e) => {
-                    debug!("验证房间 {} ({}) 状态失败: {}", config.room_id, config.upper_name, e);
+                    live_debug!("验证房间 {} ({}) 状态失败: {}", config.room_id, config.upper_name, e);
                 }
             }
             
@@ -953,7 +953,7 @@ impl LiveMonitor {
         for (monitor_id, room_id, old_status, new_status) in status_updates {
             // 更新数据库状态
             if let Err(e) = Self::update_monitor_status(db, monitor_id, new_status).await {
-                error!("更新监控器 {} 状态失败: {}", monitor_id, e);
+                live_error!("更新监控器 {} 状态失败: {}", monitor_id, e);
                 continue;
             }
             
@@ -961,9 +961,9 @@ impl LiveMonitor {
             
             // 如果从直播中变为停播，停止录制
             if old_status == LiveStatus::Live && new_status == LiveStatus::NotLive {
-                info!("房间 {} 已停播，停止录制", room_id);
+                live_info!("房间 {} 已停播，停止录制", room_id);
                 if let Err(e) = Self::stop_recording(db, monitor_id, recorders).await {
-                    error!("停止录制失败，监控ID {}: {}", monitor_id, e);
+                    live_error!("停止录制失败，监控ID {}: {}", monitor_id, e);
                 } else {
                     stopped_recordings += 1;
                 }
@@ -971,9 +971,9 @@ impl LiveMonitor {
         }
         
         if updated_count > 0 {
-            info!("状态验证完成，更新了 {} 个房间状态，停止了 {} 个录制", updated_count, stopped_recordings);
+            live_info!("状态验证完成，更新了 {} 个房间状态，停止了 {} 个录制", updated_count, stopped_recordings);
         } else {
-            debug!("状态验证完成，所有房间状态一致");
+            live_debug!("状态验证完成，所有房间状态一致");
         }
     }
 
