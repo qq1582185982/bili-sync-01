@@ -103,7 +103,12 @@
 
 {#if open}
 <div class="fixed inset-0 z-50 bg-black/80" on:click={onClose} role="presentation">
-	<div class="fixed left-[50%] top-[50%] z-50 grid w-full max-w-4xl max-h-[80vh] translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg overflow-hidden flex flex-col" on:click|stopPropagation>
+	<div class="fixed left-[50%] top-[50%] z-50 grid w-full max-w-4xl max-h-[80vh] translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg overflow-hidden flex flex-col" 
+		 role="dialog" 
+		 aria-modal="true"
+		 tabindex="-1"
+		 on:click|stopPropagation
+		 on:keydown={(e) => e.key === 'Escape' && onClose()}>
 		<div class="flex flex-col space-y-1.5 text-center sm:text-left">
 			<h2 class="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
 				<FileText class="h-5 w-5" />
