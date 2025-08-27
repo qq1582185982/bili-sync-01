@@ -124,6 +124,7 @@ impl SegmentManager {
     }
 
     /// 标记分片下载失败
+    #[allow(dead_code)]
     pub async fn mark_segment_failed(&mut self, segment_info: &SegmentInfo) -> Result<()> {
         let filename = format!("segment_{:06}.ts", segment_info.sequence);
         let file_path = self.work_dir.join(&filename);
@@ -317,6 +318,7 @@ impl SegmentManager {
     }
 
     /// 紧急清理（磁盘空间不足时使用）
+    #[allow(dead_code)]
     pub async fn emergency_cleanup(&mut self) -> Result<usize> {
         warn!("执行紧急清理：磁盘空间不足！");
         
@@ -347,6 +349,7 @@ impl SegmentManager {
     }
 
     /// 检查磁盘空间是否足够
+    #[allow(dead_code)]
     pub async fn check_disk_space(&mut self, min_free_mb: u64) -> Result<bool> {
         let available = self.get_available_disk_space().await?;
         
@@ -375,6 +378,7 @@ impl SegmentManager {
     }
 
     /// 获取成功下载的分片数量
+    #[allow(dead_code)]
     pub fn downloaded_count(&self) -> usize {
         self.segments.iter().filter(|s| s.downloaded).count()
     }
@@ -704,6 +708,7 @@ impl SegmentManager {
     }
     
     /// 执行FFmpeg合并命令
+    #[allow(dead_code)]
     async fn run_ffmpeg_merge(&self, concat_list: &Path, output_path: &Path) -> Result<bool> {
         use tokio::process::Command;
         
@@ -768,6 +773,7 @@ impl SegmentManager {
     }
     
     /// 检测分片文件格式
+    #[allow(dead_code)]
     async fn detect_segment_format(&self) -> bool {
         // 检查第一个下载成功的分片文件
         for segment in &self.segments {
@@ -903,6 +909,7 @@ impl SegmentManager {
     }
 
     /// 获取自动合并配置
+    #[allow(dead_code)]
     pub fn get_auto_merge_config(&self) -> Option<&AutoMergeConfig> {
         self.auto_merge_config.as_ref()
     }
@@ -1131,6 +1138,7 @@ impl SegmentManager {
     }
 
     /// 获取统计信息
+    #[allow(dead_code)]
     pub fn get_stats(&self) -> &SegmentStats {
         &self.stats
     }

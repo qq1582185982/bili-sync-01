@@ -118,16 +118,6 @@ impl SegmentRecorder {
         !self.download_handle.as_ref().unwrap().is_finished()
     }
     
-    /// 获取录制状态
-    pub fn get_status(&self) -> RecordStatus {
-        if self.is_running() {
-            RecordStatus::Recording
-        } else if self.download_handle.is_some() {
-            RecordStatus::Stopped
-        } else {
-            RecordStatus::Idle
-        }
-    }
     
     /// 开始分片下载
     pub async fn start(&mut self) -> Result<()> {
@@ -345,6 +335,7 @@ impl LiveRecorder {
     }
     
     /// 根据配置创建录制器
+    #[allow(dead_code)]
     pub async fn new_with_mode<P: AsRef<Path>>(
         output_path: P,
         max_file_size: i64,
@@ -391,6 +382,7 @@ impl LiveRecorder {
     /// # Arguments
     /// * `stream_url` - 直播流地址
     /// * `cdn_node` - CDN节点标识
+    #[allow(dead_code)]
     pub async fn start_with_cdn(&mut self, stream_url: &str, cdn_node: &str) -> Result<()> {
         if self.status == RecordStatus::Recording {
             return Err(anyhow!("录制器已在录制中"));
@@ -564,12 +556,9 @@ impl LiveRecorder {
 
 
 
-    /// 获取录制状态
-    pub fn status(&self) -> RecordStatus {
-        self.status
-    }
     
     /// 获取统计信息
+    #[allow(dead_code)]
     pub fn stats(&self) -> &RecordStats {
         &self.stats
     }

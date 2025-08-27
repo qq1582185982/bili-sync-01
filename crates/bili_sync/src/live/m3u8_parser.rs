@@ -12,20 +12,19 @@ pub struct SegmentInfo {
     pub duration: f64,
     /// 时间戳（毫秒，从BILI-AUX解析或使用当前时间）
     pub timestamp: i64,
-    /// 是否是初始化段
-    pub is_initialization: bool,
-    /// 对应的初始化段URL（用于DASH格式）
-    pub initialization_url: Option<String>,
 }
 
 /// M3U8播放列表解析器
 #[derive(Debug)]
 pub struct M3u8Parser {
     /// 上次处理的序列号
+    #[allow(dead_code)]
     last_sequence: u64,
     /// 分片缓存（避免重复下载）
+    #[allow(dead_code)]
     segments_cache: VecDeque<u64>,
     /// 缓存大小限制
+    #[allow(dead_code)]
     cache_size_limit: usize,
 }
 
@@ -40,6 +39,7 @@ impl M3u8Parser {
     }
 
     /// 解析M3U8播放列表，返回新的分片列表
+    #[allow(dead_code)]
     pub fn parse_playlist(&mut self, content: &str, base_url: &str) -> Vec<SegmentInfo> {
         let mut segments = Vec::new();
         let mut current_duration = 0.0;
@@ -88,8 +88,6 @@ impl M3u8Parser {
                         sequence: current_sequence,
                         duration: current_duration,
                         timestamp: chrono::Utc::now().timestamp_millis(),
-                        is_initialization: false,
-                        initialization_url: None,
                     };
 
                     segments.push(segment);
@@ -112,11 +110,13 @@ impl M3u8Parser {
     }
 
     /// 检查序列号是否已处理过
+    #[allow(dead_code)]
     fn is_sequence_processed(&self, sequence: u64) -> bool {
         self.segments_cache.contains(&sequence)
     }
 
     /// 标记序列号已处理
+    #[allow(dead_code)]
     fn mark_sequence_processed(&mut self, sequence: u64) {
         // 添加到缓存
         self.segments_cache.push_back(sequence);
@@ -147,22 +147,6 @@ impl M3u8Parser {
         None
     }
 
-    /// 重置解析器状态
-    pub fn reset(&mut self) {
-        self.last_sequence = 0;
-        self.segments_cache.clear();
-        debug!("M3U8解析器状态已重置");
-    }
-
-    /// 获取当前处理的序列号
-    pub fn current_sequence(&self) -> u64 {
-        self.last_sequence
-    }
-
-    /// 获取缓存的分片数量
-    pub fn cached_segments_count(&self) -> usize {
-        self.segments_cache.len()
-    }
 }
 
 impl Default for M3u8Parser {

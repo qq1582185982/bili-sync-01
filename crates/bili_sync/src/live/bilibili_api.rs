@@ -51,6 +51,7 @@ pub struct StreamInfo {
     /// 播放URL
     pub url: String,
     /// CDN节点信息
+    #[allow(dead_code)]
     pub host: String,
     /// 质量信息
     pub quality: StreamQuality,
@@ -289,6 +290,7 @@ impl BilibiliLiveApi {
     }
 
     /// 根据质量等级获取最佳播放URL
+    #[allow(dead_code)]
     pub async fn get_best_stream_url(&self, room_id: i64, preferred_qn: u32) -> Result<String> {
         let streams = self.get_play_url(room_id, Some(preferred_qn)).await?;
         

@@ -4,7 +4,6 @@
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use std::time::Duration;
 
 /// 直播录制配置
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -200,11 +199,6 @@ impl RecordingQualityConfig {
 }
 
 impl AutoMergeConfig {
-    /// 获取时长阈值的Duration
-    pub fn duration_threshold_as_duration(&self) -> Duration {
-        Duration::from_secs(self.duration_threshold)
-    }
-    
     /// 检查是否应该触发自动合并
     pub fn should_auto_merge(&self, current_duration_secs: f64) -> bool {
         self.enabled && current_duration_secs >= self.duration_threshold as f64

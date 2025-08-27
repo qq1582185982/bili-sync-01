@@ -17,7 +17,6 @@ use super::m3u8_parser::{M3u8Parser, SegmentInfo};
 pub enum DownloadStatus {
     Idle,
     Downloading,
-    Error,
 }
 
 /// 分片下载器
@@ -225,8 +224,6 @@ impl SegmentDownloader {
                                     sequence,
                                     duration,
                                     timestamp: chrono::Utc::now().timestamp_millis(),
-                                    is_initialization: false,
-                                    initialization_url: None,
                                 };
                                 return Ok(Some((segment_info, bytes.len(), segment_counter, segment_path_clone)));
                             }
@@ -293,30 +290,6 @@ impl SegmentDownloader {
         Ok(())
     }
 
-    /// 停止分片下载
-    pub async fn stop(&mut self) -> Result<()> {
-        if self.status != DownloadStatus::Downloading {
-            return Ok(());
-        }
-
-        info!("停止分片录制");
-        self.status = DownloadStatus::Idle;
-        
-        // 输出统计信息
-        let stats = &self.download_stats;
-        let duration = stats.start_time.map(|t| t.elapsed()).unwrap_or_default();
-        
-        info!(
-            "分片录制统计 - 总分片: {}, 成功: {}, 失败: {}, 总大小: {} bytes, 耗时: {:?}",
-            stats.total_segments,
-            stats.successful_downloads,
-            stats.failed_downloads,
-            stats.total_bytes,
-            duration
-        );
-
-        Ok(())
-    }
 
     /// 获取初始化段URL（从M3U8播放列表中解析）
     async fn get_initialization_segment_url(&self) -> Result<Option<String>> {
@@ -392,8 +365,6 @@ impl SegmentDownloader {
                             sequence: 0, // 初始化段序列号为0
                             duration: 0.0,
                             timestamp: chrono::Utc::now().timestamp_millis(),
-                            is_initialization: true,
-                            initialization_url: None,
                         };
                         
                         return Ok(Some(file_path.to_string_lossy().to_string()));
@@ -488,39 +459,6 @@ impl SegmentDownloader {
         Err(anyhow!("无法从HLS master playlist中提取变体流URL"))
     }
 
-    /// 执行一轮分片下载
-    pub async fn download_round(&mut self) -> Result<Vec<(SegmentInfo, u64)>> {
-        let m3u8_url = self.current_m3u8_url.as_ref()
-            .ok_or_else(|| anyhow!("M3U8 URL未初始化"))?;
-
-        // 获取M3U8播放列表
-        let playlist_content = self.fetch_playlist(m3u8_url).await?;
-        
-        // 解析新分片
-        let new_segments = self.parser.parse_playlist(&playlist_content, &self.base_url);
-        
-        debug!("发现 {} 个新分片", new_segments.len());
-        
-        // 下载新分片，返回成功下载的分片信息和文件大小
-        let mut downloaded_segments = Vec::new();
-        
-        for segment in new_segments {
-            match self.download_segment(&segment).await {
-                Ok(file_size) => {
-                    downloaded_segments.push((segment, file_size));
-                    self.download_stats.successful_downloads += 1;
-                }
-                Err(e) => {
-                    error!("下载分片失败: {}, 错误: {}", segment.url, e);
-                    self.download_stats.failed_downloads += 1;
-                }
-            }
-            self.download_stats.total_segments += 1;
-        }
-        
-        debug!("成功下载 {} 个分片", downloaded_segments.len());
-        Ok(downloaded_segments)
-    }
 
     /// 获取M3U8播放列表内容
     async fn fetch_playlist(&self, url: &str) -> Result<String> {
@@ -544,6 +482,7 @@ impl SegmentDownloader {
     }
 
     /// 下载单个分片
+    #[allow(dead_code)]
     async fn download_segment(&mut self, segment: &SegmentInfo) -> Result<u64> {
         let filename = format!("segment_{:06}.ts", segment.sequence);
         let file_path = self.work_dir.join(&filename);
@@ -584,19 +523,9 @@ impl SegmentDownloader {
         Ok(size)
     }
 
-    /// 检查下载器状态
-    pub fn status(&self) -> DownloadStatus {
-        self.status
-    }
-
     /// 获取下载统计
     pub fn stats(&self) -> &DownloadStats {
         &self.download_stats
-    }
-
-    /// 获取工作目录
-    pub fn work_dir(&self) -> &PathBuf {
-        &self.work_dir
     }
 }
 
@@ -610,14 +539,4 @@ impl DownloadStats {
         }
     }
 
-    /// 计算平均下载速度（bytes/sec）
-    pub fn average_speed(&self) -> f64 {
-        if let Some(start_time) = self.start_time {
-            let elapsed = start_time.elapsed().as_secs_f64();
-            if elapsed > 0.0 {
-                return self.total_bytes as f64 / elapsed;
-            }
-        }
-        0.0
-    }
 }
