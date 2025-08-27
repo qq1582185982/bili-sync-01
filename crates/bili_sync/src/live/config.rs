@@ -255,8 +255,6 @@ impl MergeQuality {
 /// 配置键名常量
 pub mod config_keys {
     pub const LIVE_RECORDING_CONFIG: &str = "live_recording_config";
-    pub const AUTO_MERGE_ENABLED: &str = "auto_merge_enabled";
-    pub const AUTO_MERGE_DURATION: &str = "auto_merge_duration_seconds";
 }
 
 #[cfg(test)]

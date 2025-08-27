@@ -60,6 +60,7 @@ pub struct StreamInfo {
 #[derive(Debug, Deserialize)]
 struct PlayUrlResponse {
     code: i32,
+    #[allow(dead_code)]
     message: String,
     data: Option<PlayUrlData>,
 }
@@ -67,6 +68,7 @@ struct PlayUrlResponse {
 #[derive(Debug, Deserialize)]
 struct PlayUrlData {
     current_qn: u32,
+    #[allow(dead_code)]
     accept_quality: Vec<u32>,
     durl: Option<Vec<DurlInfo>>,
     quality_description: Vec<QualityDescription>,
@@ -75,9 +77,13 @@ struct PlayUrlData {
 #[derive(Debug, Deserialize)]
 struct DurlInfo {
     url: String,
+    #[allow(dead_code)]
     length: u32,
+    #[allow(dead_code)]
     order: u32,
+    #[allow(dead_code)]
     stream_type: u32,
+    #[allow(dead_code)]
     p2p_type: u32,
 }
 
@@ -122,6 +128,7 @@ impl BilibiliLiveApi {
     }
 
     /// 设置cookies（用于提升API访问权限）
+    #[cfg(test)]
     pub fn with_cookies(mut self, cookies: String) -> Self {
         self.cookies = Some(cookies);
         self

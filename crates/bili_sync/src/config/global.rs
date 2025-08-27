@@ -279,7 +279,7 @@ pub async fn init_config_with_database(db: sea_orm::DatabaseConnection) -> Resul
     manager.ensure_tables_exist().await?;
 
     // 尝试从数据库加载配置，如果失败则从TOML迁移
-    let new_bundle = manager.load_config_bundle().await?;
+    let _new_bundle = manager.load_config_bundle().await?;
 
     // 设置全局配置管理器
     set_config_manager(manager.clone());

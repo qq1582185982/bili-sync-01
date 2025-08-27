@@ -46,8 +46,6 @@ pub enum RecordStatus {
     Recording,
     /// 已停止
     Stopped,
-    /// 出错
-    Error,
 }
 
 /// 录制统计信息

@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// 分片信息
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ impl M3u8Parser {
         let mut segments = Vec::new();
         let mut current_duration = 0.0;
         let mut current_sequence = self.last_sequence + 1;
-        let mut media_sequence = None;
+        let mut _media_sequence = None;
         
         debug!("解析M3U8播放列表，内容长度: {} bytes", content.len());
 
@@ -56,7 +56,7 @@ impl M3u8Parser {
                 // 解析媒体序列号
                 if let Some(seq_str) = line.strip_prefix("#EXT-X-MEDIA-SEQUENCE:") {
                     if let Ok(seq) = seq_str.parse::<u64>() {
-                        media_sequence = Some(seq);
+                        _media_sequence = Some(seq);
                         current_sequence = seq;
                         debug!("播放列表媒体序列号: {}", seq);
                     }

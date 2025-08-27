@@ -25,6 +25,7 @@ pub struct SegmentDownloader {
     /// B站API客户端（使用其内部的reqwest客户端）
     client: Arc<BiliClient>,
     /// M3U8解析器
+    #[allow(dead_code)]
     parser: M3u8Parser,
     /// 当前状态
     status: DownloadStatus,

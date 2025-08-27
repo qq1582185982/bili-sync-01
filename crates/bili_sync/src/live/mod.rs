@@ -19,7 +19,7 @@ pub mod bilibili_api;
 
 // 只导出实际使用的类型
 pub use monitor::LiveMonitor;
-pub use config::{LiveRecordingConfig, AutoMergeConfig, MergeQuality};
+// pub use config::{LiveRecordingConfig, AutoMergeConfig, MergeQuality};
 
 /// 直播录制相关的错误类型
 #[derive(Debug, thiserror::Error)]

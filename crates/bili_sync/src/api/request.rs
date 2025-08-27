@@ -385,13 +385,6 @@ fn default_check_interval() -> u64 {
     60 // 默认60秒检查一次
 }
 
-fn default_quality() -> String {
-    "high".to_string() // 默认高清
-}
-
-fn default_format() -> String {
-    "flv".to_string() // 默认FLV格式
-}
 
 fn default_enabled() -> bool {
     true // 默认启用

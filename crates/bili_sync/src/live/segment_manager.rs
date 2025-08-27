@@ -5,7 +5,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, info, warn};
 
 use super::m3u8_parser::SegmentInfo;
-use super::config::{AutoMergeConfig, MergeQuality};
+use super::config::AutoMergeConfig;
 
 /// 分片记录
 #[derive(Debug, Clone)]
@@ -333,7 +333,6 @@ impl SegmentManager {
 
     /// 获取工作目录的可用磁盘空间（MB）
     pub async fn get_available_disk_space(&self) -> Result<u64> {
-        use std::path::Path;
         
         // 使用statvfs系统调用或Windows API获取可用空间
         // 这里提供一个简化实现，实际项目中可使用fs2或sysinfo crate
