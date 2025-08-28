@@ -485,13 +485,10 @@ impl LiveMonitor {
                 LiveRecorder::new_ffmpeg(output_path.clone(), config.max_file_size)
             }
             RecordingMode::Segment => {
-                live_info!("使用分片模式录制（HLS API），工作目录: {:?}", output_path.parent().unwrap_or(&output_path));
-                
-                // 分片模式使用父目录作为工作目录
-                let work_dir = output_path.parent().unwrap_or(&output_path);
+                live_info!("使用分片模式录制（HLS API），输出路径: {:?}", output_path);
                 
                 match LiveRecorder::new_segment(
-                    work_dir, 
+                    output_path.clone(), 
                     config.room_id, 
                     config.quality, 
                     bili_client.clone(),

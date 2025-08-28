@@ -109,7 +109,18 @@ async fn main() -> Result<()> {
 
     spawn_task("HTTP 服务", http_server(connection.clone()), &tracker, token.clone());
     spawn_task("定时下载", video_downloader(connection.clone()), &tracker, token.clone());
-    spawn_task("直播监控", live_monitor_service(connection), &tracker, token.clone());
+    
+    // 直播监控需要特殊处理，等待清理完成
+    let live_token = token.clone();
+    tracker.spawn(async move {
+        let result = live_monitor_service(connection, live_token.clone()).await;
+        if let Err(e) = result {
+            error!("「直播监控」异常结束: {:?}，取消其它仍在执行的任务..", e);
+            live_token.cancel();
+        } else {
+            info!("「直播监控」正常结束");
+        }
+    });
 
     tracker.close();
     handle_shutdown(tracker, token).await;

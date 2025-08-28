@@ -83,6 +83,8 @@ pub struct SegmentRecorder {
     room_id: i64,
     /// 工作目录
     work_dir: PathBuf,
+    /// 原始输出路径（包含完整文件名）
+    output_path: PathBuf,
     /// B站客户端
     bili_client: Arc<BiliClient>,
     /// 下载循环任务句柄
@@ -94,13 +96,18 @@ pub struct SegmentRecorder {
 impl SegmentRecorder {
     /// 创建分片录制器
     pub async fn new<P: AsRef<Path>>(
-        work_dir: P,
+        output_path: P,
         room_id: i64,
         quality: Quality,
         bili_client: Arc<BiliClient>,
         auto_merge_config: Option<super::config::AutoMergeConfig>,
     ) -> Result<Self> {
-        let work_dir = work_dir.as_ref().to_path_buf();
+        let output_path = output_path.as_ref().to_path_buf();
+        
+        // 从输出路径中提取工作目录（父目录）
+        let work_dir = output_path.parent()
+            .ok_or_else(|| anyhow::anyhow!("无法从输出路径获取工作目录"))?
+            .to_path_buf();
         
         // 确保工作目录存在
         tokio::fs::create_dir_all(&work_dir).await
@@ -110,6 +117,7 @@ impl SegmentRecorder {
             quality,
             room_id,
             work_dir,
+            output_path,
             bili_client,
             download_handle: None,
             auto_merge_config,
@@ -279,14 +287,12 @@ impl SegmentRecorder {
     
     /// 获取输出文件路径（录制停止后返回合并的MP4文件路径）
     pub async fn output_path(&self) -> Result<Option<PathBuf>> {
-        // 优先返回合并后的MP4文件
-        let work_dir_name = self.work_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("recording");
-        
-        let parent_dir = self.work_dir.parent().unwrap_or(&self.work_dir);
-        let mp4_path = parent_dir.join(format!("{}.mp4", work_dir_name));
+        // 生成预期的MP4文件路径（基于原始输出路径）
+        let mp4_path = if self.output_path.extension().and_then(|s| s.to_str()) == Some("m4s") {
+            self.output_path.with_extension("mp4")
+        } else {
+            self.output_path.clone()
+        };
         
         // 如果MP4文件已存在（已合并），返回MP4路径
         if mp4_path.exists() {
@@ -298,9 +304,9 @@ impl SegmentRecorder {
             if playlist_path.exists() {
                 Ok(Some(playlist_path))
             } else {
-                // 最后返回工作目录
-                live_warn!("未找到输出文件，返回工作目录路径");
-                Ok(Some(self.work_dir.clone()))
+                // 最后返回原始输出路径
+                live_warn!("未找到输出文件，返回原始输出路径");
+                Ok(Some(self.output_path.clone()))
             }
         }
     }
@@ -320,14 +326,14 @@ impl LiveRecorder {
     
     /// 创建分片模式录制器
     pub async fn new_segment<P: AsRef<Path>>(
-        work_dir: P,
+        output_path: P,
         room_id: i64,
         quality: Quality,
         bili_client: Arc<BiliClient>,
         auto_merge_config: Option<super::config::AutoMergeConfig>,
     ) -> Result<Self> {
         let segment_recorder = SegmentRecorder::new(
-            work_dir,
+            output_path,
             room_id,
             quality,
             bili_client,
@@ -469,15 +475,16 @@ impl LiveRecorder {
                           total_size / 1024 / 1024,
                           total_duration);
                     
-                    // 生成最终的MP4文件路径
+                    // 生成最终的MP4文件路径（使用保存的原始输出路径）
                     let mp4_path = {
-                        let work_dir_name = recorder.work_dir
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("recording");
-                        
-                        let parent_dir = recorder.work_dir.parent().unwrap_or(&recorder.work_dir);
-                        parent_dir.join(format!("{}.mp4", work_dir_name))
+                        let output_path = &recorder.output_path;
+                        if output_path.extension().and_then(|s| s.to_str()) == Some("m4s") {
+                            // 将 .m4s 扩展名改为 .mp4
+                            output_path.with_extension("mp4")
+                        } else {
+                            // 如果不是 .m4s，直接使用原路径
+                            output_path.clone()
+                        }
                     };
                     
                     // 合并分片为MP4
