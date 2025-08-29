@@ -6560,14 +6560,15 @@ pub async fn download_log_file(
     
     // 构建日志文件路径
     let log_dir = crate::config::CONFIG_DIR.join("logs");
-    let startup_time = &*crate::utils::file_logger::STARTUP_TIME;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     
     let file_name = match level {
-        "debug" => format!("logs-debug-{}.csv", startup_time),
-        "info" => format!("logs-info-{}.csv", startup_time),
-        "warn" => format!("logs-warn-{}.csv", startup_time),
-        "error" => format!("logs-error-{}.csv", startup_time),
-        _ => format!("logs-all-{}.csv", startup_time),
+        "debug" => format!("logs-debug-{}.csv", today),
+        "info" => format!("logs-info-{}.csv", today),
+        "warn" => format!("logs-warn-{}.csv", today),
+        "error" => format!("logs-error-{}.csv", today),
+        "live" => format!("logs-live-{}.csv", today),  // 新增：直播日志
+        _ => format!("logs-all-{}.csv", today),
     };
     
     let file_path = log_dir.join(&file_name);
