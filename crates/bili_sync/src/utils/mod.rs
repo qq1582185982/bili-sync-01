@@ -20,6 +20,42 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
 
+// 自定义控制台输出层，过滤直播日志
+struct ConsoleLayer;
+
+impl ConsoleLayer {
+    fn new() -> Self {
+        Self
+    }
+}
+
+impl<S> Layer<S> for ConsoleLayer
+where
+    S: Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
+    fn on_event(&self, event: &Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        // 如果是直播日志，直接跳过，不输出到控制台
+        if event.metadata().target().starts_with("bili_sync::live") {
+            return;
+        }
+        
+        // 获取日志级别
+        let level = event.metadata().level();
+        
+        // 提取日志消息
+        let mut visitor = MessageVisitor::new();
+        event.record(&mut visitor);
+        
+        if let Some(message) = visitor.message {
+            // 获取当前时间
+            let timestamp = chrono::Local::now().format("%b %d %H:%M:%S");
+            
+            // 格式化并输出到控制台
+            println!("{} {:>5} {}", timestamp, level, message);
+        }
+    }
+}
+
 // 自定义日志层，用于将日志添加到API缓冲区
 struct LogCaptureLayer;
 
@@ -106,20 +142,14 @@ pub fn init_logger(log_level: &str) {
     let console_filter = build_console_filter(log_level);  // 控制台过滤器，排除直播日志
     let api_filter = build_api_filter("debug");            // API过滤器，包含所有日志
 
-    // 控制台输出层 - 使用控制台过滤器
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .compact()
-        .with_target(false)
-        .with_timer(tracing_subscriber::fmt::time::ChronoLocal::new(
-            "%b %d %H:%M:%S".to_owned(),
-        ))
-        .with_filter(console_filter);
+    // 自定义控制台输出层 - 直接在层内过滤直播日志
+    let console_layer = ConsoleLayer::new().with_filter(console_filter);
 
     // API日志捕获层 - 使用API过滤器
     let log_capture_layer = LogCaptureLayer.with_filter(api_filter);
 
     tracing_subscriber::registry()
-        .with(fmt_layer)
+        .with(console_layer)
         .with(log_capture_layer)
         .try_init()
         .expect("初始化日志失败");
@@ -128,8 +158,8 @@ pub fn init_logger(log_level: &str) {
 /// 构建控制台日志过滤器，排除直播日志以减少输出
 fn build_console_filter(base_level: &str) -> tracing_subscriber::EnvFilter {
     tracing_subscriber::EnvFilter::builder().parse_lossy(format!(
-        "{},\
-            bili_sync::live=off,\
+        "bili_sync::live=off,\
+            {},\
             sqlx::query=error,\
             sqlx=error,\
             sea_orm::database=error,\
