@@ -153,7 +153,7 @@ pub enum _ActiveModel {
     Collection(bili_sync_entity::collection::ActiveModel),
     Submission(bili_sync_entity::submission::ActiveModel),
     WatchLater(bili_sync_entity::watch_later::ActiveModel),
-    Bangumi(bili_sync_entity::video_source::ActiveModel),
+    Bangumi(Box<bili_sync_entity::video_source::ActiveModel>),
 }
 
 impl _ActiveModel {
@@ -173,7 +173,7 @@ impl _ActiveModel {
                 model.save(connection).await?;
             }
             _ActiveModel::Bangumi(model) => {
-                model.save(connection).await?;
+                (*model).save(connection).await?;
             }
         }
         Ok(())

@@ -434,7 +434,7 @@ impl VideoSource for BangumiSource {
         let mut model = <bili_sync_entity::video_source::ActiveModel as sea_orm::ActiveModelTrait>::default();
         model.id = Set(self.id);
         model.latest_row_at = Set(datetime);
-        crate::adapter::_ActiveModel::Bangumi(model)
+        crate::adapter::_ActiveModel::Bangumi(Box::new(model))
     }
 
     fn path(&self) -> &Path {

@@ -9589,8 +9589,8 @@ ORDER BY
         total_sources: total_all_sources,
         active_sources,
         inactive_sources,
-        last_scan_time: task_status.last_run.map(|t| to_standard_string(t)),
-        next_scan_time: task_status.next_run.map(|t| to_standard_string(t)),
+        last_scan_time: task_status.last_run.map(to_standard_string),
+        next_scan_time: task_status.next_run.map(to_standard_string),
         is_scanning,
     };
 

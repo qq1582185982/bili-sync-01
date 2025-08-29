@@ -159,8 +159,7 @@ impl Bangumi {
         // 获取最新更新时间
         let latest_episode_time = season_info["new_ep"]["pub_time"]
             .as_i64()
-            .map(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
-            .flatten();
+            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
 
         // 如果没有上次检查时间，视为有更新
         let has_update = match (last_check_time, latest_episode_time) {

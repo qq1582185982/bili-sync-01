@@ -525,10 +525,7 @@ impl LiveRecorder {
                 recorder.output_path().map(|p| p.to_path_buf())
             }
             RecorderMode::Segment(recorder) => {
-                match recorder.output_path().await {
-                    Ok(path_opt) => path_opt,
-                    Err(_) => None,
-                }
+                recorder.output_path().await.unwrap_or_default()
             }
         }
     }

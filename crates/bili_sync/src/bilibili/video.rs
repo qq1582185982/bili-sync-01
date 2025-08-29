@@ -474,24 +474,19 @@ impl<'a> Video<'a> {
         match self.get_page_analyzer_with_fallback(page).await {
             Ok(analyzer) => {
                 tracing::debug!("✓ 普通视频API成功获取播放地址");
-                return Ok(analyzer);
+                Ok(analyzer)
             }
             Err(e) => {
                 // 检查错误类型，判断是否需要降级到番剧API
-                let should_fallback_to_bangumi = if let Some(bili_err) = e.downcast_ref::<crate::bilibili::BiliError>()
+                let should_fallback_to_bangumi = if let Some(crate::bilibili::BiliError::RequestFailed(-404, msg)) = e.downcast_ref::<crate::bilibili::BiliError>()
                 {
-                    match bili_err {
-                        crate::bilibili::BiliError::RequestFailed(-404, msg) => {
-                            // -404 错误，检查消息是否包含"啥都木有"或其他表示内容不存在的关键词
-                            let msg_lower = msg.to_lowercase();
-                            msg_lower.contains("啥都木有")
-                                || msg_lower.contains("nothing found")
-                                || msg_lower.contains("not found")
-                                || msg_lower.contains("无内容")
-                                || msg_lower.contains("视频不存在")
-                        }
-                        _ => false,
-                    }
+                    // -404 错误，检查消息是否包含"啥都木有"或其他表示内容不存在的关键词
+                    let msg_lower = msg.to_lowercase();
+                    msg_lower.contains("啥都木有")
+                        || msg_lower.contains("nothing found")
+                        || msg_lower.contains("not found")
+                        || msg_lower.contains("无内容")
+                        || msg_lower.contains("视频不存在")
                 } else {
                     false
                 };
@@ -527,22 +522,22 @@ impl<'a> Video<'a> {
                         match self.get_bangumi_page_analyzer_with_fallback(page, &epid).await {
                             Ok(analyzer) => {
                                 tracing::info!("✓ 番剧API降级成功，获取到播放地址");
-                                return Ok(analyzer);
+                                Ok(analyzer)
                             }
                             Err(bangumi_err) => {
                                 tracing::warn!("× 番剧API降级也失败: {}", bangumi_err);
                                 // 返回原始的普通视频API错误，因为这更能反映真实情况
-                                return Err(e);
+                                Err(e)
                             }
                         }
                     } else {
                         tracing::warn!("无法获取epid，无法降级到番剧API");
-                        return Err(e);
+                        Err(e)
                     }
                 } else {
                     // 不是-404错误或不包含特定消息，直接返回原错误
                     tracing::debug!("普通视频API失败，但不符合降级条件: {}", e);
-                    return Err(e);
+                    Err(e)
                 }
             }
         }

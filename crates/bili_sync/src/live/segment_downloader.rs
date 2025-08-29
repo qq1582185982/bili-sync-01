@@ -212,7 +212,7 @@ impl SegmentDownloader {
                             Ok(resp) if resp.status() == 404 => {
                                 // 404错误直接跳过，不重试
                                 live_debug!("分片不存在(404)，跳过: {}", segment_url);
-                                return Ok(None);
+                                Ok(None)
                             }
                             Ok(resp) if resp.status().is_success() => {
                                 let bytes = resp.bytes().await?;
@@ -225,13 +225,13 @@ impl SegmentDownloader {
                                     duration,
                                     timestamp: chrono::Utc::now().timestamp_millis(),
                                 };
-                                return Ok(Some((segment_info, bytes.len(), segment_counter, segment_path_clone)));
+                                Ok(Some((segment_info, bytes.len(), segment_counter, segment_path_clone)))
                             }
                             Ok(resp) => {
-                                return Err(anyhow!("HTTP错误: {}", resp.status()));
+                                Err(anyhow!("HTTP错误: {}", resp.status()))
                             }
                             Err(e) => {
-                                return Err(anyhow!("网络错误: {}", e));
+                                Err(anyhow!("网络错误: {}", e))
                             }
                         }
                     });

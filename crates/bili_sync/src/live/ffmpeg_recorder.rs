@@ -44,7 +44,7 @@ impl FFmpegRecorder {
         // 确保输出目录存在
         if let Some(parent) = self.final_output_path.parent() {
             tokio::fs::create_dir_all(parent).await
-                .map_err(|e| LiveError::FileError(e))?;
+                .map_err(LiveError::FileError)?;
         }
 
         // 检查ffmpeg是否可用

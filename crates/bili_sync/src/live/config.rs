@@ -44,7 +44,7 @@ impl std::str::FromStr for RecordingMode {
 }
 
 /// 直播录制配置
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
 pub struct LiveRecordingConfig {
     /// 录制模式
     pub recording_mode: RecordingMode,
@@ -139,16 +139,6 @@ pub struct QualityInfo {
     pub description: String,
 }
 
-impl Default for LiveRecordingConfig {
-    fn default() -> Self {
-        Self {
-            recording_mode: RecordingMode::default(),
-            auto_merge: AutoMergeConfig::default(),
-            quality: RecordingQualityConfig::default(),
-            file_management: FileManagementConfig::default(),
-        }
-    }
-}
 
 impl Default for AutoMergeConfig {
     fn default() -> Self {

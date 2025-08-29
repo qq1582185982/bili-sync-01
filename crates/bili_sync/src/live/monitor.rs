@@ -45,7 +45,8 @@ impl From<live_monitor::Model> for MonitorConfig {
         let recording_mode = with_config(|config_bundle| {
             match config_bundle.config.live_recording_mode.as_str() {
                 "segment" => RecordingMode::Segment,
-                "ffmpeg" | _ => RecordingMode::FFmpeg,
+                "ffmpeg" => RecordingMode::FFmpeg,
+                _ => RecordingMode::FFmpeg,
             }
         });
         
@@ -109,7 +110,7 @@ impl LiveMonitor {
         // 但bili_client是Arc包装的，实际上是安全的
         let live_client = unsafe { 
             std::mem::transmute::<LiveApiClient<'_>, LiveApiClient<'static>>(
-                LiveApiClient::new(&*bili_client)
+                LiveApiClient::new(&bili_client)
             )
         };
 
@@ -276,7 +277,7 @@ impl LiveMonitor {
             // 在spawned task中创建LiveApiClient
             let live_client = unsafe { 
                 std::mem::transmute::<LiveApiClient<'_>, LiveApiClient<'static>>(
-                    LiveApiClient::new(&*bili_client)
+                    LiveApiClient::new(&bili_client)
                 )
             };
 
@@ -759,7 +760,7 @@ impl LiveMonitor {
                                 // 1秒后重新开始录制（更快的恢复速度）
                                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                                 
-                                if let Err(e) = Self::start_recording(db, live_client, &bili_client, &config, &room_info, recorders, url_pools).await {
+                                if let Err(e) = Self::start_recording(db, live_client, bili_client, &config, &room_info, recorders, url_pools).await {
                                     live_error!("重新开始录制失败: {}", e);
                                 }
                             }
@@ -864,7 +865,7 @@ impl LiveMonitor {
                             live_debug!("房间 {} 开播，获取直播信息并启动录制", room_id);
                             if let Ok((_, room_info)) = live_client.get_live_status_by_room_id(room_id).await {
                                 if let Some(room_info) = room_info {
-                                    if let Err(e) = Self::start_recording(db, live_client, &bili_client, config, &room_info, recorders, url_pools).await {
+                                    if let Err(e) = Self::start_recording(db, live_client, bili_client, config, &room_info, recorders, url_pools).await {
                                         live_error!("启动录制失败: {}", e);
                                     }
                                 } else {

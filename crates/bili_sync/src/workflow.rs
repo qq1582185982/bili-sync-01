@@ -253,7 +253,7 @@ async fn update_bangumi_cache(
     for (video, pages) in &videos_with_pages {
         if let Some(page) = pages.first() {
             let mut episode = serde_json::json!({
-                "id": video.ep_id.as_ref().map(|s| s.parse::<i64>().ok()).flatten().unwrap_or(0),
+                "id": video.ep_id.as_ref().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0),
                 "aid": video.bvid.clone(), // 暂时使用bvid，实际应该是aid
                 "bvid": video.bvid.clone(),
                 "cid": page.cid,
@@ -4524,7 +4524,7 @@ pub async fn fix_page_video_ids(
                 let result = txn
                     .execute(Statement::from_sql_and_values(
                         DatabaseBackend::Sqlite,
-                        &format!(
+                        format!(
                             "UPDATE submission SET scan_deleted_videos = 1 
                              WHERE id IN ({}) AND scan_deleted_videos = 0",
                             placeholders
@@ -4543,7 +4543,7 @@ pub async fn fix_page_video_ids(
                 let result = txn
                     .execute(Statement::from_sql_and_values(
                         DatabaseBackend::Sqlite,
-                        &format!(
+                        format!(
                             "UPDATE collection SET scan_deleted_videos = 1 
                              WHERE id IN ({}) AND scan_deleted_videos = 0",
                             placeholders
@@ -4562,7 +4562,7 @@ pub async fn fix_page_video_ids(
                 let result = txn
                     .execute(Statement::from_sql_and_values(
                         DatabaseBackend::Sqlite,
-                        &format!(
+                        format!(
                             "UPDATE favorite SET scan_deleted_videos = 1 
                              WHERE id IN ({}) AND scan_deleted_videos = 0",
                             placeholders
@@ -4581,7 +4581,7 @@ pub async fn fix_page_video_ids(
                 let result = txn
                     .execute(Statement::from_sql_and_values(
                         DatabaseBackend::Sqlite,
-                        &format!(
+                        format!(
                             "UPDATE watch_later SET scan_deleted_videos = 1 
                              WHERE id IN ({}) AND scan_deleted_videos = 0",
                             placeholders
@@ -4600,7 +4600,7 @@ pub async fn fix_page_video_ids(
                 let result = txn
                     .execute(Statement::from_sql_and_values(
                         DatabaseBackend::Sqlite,
-                        &format!(
+                        format!(
                             "UPDATE video_source SET scan_deleted_videos = 1 
                              WHERE id IN ({}) AND scan_deleted_videos = 0",
                             placeholders
@@ -4675,7 +4675,7 @@ pub async fn populate_missing_video_cids(
     
     // 批量处理视频，每批10个
     let chunk_size = 10;
-    let total_batches = (videos_without_cid.len() + chunk_size - 1) / chunk_size;
+    let total_batches = videos_without_cid.len().div_ceil(chunk_size);
     
     for (batch_idx, chunk) in videos_without_cid.chunks(chunk_size).enumerate() {
         if token.is_cancelled() {
@@ -5005,7 +5005,7 @@ mod tests {
                 template
                     .path_safe_render("test_path_windows", &json!({"title": "关注/永雏塔菲喵"}))
                     .unwrap(),
-                r"关注_永雏塔菲\\test\\a"
+                r"关注_永雏塔菲\test\a"
             );
         }
         assert_eq!(

@@ -284,7 +284,7 @@ impl StreamUrlPool {
         if valid_urls.is_empty() {
             live_warn!("没有有效的URL，使用第一个URL");
             self.current_index = 0;
-            return self.urls.get(0);
+            return self.urls.first();
         }
         
         // 按成功率和剩余时间排序
