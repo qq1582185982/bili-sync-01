@@ -465,7 +465,7 @@ impl SegmentManager {
         let downloaded = parts[5] == "OK";
 
         // 从URL中提取实际的文件名，而不是使用硬编码格式
-        let filename = if let Some(filename_from_url) = url.split('/').last() {
+        let filename = if let Some(filename_from_url) = url.split('/').next_back() {
             filename_from_url.to_string()
         } else {
             // 如果无法从URL提取，回退到序列号命名
@@ -722,7 +722,7 @@ impl SegmentManager {
         if is_m4s_format {
             live_info!("检测到M4S格式分片，使用MPEG-DASH合并策略");
             // 对于M4S文件，不能直接使用concat协议，需要重新封装
-            cmd.args(&[
+            cmd.args([
                 "-f", "concat",
                 "-safe", "0", 
                 "-i", &concat_list.to_string_lossy(),
@@ -735,7 +735,7 @@ impl SegmentManager {
         } else {
             live_info!("使用标准TS合并策略");
             // 标准TS文件合并
-            cmd.args(&[
+            cmd.args([
                 "-f", "concat",
                 "-safe", "0",
                 "-i", &concat_list.to_string_lossy(),
@@ -822,7 +822,7 @@ impl SegmentManager {
         
         // 使用不同的FFmpeg参数
         let mut cmd = Command::new("ffmpeg");
-        cmd.args(&[
+        cmd.args([
             "-f", "concat",
             "-safe", "0",
             "-i", &input_list_path.to_string_lossy(),

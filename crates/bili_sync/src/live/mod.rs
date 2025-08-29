@@ -55,14 +55,14 @@ pub use monitor::LiveMonitor;
 #[derive(Debug, thiserror::Error)]
 pub enum LiveError {
     #[error("API请求失败: {0}")]
-    ApiError(#[from] anyhow::Error),
+    Api(#[from] anyhow::Error),
     
     #[error("录制器启动失败: {0}")]
-    RecorderStartError(String),
+    RecorderStart(String),
     
     #[error("文件操作失败: {0}")]
-    FileError(#[from] std::io::Error),
+    File(#[from] std::io::Error),
     
     #[error("数据库操作失败: {0}")]
-    DatabaseError(#[from] sea_orm::DbErr),
+    Database(#[from] sea_orm::DbErr),
 }

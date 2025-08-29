@@ -144,7 +144,7 @@ impl FileLogWriter {
                                 let modified_datetime = Local
                                     .timestamp_opt(modified_timestamp, 0)
                                     .single()
-                                    .unwrap_or_else(|| Local::now());
+                                    .unwrap_or_else(Local::now);
 
                                 if modified_datetime < thirty_days_ago {
                                     // 删除超过30天的日志文件

@@ -2721,7 +2721,7 @@ pub async fn fetch_page_video(
                 // 普通视频使用API降级机制（普通视频API -> 番剧API）
                 debug!("使用API降级机制获取播放地址（普通视频API -> 番剧API）");
                 // 传递ep_id以便在需要时降级到番剧API，如果没有ep_id则会自动从视频详情API获取
-                let ep_id = video_model.ep_id.as_ref().map(|s| s.as_str());
+                let ep_id = video_model.ep_id.as_deref();
                 if ep_id.is_some() {
                     debug!("视频已有ep_id: {:?}，可直接用于API降级", ep_id);
                 } else {

@@ -44,7 +44,7 @@ impl FFmpegRecorder {
         // 确保输出目录存在
         if let Some(parent) = self.final_output_path.parent() {
             tokio::fs::create_dir_all(parent).await
-                .map_err(LiveError::FileError)?;
+                .map_err(LiveError::File)?;
         }
 
         // 检查ffmpeg是否可用
@@ -76,7 +76,7 @@ impl FFmpegRecorder {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| LiveError::RecorderStartError(format!("启动FFmpeg失败: {}", e)))?;
+            .map_err(|e| LiveError::RecorderStart(format!("启动FFmpeg失败: {}", e)))?;
 
         // 保存stdin句柄用于优雅停止
         self.primary_stdin = process.stdin.take();

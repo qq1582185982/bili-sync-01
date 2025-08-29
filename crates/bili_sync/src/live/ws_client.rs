@@ -42,19 +42,19 @@ struct HostInfo {
 #[derive(Debug, Clone)]
 pub enum WebSocketEvent {
     /// 直播状态变化
-    LiveStatusChanged {
+    LiveStatus {
         room_id: i64,
         status: LiveStatus,
         title: Option<String>,
     },
     /// 连接状态变化
-    ConnectionStatusChanged {
+    ConnectionStatus {
         room_id: i64,
         connected: bool,
         error: Option<String>,
     },
     /// 人气值变化
-    PopularityChanged {
+    Popularity {
         room_id: i64,
         popularity: i64,
     },
@@ -118,7 +118,7 @@ impl BilibiliWebSocketClient {
                     );
 
                     // 发送连接状态变化事件
-                    if let Err(send_err) = event_sender.send(WebSocketEvent::ConnectionStatusChanged {
+                    if let Err(send_err) = event_sender.send(WebSocketEvent::ConnectionStatus {
                         room_id,
                         connected: false,
                         error: Some(e.to_string()),
@@ -158,7 +158,7 @@ impl BilibiliWebSocketClient {
         live_info!("房间 {} WebSocket 连接已建立", room_id);
 
         // 发送连接成功事件
-        event_sender.send(WebSocketEvent::ConnectionStatusChanged {
+        event_sender.send(WebSocketEvent::ConnectionStatus {
             room_id,
             connected: true,
             error: None,
@@ -276,7 +276,7 @@ impl BilibiliWebSocketClient {
                             room_id, live_status, status, title);
 
                         // 发送初始状态事件
-                        event_sender.send(WebSocketEvent::LiveStatusChanged {
+                        event_sender.send(WebSocketEvent::LiveStatus {
                             room_id,
                             status,
                             title,
@@ -444,7 +444,7 @@ impl BilibiliWebSocketClient {
                     
                     live_debug!("房间 {} 人气值: {}", room_id, popularity);
                     
-                    event_sender.send(WebSocketEvent::PopularityChanged {
+                    event_sender.send(WebSocketEvent::Popularity {
                         room_id,
                         popularity,
                     })?;
@@ -553,7 +553,7 @@ impl BilibiliWebSocketClient {
                                     .and_then(|title| title.as_str())
                                     .map(|s| s.to_string());
                                 
-                                event_sender.send(WebSocketEvent::LiveStatusChanged {
+                                event_sender.send(WebSocketEvent::LiveStatus {
                                     room_id,
                                     status: LiveStatus::Live,
                                     title,
@@ -567,7 +567,7 @@ impl BilibiliWebSocketClient {
                             if *last_live_status != Some(LiveStatus::NotLive) {
                                 *last_live_status = Some(LiveStatus::NotLive);
                                 
-                                event_sender.send(WebSocketEvent::LiveStatusChanged {
+                                event_sender.send(WebSocketEvent::LiveStatus {
                                     room_id,
                                     status: LiveStatus::NotLive,
                                     title: None,
@@ -591,7 +591,7 @@ impl BilibiliWebSocketClient {
                                             .and_then(|title| title.as_str())
                                             .map(|s| s.to_string());
                                         
-                                        event_sender.send(WebSocketEvent::LiveStatusChanged {
+                                        event_sender.send(WebSocketEvent::LiveStatus {
                                             room_id,
                                             status,
                                             title,
@@ -622,7 +622,7 @@ impl BilibiliWebSocketClient {
                     if *last_live_status != Some(LiveStatus::Live) {
                         *last_live_status = Some(LiveStatus::Live);
                         
-                        event_sender.send(WebSocketEvent::LiveStatusChanged {
+                        event_sender.send(WebSocketEvent::LiveStatus {
                             room_id,
                             status: LiveStatus::Live,
                             title: None,
@@ -634,7 +634,7 @@ impl BilibiliWebSocketClient {
                     if *last_live_status != Some(LiveStatus::NotLive) {
                         *last_live_status = Some(LiveStatus::NotLive);
                         
-                        event_sender.send(WebSocketEvent::LiveStatusChanged {
+                        event_sender.send(WebSocketEvent::LiveStatus {
                             room_id,
                             status: LiveStatus::NotLive,
                             title: None,

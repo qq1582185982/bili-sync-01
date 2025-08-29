@@ -298,9 +298,11 @@ mod tests {
 
     #[test]
     fn test_should_auto_merge() {
-        let mut config = AutoMergeConfig::default();
-        config.enabled = true;
-        config.duration_threshold = 300; // 5分钟
+        let mut config = AutoMergeConfig {
+            enabled: true,
+            duration_threshold: 300, // 5分钟
+            ..Default::default()
+        };
 
         assert!(!config.should_auto_merge(299.0));
         assert!(config.should_auto_merge(300.0));

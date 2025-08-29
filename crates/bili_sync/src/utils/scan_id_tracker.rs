@@ -84,7 +84,6 @@ pub async fn update_last_scanned_ids(db: &Arc<DatabaseConnection>, ids: &LastSca
             key_name: Set(CONFIG_KEY.to_string()),
             value_json: Set(value_json),
             updated_at: Set(crate::utils::time_format::now_standard_string()),
-            ..Default::default()
         };
         new_item.insert(db.as_ref()).await?;
     }

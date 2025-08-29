@@ -846,7 +846,7 @@ impl LiveMonitor {
         event: WebSocketEvent,
     ) -> Result<()> {
         match event {
-            WebSocketEvent::LiveStatusChanged { room_id, status, title } => {
+            WebSocketEvent::LiveStatus { room_id, status, title } => {
                 live_info!(
                     "房间 {} 状态变化: {:?}, 标题: {:?}",
                     room_id, status, title
@@ -892,7 +892,7 @@ impl LiveMonitor {
                     live_debug!("房间 {} 不在当前监控列表中或已禁用", room_id);
                 }
             }
-            WebSocketEvent::ConnectionStatusChanged { room_id, connected, error } => {
+            WebSocketEvent::ConnectionStatus { room_id, connected, error } => {
                 if connected {
                     live_info!("房间 {} WebSocket 连接已建立", room_id);
                 } else {
@@ -930,7 +930,7 @@ impl LiveMonitor {
                     drop(configs_guard);
                 }
             }
-            WebSocketEvent::PopularityChanged { room_id, popularity } => {
+            WebSocketEvent::Popularity { room_id, popularity } => {
                 live_debug!("房间 {} 人气值更新: {}", room_id, popularity);
                 // 暂时不处理人气值变化
             }

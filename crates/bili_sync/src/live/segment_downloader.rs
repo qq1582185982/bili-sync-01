@@ -187,7 +187,7 @@ impl SegmentDownloader {
                     };
 
                     // 使用原始文件名（从URI中提取，如420516438.m4s）
-                    let segment_filename = ts_segment.uri.split('/').last()
+                    let segment_filename = ts_segment.uri.split('/').next_back()
                         .unwrap_or(&format!("{}.m4s", sequence))
                         .to_string();
                     let segment_path = self.work_dir.join(&segment_filename);
@@ -335,7 +335,7 @@ impl SegmentDownloader {
     /// 下载初始化段
     async fn download_initialization_segment(&mut self) -> Result<Option<String>> {
         if let Some(header_url) = self.get_initialization_segment_url().await? {
-            let filename = header_url.split('/').last().unwrap_or("header.m4s");
+            let filename = header_url.split('/').next_back().unwrap_or("header.m4s");
             let file_path = self.work_dir.join(filename);
             
             live_info!("下载初始化段: {} -> {:?}", header_url, file_path);
