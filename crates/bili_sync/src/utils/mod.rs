@@ -46,12 +46,16 @@ where
             }
         };
 
-        let level_str = match *event.metadata().level() {
-            tracing::Level::ERROR => "error",
-            tracing::Level::WARN => "warn",
-            tracing::Level::INFO => "info",
-            tracing::Level::DEBUG => "debug",
-            tracing::Level::TRACE => "debug",
+        let level_str = if is_live_log {
+            "live"  // 对直播日志使用"live"级别字符串
+        } else {
+            match *event.metadata().level() {
+                tracing::Level::ERROR => "error",
+                tracing::Level::WARN => "warn",
+                tracing::Level::INFO => "info",
+                tracing::Level::DEBUG => "debug",
+                tracing::Level::TRACE => "debug",
+            }
         };
 
         // 提取日志消息
@@ -99,10 +103,10 @@ impl tracing::field::Visit for MessageVisitor {
 
 pub fn init_logger(log_level: &str) {
     // 构建优化的日志过滤器，降低sqlx慢查询等噪音
-    let console_filter = build_optimized_filter(log_level);
-    let api_filter = build_optimized_filter("debug");
+    let console_filter = build_console_filter(log_level);  // 控制台过滤器，排除直播日志
+    let api_filter = build_api_filter("debug");            // API过滤器，包含所有日志
 
-    // 控制台输出层 - 使用优化的过滤器
+    // 控制台输出层 - 使用控制台过滤器
     let fmt_layer = tracing_subscriber::fmt::layer()
         .compact()
         .with_target(false)
@@ -111,7 +115,7 @@ pub fn init_logger(log_level: &str) {
         ))
         .with_filter(console_filter);
 
-    // API日志捕获层 - 使用优化的过滤器
+    // API日志捕获层 - 使用API过滤器
     let log_capture_layer = LogCaptureLayer.with_filter(api_filter);
 
     tracing_subscriber::registry()
@@ -121,8 +125,25 @@ pub fn init_logger(log_level: &str) {
         .expect("初始化日志失败");
 }
 
-/// 构建优化的日志过滤器，减少噪音日志
-fn build_optimized_filter(base_level: &str) -> tracing_subscriber::EnvFilter {
+/// 构建控制台日志过滤器，排除直播日志以减少输出
+fn build_console_filter(base_level: &str) -> tracing_subscriber::EnvFilter {
+    tracing_subscriber::EnvFilter::builder().parse_lossy(format!(
+        "{},\
+            bili_sync::live=off,\
+            sqlx::query=error,\
+            sqlx=error,\
+            sea_orm::database=error,\
+            sea_orm_migration=warn,\
+            tokio_util=warn,\
+            hyper=warn,\
+            reqwest=warn,\
+            h2=warn",
+        base_level
+    ))
+}
+
+/// 构建API日志过滤器，包含所有日志用于文件和前端显示
+fn build_api_filter(base_level: &str) -> tracing_subscriber::EnvFilter {
     tracing_subscriber::EnvFilter::builder().parse_lossy(format!(
         "{},\
             sqlx::query=error,\

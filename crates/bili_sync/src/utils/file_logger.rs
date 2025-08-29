@@ -26,6 +26,7 @@ pub struct FileLogWriter {
     info_writer: Arc<Mutex<Option<BufWriter<File>>>>,
     warn_writer: Arc<Mutex<Option<BufWriter<File>>>>,
     error_writer: Arc<Mutex<Option<BufWriter<File>>>>,
+    live_writer: Arc<Mutex<Option<BufWriter<File>>>>,  // 新增：直播日志写入器
     // 日志缓冲区
     log_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
     // 当前日期，用于检测日期变化
@@ -52,6 +53,7 @@ impl FileLogWriter {
             info_writer: Arc::new(Mutex::new(None)),
             warn_writer: Arc::new(Mutex::new(None)),
             error_writer: Arc::new(Mutex::new(None)),
+            live_writer: Arc::new(Mutex::new(None)),  // 新增：直播日志写入器
             log_buffer: Arc::new(Mutex::new(VecDeque::new())),
             current_date: Arc::new(Mutex::new(current_date)),
             log_dir: log_dir.clone(),
@@ -72,6 +74,7 @@ impl FileLogWriter {
         let info_path = self.log_dir.join(format!("logs-info-{}.csv", date_str));
         let warn_path = self.log_dir.join(format!("logs-warn-{}.csv", date_str));
         let error_path = self.log_dir.join(format!("logs-error-{}.csv", date_str));
+        let live_path = self.log_dir.join(format!("logs-live-{}.csv", date_str));  // 新增：直播日志文件
 
         // 创建文件并写入CSV头
         let all_writer = Self::create_log_file(&all_path)?;
@@ -79,6 +82,7 @@ impl FileLogWriter {
         let info_writer = Self::create_log_file(&info_path)?;
         let warn_writer = Self::create_log_file(&warn_path)?;
         let error_writer = Self::create_log_file(&error_path)?;
+        let live_writer = Self::create_log_file(&live_path)?;  // 新增：创建直播日志文件
 
         // 更新写入器
         *self.all_writer.lock().unwrap() = Some(all_writer);
@@ -86,6 +90,7 @@ impl FileLogWriter {
         *self.info_writer.lock().unwrap() = Some(info_writer);
         *self.warn_writer.lock().unwrap() = Some(warn_writer);
         *self.error_writer.lock().unwrap() = Some(error_writer);
+        *self.live_writer.lock().unwrap() = Some(live_writer);  // 新增：更新直播日志写入器
 
         Ok(())
     }
@@ -218,6 +223,7 @@ impl FileLogWriter {
                 "info" => &self.info_writer,
                 "warn" => &self.warn_writer,
                 "error" => &self.error_writer,
+                "live" => &self.live_writer,  // 新增：支持live级别日志
                 _ => continue,
             };
 
@@ -283,6 +289,12 @@ impl FileLogWriter {
             }
         }
         if let Ok(mut writer_opt) = self.error_writer.lock() {
+            if let Some(ref mut writer) = writer_opt.as_mut() {
+                let _ = writer.flush();
+                let _ = writer.get_mut().sync_all();
+            }
+        }
+        if let Ok(mut writer_opt) = self.live_writer.lock() {  // 新增：刷新直播日志写入器
             if let Some(ref mut writer) = writer_opt.as_mut() {
                 let _ = writer.flush();
                 let _ = writer.get_mut().sync_all();
