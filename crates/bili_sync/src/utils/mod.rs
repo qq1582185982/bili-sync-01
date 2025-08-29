@@ -19,6 +19,7 @@ use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
+use chrono::Local;
 
 // 自定义控制台输出层，过滤直播日志
 struct ConsoleLayer;
@@ -48,10 +49,20 @@ where
         
         if let Some(message) = visitor.message {
             // 获取当前时间
-            let timestamp = chrono::Local::now().format("%b %d %H:%M:%S");
+            let timestamp = Local::now().format("%b %d %H:%M:%S");
             
-            // 格式化并输出到控制台
-            println!("{} {:>5} {}", timestamp, level, message);
+            // 根据日志级别设置颜色
+            let (color_code, level_str) = match *level {
+                tracing::Level::ERROR => ("\x1b[31m", "ERROR"), // 红色
+                tracing::Level::WARN => ("\x1b[33m", " WARN"), // 黄色
+                tracing::Level::INFO => ("\x1b[32m", " INFO"), // 绿色
+                tracing::Level::DEBUG => ("\x1b[36m", "DEBUG"), // 青色
+                tracing::Level::TRACE => ("\x1b[35m", "TRACE"), // 紫色
+            };
+            
+            // 格式化并输出到控制台（带颜色）
+            // 时间戳使用灰色（dim），日志级别使用各自的颜色
+            println!("\x1b[2m{}\x1b[0m {}{:>5}\x1b[0m {}", timestamp, color_code, level_str, message);
         }
     }
 }
