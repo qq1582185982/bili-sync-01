@@ -16,7 +16,14 @@ impl BangumiNameExtractor {
     pub fn extract_series_name_and_season(title: &str, season_title: Option<&str>) -> (String, u32) {
         // 如果提供了 season_title，优先使用它来提取
         if let Some(season_part) = season_title {
-            let base_name = title.replace(season_part, "").trim().to_string();
+            // 提取基础名称，并标准化空格（将多个连续空格合并为单个空格，去除括号前的空格）
+            let base_name = title
+                .replace(season_part, "")
+                .split_whitespace()  // 分割字符串，自动去除首尾空格并处理连续空格
+                .collect::<Vec<_>>()
+                .join(" ")           // 用单个空格重新连接
+                .replace(" （", "（") // 去除全角括号前的空格
+                .replace(" (", "("); // 去除半角括号前的空格
             let season_number = Self::extract_season_number(season_part).unwrap_or(1);
             return (base_name, season_number);
         }
@@ -47,9 +54,11 @@ impl BangumiNameExtractor {
                     let season_str = captures.get(2).map_or("1", |m| m.as_str());
                     let base_name_suffix = captures.get(3).map_or("", |m| m.as_str()).trim();
                     
-                    // 合并前缀和后缀，中间用空格连接（如果后缀不为空）
+                    // 合并前缀和后缀，中间用空格连接（如果后缀不为空），并清理括号前的空格
                     let base_name = if !base_name_suffix.is_empty() {
                         format!("{} {}", base_name_prefix, base_name_suffix)
+                            .replace(" （", "（")  // 去除全角括号前的空格
+                            .replace(" (", "(")   // 去除半角括号前的空格
                     } else {
                         base_name_prefix.to_string()
                     };

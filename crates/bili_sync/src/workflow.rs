@@ -1650,12 +1650,14 @@ pub async fn download_video_pages(
 
     // 延迟创建季度文件夹，只在实际需要写入文件时创建
 
-    let upper_id = final_video_model.upper_id.to_string();
     let current_config = crate::config::reload_config();
+    // 使用UP主昵称作为文件夹名，并使用首字进行分类
+    let upper_name = crate::utils::filenamify::filenamify(&final_video_model.upper_name);
+    let first_char = upper_name.chars().next().context("upper_name is empty")?.to_string();
     let base_upper_path = &current_config
         .upper_path
-        .join(upper_id.chars().next().context("upper_id is empty")?.to_string())
-        .join(upper_id);
+        .join(&first_char)
+        .join(&upper_name);
     let is_single_page = final_video_model.single_page.context("single_page is null")?;
 
     // 为多P视频生成基于视频名称的文件名
@@ -3811,16 +3813,24 @@ async fn get_season_title_from_api(
                         Ok(json) => {
                             // 检查API返回是否成功
                             if json["code"].as_i64().unwrap_or(-1) == 0 {
-                                // 获取季度标题
+                                // 获取季度标题并标准化空格
                                 if let Some(title) = json["result"]["title"].as_str() {
-                                    debug!("获取到季度标题: {} (尝试次数: {})", title, retry_count + 1);
+                                    // 标准化空格：将多个连续空格合并为单个空格，去除括号前的空格
+                                    let normalized_title = title
+                                        .split_whitespace()  // 分割字符串，自动去除首尾空格并处理连续空格
+                                        .collect::<Vec<_>>()
+                                        .join(" ")           // 用单个空格重新连接
+                                        .replace(" （", "（") // 去除全角括号前的空格
+                                        .replace(" (", "("); // 去除半角括号前的空格
 
-                                    // 缓存番剧标题
+                                    debug!("获取到季度标题: {} (尝试次数: {})", normalized_title, retry_count + 1);
+
+                                    // 缓存清理后的番剧标题
                                     if let Ok(mut cache) = SEASON_TITLE_CACHE.lock() {
-                                        cache.insert(season_id.to_string(), title.to_string());
+                                        cache.insert(season_id.to_string(), normalized_title.clone());
                                     }
 
-                                    return Some(title.to_string());
+                                    return Some(normalized_title);
                                 }
                             } else {
                                 warn!(

@@ -11,7 +11,14 @@ fn extract_series_title_with_context(
 ) -> Option<String> {
     // 只使用API提供的真实番剧标题，无回退逻辑
     if let Some(title) = api_title {
-        return Some(title.to_string());
+        // 标准化空格：将多个连续空格合并为单个空格，去除括号前的空格
+        let normalized_title = title
+            .split_whitespace()  // 分割字符串，自动去除首尾空格并处理连续空格
+            .collect::<Vec<_>>()
+            .join(" ")           // 用单个空格重新连接
+            .replace(" （", "（") // 去除全角括号前的空格
+            .replace(" (", "("); // 去除半角括号前的空格
+        return Some(normalized_title);
     }
 
     // 如果没有API标题，记录警告并返回None
