@@ -92,6 +92,13 @@ impl HardwareFingerprint {
 
         // 根据视频长度智能调整交互次数
         let max_duration = std::cmp::min(video_duration * 1000, 60000); // 最多1分钟
+
+        // 如果视频时长为0或太短，返回空数组避免 panic
+        if max_duration == 0 {
+            warn!("视频时长为0，无法生成dm_img_list，返回空数组");
+            return String::from("[]");
+        }
+
         let interaction_count = if max_duration < 10000 {
             rng.gen_range(2..=4) // 短视频少点交互
         } else if max_duration < 30000 {
@@ -117,6 +124,15 @@ impl HardwareFingerprint {
             // 根据屏幕分辨率生成合理的坐标范围
             let margin_x = self.screen_resolution.0 / 6; // 左右留边
             let margin_y = self.screen_resolution.1 / 8; // 上下留边
+
+            // 检查坐标范围是否有效，避免 panic
+            if margin_x * 2 >= self.screen_resolution.0 || margin_y * 2 >= self.screen_resolution.1 {
+                warn!(
+                    "屏幕分辨率 {}x{} 太小，无法生成有效坐标，返回空数组",
+                    self.screen_resolution.0, self.screen_resolution.1
+                );
+                return String::from("[]");
+            }
 
             let x = rng.gen_range(margin_x..(self.screen_resolution.0 - margin_x));
             let y = rng.gen_range(margin_y..(self.screen_resolution.1 - margin_y));
