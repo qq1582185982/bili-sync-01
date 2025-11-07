@@ -1,10 +1,13 @@
 # 更新记录
 
 ## v2.7.7.5.8 (2025-11-07)
-- **新增Emby封面命名兼容性支持**
-- Season文件夹中新增folder.jpg和poster.jpg（Emby优先识别）
-- 保留Season01-thumb.jpg等Jellyfin命名文件（完全兼容两种媒体库）
-- 修复Emby无法显示番剧季度封面的问题
+- **新增Emby封面命名兼容性支持（完整覆盖）**
+- Season文件夹新增folder.jpg和poster.jpg（Emby优先识别）
+- 番剧根目录新增folder.jpg和poster.jpg（无论是否启用Season结构）
+- 多P视频根目录新增folder.jpg和poster.jpg（启用Season结构时）
+- 合集根目录新增folder.jpg和poster.jpg（启用Season结构时）
+- 保留所有Jellyfin命名文件（{name}-thumb.jpg、{name}-fanart.jpg、Season01-thumb.jpg等）
+- 完全兼容Emby和Jellyfin两种媒体库
 - 注意：仅对新下载数据生效，旧数据需要手动添加封面文件
 
 ## v2.7.7.5.7 (2025-11-07)
