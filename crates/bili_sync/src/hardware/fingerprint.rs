@@ -95,7 +95,7 @@ impl HardwareFingerprint {
 
         // 如果视频时长为0或太短，返回空数组避免 panic
         if max_duration == 0 {
-            warn!("视频时长为0，无法生成dm_img_list，返回空数组");
+            debug!("视频时长为0，无法生成dm_img_list，返回空数组");
             return String::from("[]");
         }
 
@@ -127,7 +127,7 @@ impl HardwareFingerprint {
 
             // 检查坐标范围是否有效，避免 panic
             if margin_x * 2 >= self.screen_resolution.0 || margin_y * 2 >= self.screen_resolution.1 {
-                warn!(
+                debug!(
                     "屏幕分辨率 {}x{} 太小，无法生成有效坐标，返回空数组",
                     self.screen_resolution.0, self.screen_resolution.1
                 );

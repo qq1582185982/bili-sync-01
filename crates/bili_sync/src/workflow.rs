@@ -2015,13 +2015,17 @@ pub async fn download_video_pages(
             let poster_path = series_root.join(format!("Season{:02}-thumb.jpg", season_number));
             let fanart_path = series_root.join(format!("Season{:02}-fanart.jpg", season_number));
 
-            // 定义所有三个Season级别文件路径
+            // 定义所有Season级别文件路径
             let season_poster_path = series_root.join(format!("Season{:02}-poster.jpg", season_number));
+
+            // Emby兼容性：添加folder.jpg和poster.jpg
+            let folder_path = series_root.join("folder.jpg");
+            let generic_poster_path = series_root.join("poster.jpg");
 
             // 依赖数据库状态决定是否下载季度级图片（不检查文件存在性，以支持重置状态后重新下载）
             let should_download_season_images = separate_status[0];
 
-            info!("准备下载季度级图片到: {:?}, {:?} 和 {:?}", poster_path, fanart_path, season_poster_path);
+            info!("准备下载季度级图片到: {:?}, {:?}, {:?}, {:?} 和 {:?}", poster_path, fanart_path, season_poster_path, folder_path, generic_poster_path);
 
             // 季度级图片：thumb使用横版封面，fanart使用竖版封面
             let season_info_ref = season_info.as_ref().unwrap();
@@ -2047,8 +2051,8 @@ pub async fn download_video_pages(
             debug!("  Season{:02}-thumb.jpg URL: {:?}", season_number, season_thumb_url);
             debug!("  Season{:02}-fanart.jpg URL: {:?}", season_number, season_fanart_url);
 
-            // 并行下载三个Season级别的图片文件
-            let (thumb_result, fanart_result, poster_result) = tokio::join!(
+            // 并行下载五个Season级别的图片文件
+            let (thumb_result, fanart_result, poster_result, folder_result, generic_poster_result) = tokio::join!(
                 // Season01-thumb.jpg (横版封面)
                 fetch_video_poster(
                     should_download_season_images,
@@ -2071,7 +2075,7 @@ pub async fn download_video_pages(
                     season_fanart_url, // 使用竖版封面作为fanart
                     None, // 不使用fanart URL
                 ),
-                // Season01-poster.jpg (竖版封面，Jellyfin优先级最高)
+                // Season01-poster.jpg (竖版封面)
                 fetch_bangumi_poster(
                     should_download_season_images,
                     &video_model,
@@ -2079,17 +2083,37 @@ pub async fn download_video_pages(
                     season_poster_path,
                     token.clone(),
                     season_fanart_url, // 使用竖版封面作为主封面
+                ),
+                // folder.jpg (竖版封面，Emby优先识别)
+                fetch_bangumi_poster(
+                    should_download_season_images,
+                    &video_model,
+                    downloader,
+                    folder_path,
+                    token.clone(),
+                    season_fanart_url, // 使用竖版封面
+                ),
+                // poster.jpg (竖版封面，通用封面)
+                fetch_bangumi_poster(
+                    should_download_season_images,
+                    &video_model,
+                    downloader,
+                    generic_poster_path,
+                    token.clone(),
+                    season_fanart_url, // 使用竖版封面
                 )
             );
 
             // 返回综合结果
-            Some(match (thumb_result, fanart_result, poster_result) {
+            Some(match (thumb_result, fanart_result, poster_result, folder_result, generic_poster_result) {
                 // 只要都是Ok且至少有一个Succeeded，就算成功
-                (Ok(ExecutionStatus::Succeeded), Ok(_), Ok(_))
-                | (Ok(_), Ok(ExecutionStatus::Succeeded), Ok(_))
-                | (Ok(_), Ok(_), Ok(ExecutionStatus::Succeeded)) => ExecutionStatus::Succeeded,
+                (Ok(ExecutionStatus::Succeeded), _, _, _, _)
+                | (_, Ok(ExecutionStatus::Succeeded), _, _, _)
+                | (_, _, Ok(ExecutionStatus::Succeeded), _, _)
+                | (_, _, _, Ok(ExecutionStatus::Succeeded), _)
+                | (_, _, _, _, Ok(ExecutionStatus::Succeeded)) => ExecutionStatus::Succeeded,
                 // 都是Ok但都是Skipped
-                (Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped)) => ExecutionStatus::Skipped,
+                (Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped)) => ExecutionStatus::Skipped,
                 // 有任何错误才报Failed
                 _ => ExecutionStatus::Failed(anyhow::anyhow!("Season级别图片下载失败")),
             })
