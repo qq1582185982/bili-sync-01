@@ -8869,7 +8869,7 @@ pub async fn proxy_video_stream(
 
     // 使用与下载器相同的Client设置进行流式代理
     let bili_client = crate::bilibili::BiliClient::new(String::new());
-    let mut request_builder = bili_client.client.request(reqwest::Method::GET, stream_url, None);
+    let mut request_builder = bili_client.request(reqwest::Method::GET, stream_url).await;
 
     // 如果有Range请求，转发它
     if let Some(range) = range_header {

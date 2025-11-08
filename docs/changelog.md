@@ -1,5 +1,13 @@
 # 更新记录
 
+## v2.7.7.5.10 (2025-11-08)
+- **修复在线播放403错误**
+- 修复proxy代理请求缺少必要请求头导致部分视频返回403 Forbidden的问题
+- 将proxy请求方式从底层`client.request()`改为`BiliClient::request()`
+- 自动添加正确的User-Agent和Referer请求头
+- 与下载器保持完全一致的请求方式，确保播放稳定性
+- 解决B站严格防盗链检查视频（如BV1yf19BrExU）的播放问题
+
 ## v2.7.7.5.8 (2025-11-07)
 - **新增Emby封面命名兼容性支持（完整覆盖）**
 - Season文件夹新增folder.jpg和poster.jpg（Emby优先识别）
