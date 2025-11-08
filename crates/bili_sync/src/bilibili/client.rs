@@ -94,6 +94,7 @@ impl Client {
             reqwest::Client::builder()
                 .default_headers(headers)
                 .gzip(true)
+                .referer(false)  // 禁用自动Referer策略，使用我们自己设置的Referer头
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .read_timeout(std::time::Duration::from_secs(10))
                 .build()
