@@ -1,9 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+		<!-- PWA Meta Tags -->
+		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)" />
+		<meta name="description" content="bili-sync - B站视频同步下载管理工具" />
+
+		<!-- iOS PWA Support -->
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/icon-192.png" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+		<meta name="apple-mobile-web-app-title" content="bili-sync" />
+
+		<!-- PWA Manifest -->
+		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

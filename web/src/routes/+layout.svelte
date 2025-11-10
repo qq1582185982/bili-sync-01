@@ -15,6 +15,7 @@
 	import ResponsiveButton from '$lib/components/responsive-button.svelte';
 	import { initTheme } from '$lib/stores/theme';
 	import ThemeToggle from '$lib/components/theme-toggle.svelte';
+	import InstallPrompt from '$lib/components/pwa/install-prompt.svelte';
 
 	let dataLoaded = false;
 	let isAuthenticated = false;
@@ -61,10 +62,58 @@
 		dataLoaded = true;
 	}
 
+	// Service Worker 更新提示
+	function registerSWUpdateHandler() {
+		if ('serviceWorker' in navigator) {
+			navigator.serviceWorker.ready.then((registration) => {
+				// 监听新的Service Worker进入waiting状态
+				registration.addEventListener('updatefound', () => {
+					const newWorker = registration.installing;
+					if (newWorker) {
+						newWorker.addEventListener('statechange', () => {
+							if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+								// 新版本已准备好
+								toast.info('发现新版本', {
+									description: '点击更新以获取最新功能',
+									duration: 10000,
+									action: {
+										label: '更新',
+										onClick: () => {
+											// 通知Service Worker跳过等待并激活
+											newWorker.postMessage({ type: 'SKIP_WAITING' });
+											// 刷新页面
+											window.location.reload();
+										}
+									}
+								});
+							}
+						});
+					}
+				});
+
+				// 检查是否有更新
+				registration.update().catch(() => {
+					// 静默失败，不影响用户体验
+				});
+			});
+
+			// 监听Service Worker控制器变化（新版本已激活）
+			let refreshing = false;
+			navigator.serviceWorker.addEventListener('controllerchange', () => {
+				if (!refreshing) {
+					refreshing = true;
+					window.location.reload();
+				}
+			});
+		}
+	}
+
 	// 初始化共用数据
 	onMount(async () => {
 		// 初始化主题
 		initTheme();
+		// 注册Service Worker更新处理
+		registerSWUpdateHandler();
 		await checkAuthStatus();
 		// 监听登录成功事件
 		window.addEventListener('login-success', () => {
@@ -75,6 +124,7 @@
 </script>
 
 <Toaster />
+<InstallPrompt />
 
 <Sidebar.Provider>
 	<div class="prevent-horizontal-scroll flex h-screen w-full overflow-hidden">
