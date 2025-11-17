@@ -90,7 +90,17 @@ class ApiClient {
 			const response = await fetch(url, config);
 
 			if (!response.ok) {
-				throw new Error(`HTTP error! status: ${response.status}`);
+				// 尝试读取响应体获取详细错误信息
+				let errorMessage = `HTTP error! status: ${response.status}`;
+				try {
+					const errorData = await response.json();
+					if (errorData && typeof errorData.data === 'string') {
+						errorMessage = errorData.data;
+					}
+				} catch {
+					// 如果无法解析JSON，使用默认错误消息
+				}
+				throw new Error(errorMessage);
 			}
 
 			const data: ApiResponse<T> = await response.json();
