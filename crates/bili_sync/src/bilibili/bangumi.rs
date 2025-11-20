@@ -781,7 +781,16 @@ impl Bangumi {
                         processed_season_ids.insert(season_id_str.clone());
                     },
                     Err(e) => {
-                        warn!("无法获取季度 {} 的信息，跳过: {}", season_id_str, e);
+                        let error_msg = e.to_string();
+                        // 检测是否为已删除的季度
+                        if error_msg.contains("status code: -404") || error_msg.contains("啥都木有") {
+                            warn!(
+                                "季度 {} 可能已被B站删除，建议在配置中清理该季度的引用",
+                                season_id_str
+                            );
+                        } else {
+                            warn!("无法获取季度 {} 的信息，跳过: {}", season_id_str, e);
+                        }
                         continue;
                     }
                 }

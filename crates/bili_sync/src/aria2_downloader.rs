@@ -503,8 +503,22 @@ impl Aria2Downloader {
                     if let Ok(metadata) = tokio::fs::metadata(&binary_path).await {
                         let mut perms = metadata.permissions();
                         perms.set_mode(0o755);
-                        let _ = tokio::fs::set_permissions(&binary_path, perms).await;
-                        debug!("已设置aria2二进制文件执行权限");
+                        match tokio::fs::set_permissions(&binary_path, perms).await {
+                            Ok(_) => {
+                                debug!("已设置aria2二进制文件执行权限");
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "无法设置aria2执行权限: {}，可能是挂载目录权限限制，将尝试临时目录",
+                                    e
+                                );
+                                // 权限设置失败，删除文件并尝试其他位置
+                                let _ = tokio::fs::remove_file(&binary_path).await;
+                                // 尝试使用临时目录
+                                let temp_dir = std::env::temp_dir();
+                                return Self::extract_aria2_binary_to_temp(temp_dir, binary_name).await;
+                            }
+                        }
                     }
                 }
 
@@ -554,7 +568,13 @@ impl Aria2Downloader {
                     if let Ok(metadata) = tokio::fs::metadata(&binary_path).await {
                         let mut perms = metadata.permissions();
                         perms.set_mode(0o755);
-                        let _ = tokio::fs::set_permissions(&binary_path, perms).await;
+                        if let Err(e) = tokio::fs::set_permissions(&binary_path, perms).await {
+                            warn!("临时目录中无法设置aria2执行权限: {}，将回退到系统aria2", e);
+                            let _ = tokio::fs::remove_file(&binary_path).await;
+                            return Self::find_system_aria2().await;
+                        } else {
+                            debug!("已设置临时目录中aria2二进制文件执行权限");
+                        }
                     }
                 }
 

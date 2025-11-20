@@ -3833,38 +3833,44 @@ async fn get_season_title_from_api(
                                     return Some(normalized_title);
                                 }
                             } else {
+                                let error_msg = json["message"].as_str().unwrap_or("未知错误");
+                                // API返回错误码通常不是临时性问题，记录一次警告后直接返回
                                 warn!(
-                                    "获取季度信息失败，API返回错误: {} (尝试次数: {})",
-                                    json["message"].as_str().unwrap_or("未知错误"),
-                                    retry_count + 1
+                                    "获取季度信息失败，API返回错误: {} (season_id={})",
+                                    error_msg, season_id
                                 );
-                                // API返回错误码通常不是临时性问题，直接返回
                                 return None;
                             }
                         }
                         Err(e) => {
-                            warn!("解析季度信息JSON失败: {} (尝试次数: {})", e, retry_count + 1);
-                            // JSON解析失败通常不是临时性问题，直接返回
+                            // JSON解析失败通常不是临时性问题，记录一次警告后直接返回
+                            warn!("解析季度信息JSON失败: {} (season_id={})", e, season_id);
                             return None;
                         }
                     }
                 } else {
-                    warn!(
-                        "获取季度信息HTTP请求失败，状态码: {} (尝试次数: {})",
+                    // 重试过程中的错误使用 debug，避免日志过多
+                    debug!(
+                        "获取季度信息HTTP请求失败，状态码: {} (尝试次数: {}/{})",
                         res.status(),
-                        retry_count + 1
+                        retry_count + 1,
+                        max_retries + 1
                     );
                 }
             }
             Err(e) => {
-                warn!("发送季度信息请求失败: {} (尝试次数: {})", e, retry_count + 1);
+                // 重试过程中的网络错误使用 debug
+                debug!("发送季度信息请求失败: {} (尝试次数: {}/{})", e, retry_count + 1, max_retries + 1);
             }
         }
 
         retry_count += 1;
     }
 
-    error!("获取season_id={}的季度信息失败，已重试{}次", season_id, max_retries);
+    warn!(
+        "获取season_id={}的季度信息失败，已重试{}次，网络可能存在问题",
+        season_id, max_retries
+    );
     None
 }
 

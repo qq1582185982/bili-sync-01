@@ -372,6 +372,10 @@ impl PageAnalyzer {
                 tracing::error!("   建议：检查网络连接和编码设置");
             }
         }
+        // 标记高品质音频是否异常
+        let mut hires_failed = false;
+        let mut dolby_failed = false;
+
         if let Some(audios) = self.info.pointer_mut("/dash/audio").and_then(|a| a.as_array_mut()) {
             tracing::debug!("发现音频流数组，共{}个音频流", audios.len());
             for (index, audio) in audios.iter_mut().enumerate() {
@@ -400,23 +404,24 @@ impl PageAnalyzer {
         if !filter_option.no_hires {
             if let Some(flac) = self.info.pointer_mut("/dash/flac/audio") {
                 tracing::debug!("发现FLAC音频流");
-                let (Some(url), Some(quality)) = (flac["base_url"].as_str(), flac["id"].as_u64()) else {
-                    tracing::error!("FLAC音频流缺少base_url或id字段");
-                    bail!("invalid flac stream");
-                };
-                tracing::debug!(
-                    "处理FLAC音频流 - ID: {}, URL前缀: {}",
-                    quality,
-                    &url[..url.len().min(50)]
-                );
-                let quality = AudioQuality::from_repr(quality as usize)
-                    .context(format!("invalid flac stream quality: {}", quality))?;
-                if quality >= filter_option.audio_min_quality && quality <= filter_option.audio_max_quality {
-                    streams.push(Stream::DashAudio {
-                        url: url.to_string(),
-                        backup_url: serde_json::from_value(flac["backup_url"].take()).unwrap_or_default(),
+                if let (Some(url), Some(quality)) = (flac["base_url"].as_str(), flac["id"].as_u64()) {
+                    tracing::debug!(
+                        "处理FLAC音频流 - ID: {}, URL前缀: {}",
                         quality,
-                    });
+                        &url[..url.len().min(50)]
+                    );
+                    let quality = AudioQuality::from_repr(quality as usize)
+                        .context(format!("invalid flac stream quality: {}", quality))?;
+                    if quality >= filter_option.audio_min_quality && quality <= filter_option.audio_max_quality {
+                        streams.push(Stream::DashAudio {
+                            url: url.to_string(),
+                            backup_url: serde_json::from_value(flac["backup_url"].take()).unwrap_or_default(),
+                            quality,
+                        });
+                    }
+                } else {
+                    tracing::warn!("FLAC音频流缺少base_url或id字段");
+                    hires_failed = true;
                 }
             }
         }
@@ -437,27 +442,28 @@ impl PageAnalyzer {
                         }
                     }
                     if let Some(dolby_audio) = dolby_audio_array.get_mut(0).and_then(|a| a.as_object_mut()) {
-                        let (Some(url), Some(quality)) = (
+                        if let (Some(url), Some(quality)) = (
                             dolby_audio.get("base_url").and_then(|v| v.as_str()),
                             dolby_audio.get("id").and_then(|v| v.as_u64()),
-                        ) else {
-                            tracing::error!("Dolby音频流缺少base_url或id字段");
-                            bail!("invalid dolby audio stream");
-                        };
-                        tracing::debug!(
-                            "处理Dolby音频流 - ID: {}, URL前缀: {}",
-                            quality,
-                            &url[..url.len().min(50)]
-                        );
-                        let quality = AudioQuality::from_repr(quality as usize)
-                            .context(format!("invalid dolby audio stream quality: {}", quality))?;
-                        if quality >= filter_option.audio_min_quality && quality <= filter_option.audio_max_quality {
-                            streams.push(Stream::DashAudio {
-                                url: url.to_string(),
-                                backup_url: serde_json::from_value(dolby_audio["backup_url"].take())
-                                    .unwrap_or_default(),
+                        ) {
+                            tracing::debug!(
+                                "处理Dolby音频流 - ID: {}, URL前缀: {}",
                                 quality,
-                            });
+                                &url[..url.len().min(50)]
+                            );
+                            let quality = AudioQuality::from_repr(quality as usize)
+                                .context(format!("invalid dolby audio stream quality: {}", quality))?;
+                            if quality >= filter_option.audio_min_quality && quality <= filter_option.audio_max_quality {
+                                streams.push(Stream::DashAudio {
+                                    url: url.to_string(),
+                                    backup_url: serde_json::from_value(dolby_audio["backup_url"].take())
+                                        .unwrap_or_default(),
+                                    quality,
+                                });
+                            }
+                        } else {
+                            tracing::warn!("Dolby音频流缺少base_url或id字段");
+                            dolby_failed = true;
                         }
                     }
                 } else {
@@ -467,6 +473,64 @@ impl PageAnalyzer {
                 tracing::debug!("未找到dolby音频数组");
             }
         }
+
+        // 检查是否有音频流，如果没有且高品质音频失败，则回退到普通音频
+        let has_audio = streams.iter().any(|s| matches!(s, Stream::DashAudio { .. }));
+        if !has_audio && (hires_failed || dolby_failed) {
+            tracing::warn!(
+                "高品质音频不可用，尝试回退到普通音频流(132k/64k){}",
+                if hires_failed && dolby_failed {
+                    " (FLAC和Dolby均失败)"
+                } else if hires_failed {
+                    " (FLAC失败)"
+                } else {
+                    " (Dolby失败)"
+                }
+            );
+
+            // 重新处理普通音频流，忽略质量限制，确保至少有一个可用音频
+            if let Some(audios) = self.info.pointer_mut("/dash/audio").and_then(|a| a.as_array_mut()) {
+                // 优先选择132k (30280) 或 64k (30216)
+                let preferred_qualities = vec![30280_u64, 30216_u64];
+
+                for preferred_q in preferred_qualities {
+                    if let Some(audio) = audios.iter_mut().find(|a| a["id"].as_u64() == Some(preferred_q)) {
+                        if let (Some(url), Some(quality)) = (audio["base_url"].as_str(), audio["id"].as_u64()) {
+                            let quality = AudioQuality::from_repr(quality as usize)
+                                .context(format!("invalid audio stream quality: {}", quality))?;
+                            tracing::info!(
+                                "已回退到普通音频流 - 质量: {:?} ({}k)",
+                                quality,
+                                if quality as usize == 30280 { "132" } else { "64" }
+                            );
+                            streams.push(Stream::DashAudio {
+                                url: url.to_string(),
+                                backup_url: serde_json::from_value(audio["backup_url"].take()).unwrap_or_default(),
+                                quality,
+                            });
+                            break;
+                        }
+                    }
+                }
+
+                // 如果132k和64k都不可用，使用第一个可用的普通音频流
+                if !streams.iter().any(|s| matches!(s, Stream::DashAudio { .. })) {
+                    if let Some(audio) = audios.first_mut() {
+                        if let (Some(url), Some(quality)) = (audio["base_url"].as_str(), audio["id"].as_u64()) {
+                            let quality = AudioQuality::from_repr(quality as usize)
+                                .context(format!("invalid audio stream quality: {}", quality))?;
+                            tracing::info!("已回退到可用的普通音频流 - 质量: {:?}", quality);
+                            streams.push(Stream::DashAudio {
+                                url: url.to_string(),
+                                backup_url: serde_json::from_value(audio["backup_url"].take()).unwrap_or_default(),
+                                quality,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(streams)
     }
 
