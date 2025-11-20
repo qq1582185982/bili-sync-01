@@ -9,7 +9,7 @@
 
 专为 NAS 用户打造的哔哩哔哩同步工具，基于 Rust & Tokio 构建。
 
-📚 [在线文档](https://qq1582185982.github.io/bili-sync-01/) | 🚀 [快速开始](#快速开始) | 📝 [更新日志](./docs/changelog.md)
+📚 [在线文档](https://qq1582185982.github.io/bili-sync-01/) | 🚀 [快速开始](#快速开始) | 📝 [更新日志](./docs/changelog.md) | 💬 [QQ群交流](https://qm.qq.com/q/144RN3oaLM)
 
 ## ✨ 核心特性
 
