@@ -4489,7 +4489,12 @@ pub async fn get_config() -> Result<ApiResponse<crate::api::response::ConfigResp
         },
         // 推送通知配置
         notification: crate::api::response::NotificationConfigResponse {
+            active_channel: config.notification.active_channel.clone(),
             serverchan_key: config.notification.serverchan_key.clone(),
+            wecom_webhook_url: config.notification.wecom_webhook_url.clone(),
+            wecom_msgtype: config.notification.wecom_msgtype.clone(),
+            wecom_mention_all: config.notification.wecom_mention_all,
+            wecom_mentioned_list: config.notification.wecom_mentioned_list.clone(),
             enable_scan_notifications: config.notification.enable_scan_notifications,
             notification_min_videos: config.notification.notification_min_videos,
             notification_timeout: config.notification.notification_timeout,
@@ -10548,13 +10553,46 @@ pub async fn test_notification_handler(
         ));
     }
 
-    if config.serverchan_key.is_none() {
+    // 检查激活的渠道
+    if config.active_channel == "none" {
         return Ok(ApiResponse::bad_request(
             crate::api::response::TestNotificationResponse {
                 success: false,
-                message: "未配置Server酱密钥".to_string(),
+                message: "未选择通知渠道".to_string(),
             },
         ));
+    }
+
+    // 验证选中渠道的配置
+    match config.active_channel.as_str() {
+        "serverchan" => {
+            if config.serverchan_key.is_none() || config.serverchan_key.as_ref().unwrap().is_empty() {
+                return Ok(ApiResponse::bad_request(
+                    crate::api::response::TestNotificationResponse {
+                        success: false,
+                        message: "未配置Server酱密钥".to_string(),
+                    },
+                ));
+            }
+        }
+        "wecom" => {
+            if config.wecom_webhook_url.is_none() || config.wecom_webhook_url.as_ref().unwrap().is_empty() {
+                return Ok(ApiResponse::bad_request(
+                    crate::api::response::TestNotificationResponse {
+                        success: false,
+                        message: "未配置企业微信Webhook URL".to_string(),
+                    },
+                ));
+            }
+        }
+        _ => {
+            return Ok(ApiResponse::bad_request(
+                crate::api::response::TestNotificationResponse {
+                    success: false,
+                    message: format!("未知的通知渠道: {}", config.active_channel),
+                },
+            ));
+        }
     }
 
     let client = crate::utils::notification::NotificationClient::new(config);
@@ -10588,10 +10626,18 @@ pub async fn test_notification_handler(
 )]
 pub async fn get_notification_config() -> Result<ApiResponse<crate::api::response::NotificationConfigResponse>, ApiError>
 {
-    let config = crate::config::reload_config().notification;
+    let mut config = crate::config::reload_config().notification;
+
+    // 自动推断旧配置的激活渠道
+    config.infer_active_channel();
 
     Ok(ApiResponse::ok(crate::api::response::NotificationConfigResponse {
+        active_channel: config.active_channel,
         serverchan_key: config.serverchan_key,
+        wecom_webhook_url: config.wecom_webhook_url,
+        wecom_msgtype: config.wecom_msgtype,
+        wecom_mention_all: config.wecom_mention_all,
+        wecom_mentioned_list: config.wecom_mentioned_list,
         enable_scan_notifications: config.enable_scan_notifications,
         notification_min_videos: config.notification_min_videos,
         notification_timeout: config.notification_timeout,
@@ -10623,12 +10669,46 @@ pub async fn update_notification_config(
     let mut notification_config = current_config.notification.clone();
     let mut updated = false;
 
+    // 更新激活渠道
+    if let Some(ref active_channel) = request.active_channel {
+        notification_config.active_channel = active_channel.clone();
+        updated = true;
+    }
+
     // 更新配置字段
     if let Some(ref key) = request.serverchan_key {
         if key.trim().is_empty() {
             notification_config.serverchan_key = None;
         } else {
             notification_config.serverchan_key = Some(key.trim().to_string());
+        }
+        updated = true;
+    }
+
+    if let Some(ref url) = request.wecom_webhook_url {
+        if url.trim().is_empty() {
+            notification_config.wecom_webhook_url = None;
+        } else {
+            notification_config.wecom_webhook_url = Some(url.trim().to_string());
+        }
+        updated = true;
+    }
+
+    if let Some(ref msgtype) = request.wecom_msgtype {
+        notification_config.wecom_msgtype = msgtype.clone();
+        updated = true;
+    }
+
+    if let Some(mention_all) = request.wecom_mention_all {
+        notification_config.wecom_mention_all = mention_all;
+        updated = true;
+    }
+
+    if let Some(ref list) = request.wecom_mentioned_list {
+        if list.is_empty() {
+            notification_config.wecom_mentioned_list = None;
+        } else {
+            notification_config.wecom_mentioned_list = Some(list.clone());
         }
         updated = true;
     }

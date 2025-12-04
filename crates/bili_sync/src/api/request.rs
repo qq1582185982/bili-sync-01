@@ -221,7 +221,12 @@ pub struct StatusUpdate {
 // 推送配置更新请求
 #[derive(Deserialize, ToSchema)]
 pub struct UpdateNotificationConfigRequest {
+    pub active_channel: Option<String>,
     pub serverchan_key: Option<String>,
+    pub wecom_webhook_url: Option<String>,
+    pub wecom_msgtype: Option<String>,
+    pub wecom_mention_all: Option<bool>,
+    pub wecom_mentioned_list: Option<Vec<String>>,
     pub enable_scan_notifications: Option<bool>,
     pub notification_min_videos: Option<usize>,
     pub notification_timeout: Option<u64>,

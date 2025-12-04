@@ -246,8 +246,25 @@ fn default_cdn_sorting() -> bool {
 // 推送通知配置结构体
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NotificationConfig {
+    // === 当前激活的通知渠道 ===
+    #[serde(default = "default_active_channel")]
+    pub active_channel: String,  // "none", "serverchan", "wecom"
+
+    // === Server酱配置 ===
     #[serde(default)]
     pub serverchan_key: Option<String>,
+
+    // === 企业微信群机器人配置 ===
+    #[serde(default)]
+    pub wecom_webhook_url: Option<String>,
+    #[serde(default = "default_wecom_msgtype")]
+    pub wecom_msgtype: String,
+    #[serde(default)]
+    pub wecom_mention_all: bool,
+    #[serde(default)]
+    pub wecom_mentioned_list: Option<Vec<String>>,
+
+    // === 通用配置 ===
     #[serde(default)]
     pub enable_scan_notifications: bool,
     #[serde(default = "default_notification_min_videos")]
@@ -270,10 +287,23 @@ fn default_notification_retry_count() -> u8 {
     3
 }
 
+fn default_wecom_msgtype() -> String {
+    "markdown".to_string()
+}
+
+fn default_active_channel() -> String {
+    "none".to_string()
+}
+
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
+            active_channel: default_active_channel(),
             serverchan_key: None,
+            wecom_webhook_url: None,
+            wecom_msgtype: default_wecom_msgtype(),
+            wecom_mention_all: false,
+            wecom_mentioned_list: None,
             enable_scan_notifications: false,
             notification_min_videos: default_notification_min_videos(),
             notification_timeout: default_notification_timeout(),
@@ -283,10 +313,58 @@ impl Default for NotificationConfig {
 }
 
 impl NotificationConfig {
+    /// 为旧配置自动推断 active_channel
+    pub fn infer_active_channel(&mut self) {
+        if self.active_channel != "none" {
+            return;
+        }
+
+        // 优先选择 Server酱
+        if self.serverchan_key.is_some() && !self.serverchan_key.as_ref().unwrap().is_empty() {
+            self.active_channel = "serverchan".to_string();
+        }
+        // 其次选择企业微信
+        else if self.wecom_webhook_url.is_some() && !self.wecom_webhook_url.as_ref().unwrap().is_empty() {
+            self.active_channel = "wecom".to_string();
+        }
+    }
+
     #[allow(dead_code)]
     pub fn validate(&self) -> Result<(), String> {
-        if self.enable_scan_notifications && self.serverchan_key.is_none() {
-            return Err("启用推送通知时必须配置Server酱密钥".to_string());
+        // 验证 active_channel 的有效性
+        if !["none", "serverchan", "wecom"].contains(&self.active_channel.as_str()) {
+            return Err(format!("无效的通知渠道: {}", self.active_channel));
+        }
+
+        // 如果启用推送，必须选择一个渠道
+        if self.enable_scan_notifications {
+            if self.active_channel == "none" {
+                return Err("启用推送通知时必须选择一个通知渠道".to_string());
+            }
+
+            // 验证选中渠道的配置
+            match self.active_channel.as_str() {
+                "serverchan" => {
+                    if self.serverchan_key.is_none() || self.serverchan_key.as_ref().unwrap().is_empty() {
+                        return Err("已选择Server酱但未配置密钥".to_string());
+                    }
+                }
+                "wecom" => {
+                    if self.wecom_webhook_url.is_none() || self.wecom_webhook_url.as_ref().unwrap().is_empty() {
+                        return Err("已选择企业微信但未配置Webhook URL".to_string());
+                    }
+
+                    let url = self.wecom_webhook_url.as_ref().unwrap();
+                    if !url.starts_with("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=") {
+                        return Err("企业微信Webhook URL格式不正确".to_string());
+                    }
+
+                    if !matches!(self.wecom_msgtype.as_str(), "text" | "markdown") {
+                        return Err("企业微信消息类型必须是 'text' 或 'markdown'".to_string());
+                    }
+                }
+                _ => {}
+            }
         }
 
         if self.notification_min_videos == 0 {

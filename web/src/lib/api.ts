@@ -598,16 +598,26 @@ class ApiClient {
 	 */
 	async getNotificationConfig(): Promise<
 		ApiResponse<{
+			active_channel: string;
 			enable_scan_notifications: boolean;
 			serverchan_key?: string;
+			wecom_webhook_url?: string;
+			wecom_msgtype: string;
+			wecom_mention_all: boolean;
+			wecom_mentioned_list?: string[];
 			notification_min_videos: number;
 			notification_timeout: number;
 			notification_retry_count: number;
 		}>
 	> {
 		return this.get<{
+			active_channel: string;
 			enable_scan_notifications: boolean;
 			serverchan_key?: string;
+			wecom_webhook_url?: string;
+			wecom_msgtype: string;
+			wecom_mention_all: boolean;
+			wecom_mentioned_list?: string[];
 			notification_min_videos: number;
 			notification_timeout: number;
 			notification_retry_count: number;
@@ -618,8 +628,13 @@ class ApiClient {
 	 * 更新推送通知配置
 	 */
 	async updateNotificationConfig(config: {
+		active_channel?: string;
 		enable_scan_notifications?: boolean;
 		serverchan_key?: string;
+		wecom_webhook_url?: string;
+		wecom_msgtype?: string;
+		wecom_mention_all?: boolean;
+		wecom_mentioned_list?: string[];
 		notification_min_videos?: number;
 	}): Promise<
 		ApiResponse<{

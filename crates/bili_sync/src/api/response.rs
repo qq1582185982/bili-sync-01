@@ -693,7 +693,12 @@ pub struct SysInfo {
 // 推送配置响应
 #[derive(Serialize, ToSchema)]
 pub struct NotificationConfigResponse {
+    pub active_channel: String,
     pub serverchan_key: Option<String>,
+    pub wecom_webhook_url: Option<String>,
+    pub wecom_msgtype: String,
+    pub wecom_mention_all: bool,
+    pub wecom_mentioned_list: Option<Vec<String>>,
     pub enable_scan_notifications: bool,
     pub notification_min_videos: usize,
     pub notification_timeout: u64,

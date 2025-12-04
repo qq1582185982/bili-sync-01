@@ -44,6 +44,44 @@ where
     }
 }
 
+// ========== 企业微信API请求/响应结构 ==========
+
+#[derive(Serialize)]
+struct WecomTextRequest {
+    msgtype: String,
+    text: WecomTextContent,
+}
+
+#[derive(Serialize)]
+struct WecomTextContent {
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mentioned_list: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+struct WecomMarkdownRequest {
+    msgtype: String,
+    markdown: WecomMarkdownContent,
+}
+
+#[derive(Serialize)]
+struct WecomMarkdownContent {
+    content: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct WecomResponse {
+    errcode: i32,
+    errmsg: String,
+}
+
+impl WecomResponse {
+    fn is_success(&self) -> bool {
+        self.errcode == 0
+    }
+}
+
 // 推送通知客户端
 pub struct NotificationClient {
     client: Client,
@@ -121,34 +159,69 @@ impl NotificationClient {
             return Ok(());
         }
 
-        let Some(ref key) = self.config.serverchan_key else {
-            warn!("未配置Server酱密钥，无法发送推送");
+        let active_channel = self.config.active_channel.as_str();
+        if active_channel == "none" {
+            warn!("推送通知已启用但未选择通知渠道");
             return Ok(());
-        };
+        }
 
         let (title, content) = self.format_scan_message(summary);
 
-        for attempt in 1..=self.config.notification_retry_count {
-            match self.send_to_serverchan(key, &title, &content).await {
-                Ok(_) => {
-                    info!("扫描完成推送发送成功");
+        // 只向选中的渠道发送
+        match active_channel {
+            "serverchan" => {
+                let Some(ref key) = self.config.serverchan_key else {
+                    warn!("Server酱渠道已激活但未配置密钥");
                     return Ok(());
-                }
-                Err(e) => {
-                    warn!(
-                        "推送发送失败 (尝试 {}/{}): {}",
-                        attempt, self.config.notification_retry_count, e
-                    );
+                };
 
-                    if attempt < self.config.notification_retry_count {
-                        tokio::time::sleep(Duration::from_secs(2)).await;
+                for attempt in 1..=self.config.notification_retry_count {
+                    match self.send_to_serverchan(key, &title, &content).await {
+                        Ok(_) => {
+                            info!("Server酱推送发送成功");
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Server酱推送发送失败 (尝试 {}/{}): {}",
+                                attempt, self.config.notification_retry_count, e
+                            );
+                            if attempt < self.config.notification_retry_count {
+                                tokio::time::sleep(Duration::from_secs(2)).await;
+                            }
+                        }
                     }
                 }
+                error!("Server酱推送发送失败，已达最大重试次数");
+            }
+            "wecom" => {
+                for attempt in 1..=self.config.notification_retry_count {
+                    let wecom_content = self.format_wecom_content(&content);
+
+                    match self.send_to_wecom(&title, &wecom_content).await {
+                        Ok(_) => {
+                            info!("企业微信推送发送成功");
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            warn!(
+                                "企业微信推送发送失败 (尝试 {}/{}): {}",
+                                attempt, self.config.notification_retry_count, e
+                            );
+                            if attempt < self.config.notification_retry_count {
+                                tokio::time::sleep(Duration::from_secs(2)).await;
+                            }
+                        }
+                    }
+                }
+                error!("企业微信推送发送失败，已达最大重试次数");
+            }
+            _ => {
+                warn!("未知的通知渠道: {}", active_channel);
             }
         }
 
-        error!("推送发送失败，已达到最大重试次数");
-        Ok(()) // 不返回错误，避免影响主要功能
+        Ok(())
     }
 
     async fn send_to_serverchan(&self, key: &str, title: &str, content: &str) -> Result<()> {
@@ -168,6 +241,77 @@ impl NotificationClient {
             Ok(())
         } else {
             Err(anyhow!("Server酱返回错误: {}", server_response.message))
+        }
+    }
+
+    /// 发送企业微信通知
+    async fn send_to_wecom(&self, title: &str, content: &str) -> Result<()> {
+        let Some(ref webhook_url) = self.config.wecom_webhook_url else {
+            return Err(anyhow!("未配置企业微信Webhook URL"));
+        };
+
+        let response = match self.config.wecom_msgtype.as_str() {
+            "text" => {
+                let full_content = format!("{}\n\n{}", title, content);
+
+                let mentioned_list = if self.config.wecom_mention_all {
+                    Some(vec!["@all".to_string()])
+                } else {
+                    self.config.wecom_mentioned_list.clone()
+                };
+
+                let request = WecomTextRequest {
+                    msgtype: "text".to_string(),
+                    text: WecomTextContent {
+                        content: full_content,
+                        mentioned_list,
+                    },
+                };
+
+                self.client.post(webhook_url).json(&request).send().await?
+            }
+            "markdown" => {
+                let markdown_content = format!("# {}\n\n{}", title, content);
+
+                let request = WecomMarkdownRequest {
+                    msgtype: "markdown".to_string(),
+                    markdown: WecomMarkdownContent {
+                        content: markdown_content,
+                    },
+                };
+
+                self.client.post(webhook_url).json(&request).send().await?
+            }
+            _ => {
+                return Err(anyhow!("不支持的企业微信消息类型: {}", self.config.wecom_msgtype));
+            }
+        };
+
+        let response_text = response.text().await?;
+        let wecom_response: WecomResponse = serde_json::from_str(&response_text)
+            .map_err(|e| anyhow!("解析企业微信响应失败: {}, 响应内容: {}", e, response_text))?;
+
+        if wecom_response.is_success() {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "企业微信返回错误 (errcode: {}): {}",
+                wecom_response.errcode,
+                wecom_response.errmsg
+            ))
+        }
+    }
+
+    /// 格式化企业微信消息内容（限制长度）
+    fn format_wecom_content(&self, content: &str) -> String {
+        const MAX_WECOM_LENGTH: usize = 4000;
+
+        if content.len() > MAX_WECOM_LENGTH {
+            let mut truncated = content.chars().take(MAX_WECOM_LENGTH - 50).collect::<String>();
+            truncated.push_str("\n\n...内容过长，已截断");
+            truncated
+        } else {
+            content.to_string()
         }
     }
 
@@ -314,25 +458,65 @@ impl NotificationClient {
     }
 
     pub async fn test_notification(&self) -> Result<()> {
-        let Some(ref key) = self.config.serverchan_key else {
-            return Err(anyhow!("未配置Server酱密钥"));
-        };
+        let active_channel = self.config.active_channel.as_str();
 
-        let title = "Bili Sync 测试推送";
-        let content = "这是一条测试推送消息，如果您收到此消息，说明推送配置正确。\n\n🎉 推送功能工作正常！";
+        if active_channel == "none" {
+            return Err(anyhow!("未选择通知渠道"));
+        }
 
-        self.send_to_serverchan(key, title, content).await
+        match active_channel {
+            "serverchan" => {
+                let Some(ref key) = self.config.serverchan_key else {
+                    return Err(anyhow!("Server酱渠道已选择但未配置密钥"));
+                };
+
+                let title = "Bili Sync 测试推送";
+                let content = "这是一条测试推送消息。\n\n如果您收到此消息，说明Server酱推送配置正确。\n\n🎉 推送功能工作正常！";
+
+                self.send_to_serverchan(key, title, content).await?;
+                info!("Server酱测试推送发送成功");
+                Ok(())
+            }
+            "wecom" => {
+                let title = "Bili Sync 测试推送";
+                let content = "这是一条企业微信测试推送消息。\n\n如果您收到此消息，说明企业微信推送配置正确。\n\n🎉 推送功能工作正常！";
+
+                self.send_to_wecom(title, content).await?;
+                info!("企业微信测试推送发送成功");
+                Ok(())
+            }
+            _ => Err(anyhow!("未知的通知渠道: {}", active_channel))
+        }
     }
 
     pub async fn send_custom_test(&self, message: &str) -> Result<()> {
-        let Some(ref key) = self.config.serverchan_key else {
-            return Err(anyhow!("未配置Server酱密钥"));
-        };
+        let active_channel = self.config.active_channel.as_str();
+
+        if active_channel == "none" {
+            return Err(anyhow!("未选择通知渠道"));
+        }
 
         let title = "Bili Sync 自定义测试推送";
         let content = format!("🧪 **自定义测试消息**\n\n{}", message);
 
-        self.send_to_serverchan(key, title, &content).await
+        match active_channel {
+            "serverchan" => {
+                let Some(ref key) = self.config.serverchan_key else {
+                    return Err(anyhow!("Server酱渠道已选择但未配置密钥"));
+                };
+
+                self.send_to_serverchan(key, title, &content).await?;
+                info!("Server酱自定义测试推送发送成功");
+                Ok(())
+            }
+            "wecom" => {
+                let wecom_content = self.format_wecom_content(&content);
+                self.send_to_wecom(title, &wecom_content).await?;
+                info!("企业微信自定义测试推送发送成功");
+                Ok(())
+            }
+            _ => Err(anyhow!("未知的通知渠道: {}", active_channel))
+        }
     }
 }
 
@@ -355,4 +539,66 @@ pub async fn send_custom_test_notification(message: &str) -> Result<()> {
     let config = crate::config::reload_config().notification;
     let client = NotificationClient::new(config);
     client.send_custom_test(message).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wecom_response_success() {
+        let resp = WecomResponse {
+            errcode: 0,
+            errmsg: "ok".to_string(),
+        };
+        assert!(resp.is_success());
+
+        let resp = WecomResponse {
+            errcode: 40001,
+            errmsg: "invalid webhook url".to_string(),
+        };
+        assert!(!resp.is_success());
+    }
+
+    #[test]
+    fn test_notification_config_validation() {
+        let mut config = NotificationConfig::default();
+        config.enable_scan_notifications = true;
+
+        // 未配置任何渠道应该失败
+        assert!(config.validate().is_err());
+
+        // 配置企业微信后应该通过
+        config.wecom_webhook_url = Some(
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test".to_string(),
+        );
+        assert!(config.validate().is_ok());
+
+        // 错误的URL格式应该失败
+        config.wecom_webhook_url = Some("https://example.com/webhook".to_string());
+        assert!(config.validate().is_err());
+
+        // 错误的消息类型应该失败
+        config.wecom_webhook_url = Some(
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test".to_string(),
+        );
+        config.wecom_msgtype = "invalid".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_format_wecom_content() {
+        let config = NotificationConfig::default();
+        let client = NotificationClient::new(config);
+
+        // 短内容应该保持不变
+        let short_content = "测试内容";
+        assert_eq!(client.format_wecom_content(short_content), short_content);
+
+        // 长内容应该被截断
+        let long_content = "a".repeat(5000);
+        let formatted = client.format_wecom_content(&long_content);
+        assert!(formatted.len() < 4100);
+        assert!(formatted.contains("内容过长，已截断"));
+    }
 }
