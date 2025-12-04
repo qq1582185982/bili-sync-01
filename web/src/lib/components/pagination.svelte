@@ -9,6 +9,8 @@
 	export let totalPages: number = 0;
 	export let onPageChange: (page: number) => void = () => {};
 
+	let jumpInputValue: string = '';
+
 	function goToPage(page: number) {
 		if (page >= 0 && page < totalPages && page !== currentPage) {
 			onPageChange(page);
@@ -45,6 +47,22 @@
 	$: visiblePages = getVisiblePages(currentPage, totalPages);
 	$: hasPrevious = currentPage > 0;
 	$: hasNext = currentPage < totalPages - 1;
+
+	function handleJumpToPage() {
+		const pageNum = parseInt(jumpInputValue);
+		if (isNaN(pageNum) || pageNum < 1 || pageNum > totalPages) {
+			return;
+		}
+		// pageNum 是 1-based，转换为 0-based
+		goToPage(pageNum - 1);
+		jumpInputValue = '';
+	}
+
+	function handleJumpKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			handleJumpToPage();
+		}
+	}
 </script>
 
 {#if totalPages > 1}
@@ -105,4 +123,30 @@
 			<ChevronsRightIcon class="h-4 w-4" />
 		</Button>
 	</div>
+
+	<!-- 跳转到指定页 -->
+	{#if totalPages > 1}
+		<div class="mt-3 flex items-center justify-center gap-2">
+			<span class="text-muted-foreground text-sm">跳转到第</span>
+			<input
+				type="number"
+				min="1"
+				max={totalPages}
+				bind:value={jumpInputValue}
+				onkeydown={handleJumpKeydown}
+				placeholder="1-{totalPages}"
+				class="border-input bg-background ring-offset-background focus:ring-ring h-8 w-20 rounded-md border px-2 text-center text-sm focus:ring-2 focus:ring-offset-2 focus:outline-none"
+			/>
+			<span class="text-muted-foreground text-sm">页</span>
+			<Button
+				variant="outline"
+				size="sm"
+				class="h-8 cursor-pointer"
+				onclick={handleJumpToPage}
+				disabled={!jumpInputValue || parseInt(jumpInputValue) < 1 || parseInt(jumpInputValue) > totalPages}
+			>
+				跳转
+			</Button>
+		</div>
+	{/if}
 {/if}

@@ -6,8 +6,10 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import VideoCard from '$lib/components/video-card.svelte';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
-	import { appStateStore, setVideoIds, ToQuery } from '$lib/stores/filter';
+	import { appStateStore, setVideoIds, setCurrentPage, setVideoListInfo, ToQuery } from '$lib/stores/filter';
 	import type { ApiError, UpdateVideoStatusRequest, VideoResponse } from '$lib/types';
+	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import EditIcon from '@lucide/svelte/icons/edit';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
@@ -37,6 +39,96 @@
 	let innerWidth: number;
 	let isMobile: boolean = false;
 	$: isMobile = innerWidth < 768; // sm断点
+
+	// 视频导航相关
+	$: currentVideoId = videoData?.video.id ?? 0;
+	$: videoIds = $appStateStore.videoIds;
+	$: totalCount = $appStateStore.totalCount;
+	$: pageSize = $appStateStore.pageSize;
+	$: currentPage = $appStateStore.currentPage;
+	$: currentIndexInPage = videoIds.indexOf(currentVideoId);
+	$: globalIndex = currentPage * pageSize + currentIndexInPage; // 全局索引
+	$: totalPages = Math.ceil(totalCount / pageSize);
+	$: hasPrevVideo = globalIndex > 0;
+	$: hasNextVideo = globalIndex < totalCount - 1;
+	let navigating = false;
+
+	async function goToPrevVideo() {
+		if (!hasPrevVideo || navigating) return;
+
+		navigating = true;
+		try {
+			if (currentIndexInPage > 0) {
+				// 当前页内有上一个视频
+				const prevVideoId = videoIds[currentIndexInPage - 1];
+				goto(`/video/${prevVideoId}`);
+			} else if (currentPage > 0) {
+				// 需要加载上一页
+				const prevPage = currentPage - 1;
+				await loadPageVideos(prevPage);
+				// 跳转到上一页的最后一个视频
+				const state = get(appStateStore);
+				if (state.videoIds.length > 0) {
+					const lastVideoId = state.videoIds[state.videoIds.length - 1];
+					goto(`/video/${lastVideoId}`);
+				}
+			}
+		} finally {
+			navigating = false;
+		}
+	}
+
+	async function goToNextVideo() {
+		if (!hasNextVideo || navigating) return;
+
+		navigating = true;
+		try {
+			if (currentIndexInPage < videoIds.length - 1) {
+				// 当前页内有下一个视频
+				const nextVideoId = videoIds[currentIndexInPage + 1];
+				goto(`/video/${nextVideoId}`);
+			} else if (currentPage < totalPages - 1) {
+				// 需要加载下一页
+				const nextPage = currentPage + 1;
+				await loadPageVideos(nextPage);
+				// 跳转到下一页的第一个视频
+				const state = get(appStateStore);
+				if (state.videoIds.length > 0) {
+					const firstVideoId = state.videoIds[0];
+					goto(`/video/${firstVideoId}`);
+				}
+			}
+		} finally {
+			navigating = false;
+		}
+	}
+
+	async function loadPageVideos(pageNum: number) {
+		const state = get(appStateStore);
+		const params: Record<string, string | number | boolean> = {
+			page: pageNum,
+			page_size: state.pageSize,
+			sort_by: state.sortBy,
+			sort_order: state.sortOrder
+		};
+		if (state.query) {
+			params.query = state.query;
+		}
+		if (state.videoSource) {
+			params[state.videoSource.type] = parseInt(state.videoSource.id);
+		}
+		if (state.showFailedOnly) {
+			params.show_failed_only = true;
+		}
+
+		const result = await api.getVideos(params);
+		setCurrentPage(pageNum);
+		setVideoListInfo(
+			result.data.videos.map((v) => v.id),
+			result.data.total_count,
+			state.pageSize
+		);
+	}
 
 	// 根据视频类型动态生成任务名称
 	$: videoTaskNames = (() => {
@@ -355,7 +447,36 @@
 	<!-- 视频信息区域 -->
 	<section>
 		<div class="mb-4 flex {isMobile ? 'flex-col gap-3' : 'items-center justify-between'}">
-			<h2 class="{isMobile ? 'text-lg' : 'text-xl'} font-semibold">视频信息</h2>
+			<div class="flex items-center gap-2">
+				{#if totalCount > 1}
+					<Button
+						size="sm"
+						variant="outline"
+						class="cursor-pointer"
+						onclick={goToPrevVideo}
+						disabled={!hasPrevVideo || navigating}
+						title="上一个视频"
+					>
+						<ChevronLeftIcon class="h-4 w-4" />
+					</Button>
+				{/if}
+				<h2 class="{isMobile ? 'text-lg' : 'text-xl'} font-semibold">视频信息</h2>
+				{#if totalCount > 1}
+					<Button
+						size="sm"
+						variant="outline"
+						class="cursor-pointer"
+						onclick={goToNextVideo}
+						disabled={!hasNextVideo || navigating}
+						title="下一个视频"
+					>
+						<ChevronRightIcon class="h-4 w-4" />
+					</Button>
+					<span class="text-muted-foreground text-sm">
+						{globalIndex + 1} / {totalCount}
+					</span>
+				{/if}
+			</div>
 			<div class="flex {isMobile ? 'flex-col gap-2' : 'gap-2'}">
 				<Button
 					size="sm"

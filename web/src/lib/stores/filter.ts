@@ -12,6 +12,8 @@ export interface AppState {
 	sortBy: SortBy;
 	sortOrder: SortOrder;
 	videoIds: number[]; // 当前视频列表的 ID，用于详情页导航
+	totalCount: number; // 视频总数
+	pageSize: number; // 每页大小
 }
 
 export const appStateStore = writable<AppState>({
@@ -21,7 +23,9 @@ export const appStateStore = writable<AppState>({
 	showFailedOnly: false,
 	sortBy: 'id',
 	sortOrder: 'desc',
-	videoIds: []
+	videoIds: [],
+	totalCount: 0,
+	pageSize: 20
 });
 
 export const ToQuery = (state: AppState): string => {
@@ -133,6 +137,15 @@ export const setVideoIds = (videoIds: number[]) => {
 	appStateStore.update((state) => ({
 		...state,
 		videoIds
+	}));
+};
+
+export const setVideoListInfo = (videoIds: number[], totalCount: number, pageSize: number) => {
+	appStateStore.update((state) => ({
+		...state,
+		videoIds,
+		totalCount,
+		pageSize
 	}));
 };
 
