@@ -1491,6 +1491,13 @@ impl<'a> Video<'a> {
                         tracing::info!("启动新验证流程，已在管理页 /captcha 提供验证界面");
                         tracing::info!("请在浏览器中访问管理页面完成验证，超时时间: {}秒", risk_config.timeout);
 
+                        // 发送风控通知（异步执行，不阻塞验证流程）
+                        tokio::spawn(async {
+                            if let Err(e) = crate::utils::notification::send_risk_control_notification("manual").await {
+                                tracing::warn!("发送风控通知失败: {}", e);
+                            }
+                        });
+
                         // 等待用户完成验证
                         let captcha_result = tokio::time::timeout(
                             std::time::Duration::from_secs(risk_config.timeout),
@@ -1536,6 +1543,13 @@ impl<'a> Video<'a> {
                 match verification_request {
                     VerificationRequest::StartNew(_) => {
                         tracing::info!("开始自动解决验证码");
+
+                        // 发送风控通知（异步执行，不阻塞验证流程）
+                        tokio::spawn(async {
+                            if let Err(e) = crate::utils::notification::send_risk_control_notification("auto").await {
+                                tracing::warn!("发送风控通知失败: {}", e);
+                            }
+                        });
 
                         // 调用自动解决方法
                         let page_url = "https://www.bilibili.com";

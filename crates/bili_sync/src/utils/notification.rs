@@ -518,6 +518,57 @@ impl NotificationClient {
             _ => Err(anyhow!("未知的通知渠道: {}", active_channel))
         }
     }
+
+    /// 发送风控验证通知
+    pub async fn send_risk_control(&self, mode: &str) -> Result<()> {
+        let active_channel = self.config.active_channel.as_str();
+
+        if active_channel == "none" {
+            debug!("未选择通知渠道，跳过风控通知");
+            return Ok(());
+        }
+
+        let title = "Bili Sync 风控验证提醒";
+        let content = match mode {
+            "manual" => "检测到B站风控验证，需要手动完成验证码。\n\n请访问管理页面 /captcha 完成验证。".to_string(),
+            "auto" => "检测到B站风控验证，正在自动处理验证码...".to_string(),
+            _ => format!("检测到B站风控验证（模式: {}）", mode),
+        };
+
+        match active_channel {
+            "serverchan" => {
+                let Some(ref key) = self.config.serverchan_key else {
+                    warn!("Server酱渠道已激活但未配置密钥，跳过风控通知");
+                    return Ok(());
+                };
+
+                match self.send_to_serverchan(key, title, &content).await {
+                    Ok(_) => {
+                        info!("风控通知推送成功 (Server酱)");
+                    }
+                    Err(e) => {
+                        warn!("风控通知推送失败 (Server酱): {}", e);
+                    }
+                }
+            }
+            "wecom" => {
+                let wecom_content = self.format_wecom_content(&content);
+                match self.send_to_wecom(title, &wecom_content).await {
+                    Ok(_) => {
+                        info!("风控通知推送成功 (企业微信)");
+                    }
+                    Err(e) => {
+                        warn!("风控通知推送失败 (企业微信): {}", e);
+                    }
+                }
+            }
+            _ => {
+                warn!("未知的通知渠道: {}", active_channel);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 // 便捷函数
@@ -539,6 +590,13 @@ pub async fn send_custom_test_notification(message: &str) -> Result<()> {
     let config = crate::config::reload_config().notification;
     let client = NotificationClient::new(config);
     client.send_custom_test(message).await
+}
+
+/// 发送风控验证通知的便捷函数
+pub async fn send_risk_control_notification(mode: &str) -> Result<()> {
+    let config = crate::config::reload_config().notification;
+    let client = NotificationClient::new(config);
+    client.send_risk_control(mode).await
 }
 
 #[cfg(test)]
