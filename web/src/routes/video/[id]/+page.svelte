@@ -6,7 +6,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import VideoCard from '$lib/components/video-card.svelte';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
-	import { appStateStore, ToQuery } from '$lib/stores/filter';
+	import { appStateStore, setVideoIds, ToQuery } from '$lib/stores/filter';
 	import type { ApiError, UpdateVideoStatusRequest, VideoResponse } from '$lib/types';
 	import EditIcon from '@lucide/svelte/icons/edit';
 	import PlayIcon from '@lucide/svelte/icons/play';
@@ -14,6 +14,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { get } from 'svelte/store';
 
 	let videoData: VideoResponse | null = null;
 	let loading = false;
@@ -283,7 +284,8 @@
 
 		deleting = true;
 		try {
-			const result = await api.deleteVideo(videoData.video.id);
+			const currentVideoId = videoData.video.id;
+			const result = await api.deleteVideo(currentVideoId);
 			const data = result.data;
 
 			if (data.success) {
@@ -291,8 +293,26 @@
 					description: '视频已被标记为删除状态'
 				});
 				deleteDialogOpen = false;
-				// 返回首页
-				goto('/');
+
+				// 获取当前视频列表，找到下一个视频
+				const state = get(appStateStore);
+				const videoIds = state.videoIds;
+				const currentIndex = videoIds.indexOf(currentVideoId);
+
+				if (currentIndex !== -1 && videoIds.length > 1) {
+					// 从列表中移除当前视频
+					const newVideoIds = videoIds.filter((id) => id !== currentVideoId);
+					setVideoIds(newVideoIds);
+
+					// 跳转到下一个视频（如果是最后一个则跳转到上一个）
+					const nextIndex = currentIndex < newVideoIds.length ? currentIndex : newVideoIds.length - 1;
+					const nextVideoId = newVideoIds[nextIndex];
+					goto(`/video/${nextVideoId}`);
+				} else {
+					// 列表为空或没有更多视频，返回视频管理页面
+					const query = ToQuery(state);
+					goto(query ? `/videos?${query}` : '/videos');
+				}
 			} else {
 				toast.error('视频删除失败', {
 					description: data.message

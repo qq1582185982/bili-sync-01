@@ -11,6 +11,7 @@ export interface AppState {
 	showFailedOnly: boolean;
 	sortBy: SortBy;
 	sortOrder: SortOrder;
+	videoIds: number[]; // 当前视频列表的 ID，用于详情页导航
 }
 
 export const appStateStore = writable<AppState>({
@@ -19,7 +20,8 @@ export const appStateStore = writable<AppState>({
 	videoSource: null,
 	showFailedOnly: false,
 	sortBy: 'id',
-	sortOrder: 'desc'
+	sortOrder: 'desc',
+	videoIds: []
 });
 
 export const ToQuery = (state: AppState): string => {
@@ -96,25 +98,27 @@ export const setAll = (
 	sortBy: SortBy = 'id',
 	sortOrder: SortOrder = 'desc'
 ) => {
-	appStateStore.set({
+	appStateStore.update((state) => ({
+		...state,
 		query,
 		currentPage,
 		videoSource,
 		showFailedOnly,
 		sortBy,
 		sortOrder
-	});
+	}));
 };
 
 export const clearAll = () => {
-	appStateStore.set({
+	appStateStore.update((state) => ({
+		...state,
 		query: '',
 		currentPage: 0,
 		videoSource: null,
 		showFailedOnly: false,
 		sortBy: 'id',
 		sortOrder: 'desc'
-	});
+	}));
 };
 
 export const setSort = (sortBy: SortBy, sortOrder: SortOrder) => {
@@ -122,6 +126,13 @@ export const setSort = (sortBy: SortBy, sortOrder: SortOrder) => {
 		...state,
 		sortBy,
 		sortOrder
+	}));
+};
+
+export const setVideoIds = (videoIds: number[]) => {
+	appStateStore.update((state) => ({
+		...state,
+		videoIds
 	}));
 };
 

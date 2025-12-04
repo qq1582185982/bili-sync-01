@@ -25,6 +25,7 @@
 		setQuery,
 		setShowFailedOnly,
 		setSort,
+		setVideoIds,
 		ToQuery
 	} from '$lib/stores/filter';
 	import type { SortBy, SortOrder } from '$lib/types';
@@ -109,6 +110,8 @@
 
 			const result = await api.getVideos(params);
 			videosData = result.data;
+			// 更新视频 ID 列表，用于详情页导航
+			setVideoIds(result.data.videos.map((v) => v.id));
 		} catch (error) {
 			console.error('加载视频失败:', error);
 			toast.error('加载视频失败', {
