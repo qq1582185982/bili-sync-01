@@ -26,6 +26,7 @@ import type {
 	UpdateVideoSourceEnabledResponse,
 	ResetVideoSourcePathRequest,
 	ResetVideoSourcePathResponse,
+	UpdateSubmissionSelectedVideosResponse,
 	UpdateCredentialRequest,
 	UpdateCredentialResponse,
 	InitialSetupCheckResponse,
@@ -354,6 +355,21 @@ class ApiClient {
 		return this.post<ResetVideoSourcePathResponse>(
 			`/video-sources/${sourceType}/${id}/reset-path`,
 			params
+		);
+	}
+
+	/**
+	 * 更新投稿源选中视频列表
+	 * @param id 投稿源ID
+	 * @param selectedVideos 选中的视频BVID列表
+	 */
+	async updateSubmissionSelectedVideos(
+		id: number,
+		selectedVideos: string[]
+	): Promise<ApiResponse<UpdateSubmissionSelectedVideosResponse>> {
+		return this.put<UpdateSubmissionSelectedVideosResponse>(
+			`/video-sources/submission/${id}/selected-videos`,
+			{ selected_videos: selectedVideos }
 		);
 	}
 
@@ -823,6 +839,12 @@ export const api = {
 	 */
 	resetVideoSourcePath: (sourceType: string, id: number, params: ResetVideoSourcePathRequest) =>
 		apiClient.resetVideoSourcePath(sourceType, id, params),
+
+	/**
+	 * 更新投稿源选中视频列表
+	 */
+	updateSubmissionSelectedVideos: (id: number, selectedVideos: string[]) =>
+		apiClient.updateSubmissionSelectedVideos(id, selectedVideos),
 
 	/**
 	 * 检查是否需要初始设置

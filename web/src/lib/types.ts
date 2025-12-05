@@ -54,6 +54,7 @@ export interface VideoSourcesResponse {
 // 视频信息类型
 export interface VideoInfo {
 	id: number;
+	bvid: string;
 	name: string;
 	upper_name: string;
 	path: string;
@@ -608,6 +609,14 @@ export interface ResetVideoSourcePathResponse {
 	moved_files_count: number;
 	updated_videos_count: number;
 	cleaned_folders_count: number;
+	message: string;
+}
+
+// 更新投稿源选中视频列表响应类型
+export interface UpdateSubmissionSelectedVideosResponse {
+	success: boolean;
+	source_id: number;
+	selected_count: number;
 	message: string;
 }
 

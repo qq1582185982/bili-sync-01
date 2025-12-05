@@ -73,6 +73,13 @@ pub struct UpdateVideoSourceScanDeletedRequest {
     pub scan_deleted_videos: bool,
 }
 
+// 更新投稿源选中视频列表的请求结构体
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateSubmissionSelectedVideosRequest {
+    /// 选中的视频BVID列表，用于选择性下载历史投稿
+    pub selected_videos: Vec<String>,
+}
+
 // 重设视频源路径的请求结构体
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ResetVideoSourcePathRequest {

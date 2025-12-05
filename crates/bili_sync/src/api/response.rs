@@ -120,6 +120,14 @@ pub struct UpdateVideoSourceScanDeletedResponse {
 }
 
 #[derive(Serialize, ToSchema)]
+pub struct UpdateSubmissionSelectedVideosResponse {
+    pub success: bool,
+    pub source_id: i32,
+    pub selected_count: usize,
+    pub message: String,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct ResetVideoSourcePathResponse {
     pub success: bool,
     pub source_id: i32,
@@ -206,6 +214,7 @@ impl From<(i32, i32, String, u32, Option<String>)> for PageInfo {
 #[derive(Serialize, ToSchema)]
 pub struct VideoInfo {
     pub id: i32,
+    pub bvid: String,
     pub name: String,
     pub upper_name: String,
     pub path: String,
@@ -216,12 +225,13 @@ pub struct VideoInfo {
     pub bangumi_title: Option<String>, // 番剧真实标题，用于番剧类型视频的显示
 }
 
-impl From<(i32, String, String, String, i32, u32, String)> for VideoInfo {
+impl From<(i32, String, String, String, String, i32, u32, String)> for VideoInfo {
     fn from(
-        (id, name, upper_name, path, category, download_status, cover): (i32, String, String, String, i32, u32, String),
+        (id, bvid, name, upper_name, path, category, download_status, cover): (i32, String, String, String, String, i32, u32, String),
     ) -> Self {
         Self {
             id,
+            bvid,
             name,
             upper_name,
             path,

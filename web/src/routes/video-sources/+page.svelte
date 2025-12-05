@@ -11,6 +11,7 @@
 	import { videoSourceStore, setVideoSources } from '$lib/stores/video-source';
 	import DeleteVideoSourceDialog from '$lib/components/delete-video-source-dialog.svelte';
 	import ResetPathDialog from '$lib/components/reset-path-dialog.svelte';
+	import SubmissionSelectionDialog from '$lib/components/submission-selection-dialog.svelte';
 
 	// 图标导入
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -20,6 +21,7 @@
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import ListVideoIcon from '@lucide/svelte/icons/list-video';
 	import { goto } from '$app/navigation';
 
 	let loading = false;
@@ -49,6 +51,15 @@
 		id: 0,
 		name: '',
 		currentPath: ''
+	};
+
+	// 投稿选择对话框状态
+	let showSubmissionSelectionDialog = false;
+	let submissionSelectionInfo = {
+		id: 0,
+		upperId: 0,
+		upperName: '',
+		selectedVideos: [] as string[]
 	};
 
 	async function loadVideoSources() {
@@ -204,6 +215,57 @@
 		showResetPathDialog = false;
 	}
 
+	// 打开投稿选择对话框
+	function handleSelectSubmissionVideos(
+		sourceId: number,
+		upperId: number,
+		upperName: string,
+		selectedVideosJson: string | null
+	) {
+		let selectedVideos: string[] = [];
+		if (selectedVideosJson) {
+			try {
+				selectedVideos = JSON.parse(selectedVideosJson);
+			} catch (e) {
+				console.error('解析选中视频列表失败:', e);
+			}
+		}
+		submissionSelectionInfo = {
+			id: sourceId,
+			upperId,
+			upperName,
+			selectedVideos
+		};
+		showSubmissionSelectionDialog = true;
+	}
+
+	// 确认投稿选择
+	async function handleConfirmSubmissionSelection(event: CustomEvent<string[]>) {
+		const selectedVideos = event.detail;
+		try {
+			const result = await api.updateSubmissionSelectedVideos(
+				submissionSelectionInfo.id,
+				selectedVideos
+			);
+			if (result.data.success) {
+				toast.success('历史投稿选择已更新', {
+					description: result.data.message
+				});
+				await loadVideoSources();
+			} else {
+				toast.error('更新失败', { description: result.data.message });
+			}
+		} catch (error: unknown) {
+			console.error('更新投稿选择失败:', error);
+			toast.error('更新失败', { description: (error as Error).message });
+		}
+	}
+
+	// 取消投稿选择
+	function handleCancelSubmissionSelection() {
+		showSubmissionSelectionDialog = false;
+	}
+
 	// 切换折叠状态
 	function toggleCollapse(sectionKey: string) {
 		// 如果未设置，默认为折叠状态(true)，点击后变为展开状态(false)
@@ -311,6 +373,18 @@
 															| UP主ID: {source.m_id}{/if}
 													{:else if sourceConfig.type === 'submission' && source.upper_id}
 														UP主ID: {source.upper_id}
+														{#if source.selected_videos}
+															{@const selectedCount = (() => {
+																try {
+																	return JSON.parse(source.selected_videos).length;
+																} catch {
+																	return 0;
+																}
+															})()}
+															{#if selectedCount > 0}
+																<span class="ml-2 text-purple-600">| 已选 {selectedCount} 个历史投稿</span>
+															{/if}
+														{/if}
 													{:else if sourceConfig.type === 'bangumi'}
 														{#if source.season_id}<span class="block"
 																>主季度ID: {source.season_id}</span
@@ -351,6 +425,25 @@
 														class="h-4 w-4 {source.enabled ? 'text-green-600' : 'text-gray-400'}"
 													/>
 												</Button>
+
+												<!-- 选择历史投稿（仅投稿类型显示） -->
+												{#if sourceConfig.type === 'submission'}
+													<Button
+														size="sm"
+														variant="ghost"
+														onclick={() =>
+															handleSelectSubmissionVideos(
+																source.id,
+																source.upper_id,
+																source.name,
+																source.selected_videos
+															)}
+														title="选择历史投稿"
+														class="h-8 w-8 p-0"
+													>
+														<ListVideoIcon class="h-4 w-4 text-purple-600" />
+													</Button>
+												{/if}
 
 												<!-- 重设路径 -->
 												<Button
@@ -445,4 +538,15 @@
 	currentPath={resetPathSourceInfo.currentPath}
 	on:confirm={handleConfirmResetPath}
 	on:cancel={handleCancelResetPath}
+/>
+
+<!-- 投稿选择对话框 -->
+<SubmissionSelectionDialog
+	bind:isOpen={showSubmissionSelectionDialog}
+	sourceId={submissionSelectionInfo.id}
+	upperId={submissionSelectionInfo.upperId}
+	upperName={submissionSelectionInfo.upperName}
+	initialSelectedVideos={submissionSelectionInfo.selectedVideos}
+	on:confirm={handleConfirmSubmissionSelection}
+	on:cancel={handleCancelSubmissionSelection}
 />

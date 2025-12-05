@@ -605,6 +605,7 @@ pub async fn get_videos(
                 String,
                 String,
                 String,
+                String,
                 i32,
                 u32,
                 String,
@@ -615,6 +616,7 @@ pub async fn get_videos(
                 .select_only()
                 .columns([
                     video::Column::Id,
+                    video::Column::Bvid,
                     video::Column::Name,
                     video::Column::UpperName,
                     video::Column::Path,
@@ -629,6 +631,7 @@ pub async fn get_videos(
                     String,
                     String,
                     String,
+                    String,
                     i32,
                     u32,
                     String,
@@ -636,16 +639,17 @@ pub async fn get_videos(
                     Option<i32>,
                 )>()
                 .paginate(db.as_ref(), page_size)
-                .fetch_page(page)
+                .fetch_page(page.saturating_sub(1))
                 .await?;
 
             // 转换为VideoInfo并填充番剧标题
             let mut videos: Vec<VideoInfo> = raw_videos
                 .iter()
                 .map(
-                    |(id, name, upper_name, path, category, download_status, cover, _season_id, _source_type)| {
+                    |(id, bvid, name, upper_name, path, category, download_status, cover, _season_id, _source_type)| {
                         VideoInfo::from((
                             *id,
+                            bvid.clone(),
                             name.clone(),
                             upper_name.clone(),
                             path.clone(),
@@ -658,7 +662,7 @@ pub async fn get_videos(
                 .collect();
 
             // 为番剧类型的视频填充真实标题
-            for (i, (_id, _name, _upper_name, _path, _category, _download_status, _cover, season_id, source_type)) in
+            for (i, (_id, _bvid, _name, _upper_name, _path, _category, _download_status, _cover, season_id, source_type)) in
                 raw_videos.iter().enumerate()
             {
                 if *source_type == Some(1) && season_id.is_some() {
@@ -699,6 +703,7 @@ pub async fn get_video(
         .select_only()
         .columns([
             video::Column::Id,
+            video::Column::Bvid,
             video::Column::Name,
             video::Column::UpperName,
             video::Column::Path,
@@ -713,6 +718,7 @@ pub async fn get_video(
             String,
             String,
             String,
+            String,
             i32,
             u32,
             String,
@@ -722,13 +728,13 @@ pub async fn get_video(
         .one(db.as_ref())
         .await?;
 
-    let Some((_id, name, upper_name, path, category, download_status, cover, season_id, source_type)) = raw_video
+    let Some((_id, bvid, name, upper_name, path, category, download_status, cover, season_id, source_type)) = raw_video
     else {
         return Err(InnerApiError::NotFound(id).into());
     };
 
     // 创建VideoInfo并填充bangumi_title
-    let mut video_info = VideoInfo::from((_id, name, upper_name, path, category, download_status, cover));
+    let mut video_info = VideoInfo::from((_id, bvid, name, upper_name, path, category, download_status, cover));
 
     // 为番剧类型的视频填充真实标题
     if source_type == Some(1) && season_id.is_some() {
@@ -797,6 +803,7 @@ pub async fn reset_video(
             .select_only()
             .columns([
                 video::Column::Id,
+                video::Column::Bvid,
                 video::Column::Name,
                 video::Column::UpperName,
                 video::Column::Path,
@@ -804,7 +811,7 @@ pub async fn reset_video(
                 video::Column::DownloadStatus,
                 video::Column::Cover,
             ])
-            .into_tuple::<(i32, String, String, String, i32, u32, String)>()
+            .into_tuple::<(i32, String, String, String, String, i32, u32, String)>()
             .one(db.as_ref()),
         page::Entity::find()
             .filter(page::Column::VideoId.eq(id))
@@ -966,6 +973,7 @@ pub async fn reset_all_videos(
             .select_only()
             .columns([
                 video::Column::Id,
+                video::Column::Bvid,
                 video::Column::Name,
                 video::Column::UpperName,
                 video::Column::Path,
@@ -973,7 +981,7 @@ pub async fn reset_all_videos(
                 video::Column::DownloadStatus,
                 video::Column::Cover,
             ])
-            .into_tuple::<(i32, String, String, String, i32, u32, String)>()
+            .into_tuple::<(i32, String, String, String, String, i32, u32, String)>()
             .all(db.as_ref()),
         page::Entity::find()
             .inner_join(video::Entity)
@@ -1189,6 +1197,7 @@ pub async fn reset_specific_tasks(
             .select_only()
             .columns([
                 video::Column::Id,
+                video::Column::Bvid,
                 video::Column::Name,
                 video::Column::UpperName,
                 video::Column::Path,
@@ -1196,7 +1205,7 @@ pub async fn reset_specific_tasks(
                 video::Column::DownloadStatus,
                 video::Column::Cover,
             ])
-            .into_tuple::<(i32, String, String, String, i32, u32, String)>()
+            .into_tuple::<(i32, String, String, String, String, i32, u32, String)>()
             .all(db.as_ref()),
         page::Entity::find()
             .inner_join(video::Entity)
@@ -1468,6 +1477,7 @@ pub async fn update_video_status(
             .select_only()
             .columns([
                 video::Column::Id,
+                video::Column::Bvid,
                 video::Column::Name,
                 video::Column::UpperName,
                 video::Column::Path,
@@ -1475,7 +1485,7 @@ pub async fn update_video_status(
                 video::Column::DownloadStatus,
                 video::Column::Cover,
             ])
-            .into_tuple::<(i32, String, String, String, i32, u32, String)>()
+            .into_tuple::<(i32, String, String, String, String, i32, u32, String)>()
             .one(db.as_ref()),
         page::Entity::find()
             .filter(page::Column::VideoId.eq(id))
@@ -3682,6 +3692,73 @@ pub async fn update_video_source_scan_deleted_internal(
 
     txn.commit().await?;
     Ok(result)
+}
+
+/// 更新投稿源选中视频列表
+#[utoipa::path(
+    put,
+    path = "/api/video-sources/submission/{id}/selected-videos",
+    params(
+        ("id" = i32, Path, description = "投稿源ID"),
+    ),
+    request_body = crate::api::request::UpdateSubmissionSelectedVideosRequest,
+    responses(
+        (status = 200, body = ApiResponse<crate::api::response::UpdateSubmissionSelectedVideosResponse>),
+    )
+)]
+pub async fn update_submission_selected_videos(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Path(id): Path<i32>,
+    axum::Json(params): axum::Json<crate::api::request::UpdateSubmissionSelectedVideosRequest>,
+) -> Result<ApiResponse<crate::api::response::UpdateSubmissionSelectedVideosResponse>, ApiError> {
+    let txn = db.begin().await?;
+
+    // 查找投稿源
+    let submission_record = submission::Entity::find_by_id(id)
+        .one(&txn)
+        .await?
+        .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
+
+    let selected_count = params.selected_videos.len();
+
+    // 将选中的视频列表序列化为JSON字符串存储
+    let selected_videos_json = if selected_count > 0 {
+        Some(serde_json::to_string(&params.selected_videos).unwrap_or_default())
+    } else {
+        None
+    };
+
+    // 更新数据库
+    submission::Entity::update(submission::ActiveModel {
+        id: sea_orm::ActiveValue::Unchanged(id),
+        selected_videos: sea_orm::Set(selected_videos_json),
+        ..Default::default()
+    })
+    .exec(&txn)
+    .await?;
+
+    txn.commit().await?;
+
+    let message = if selected_count > 0 {
+        format!(
+            "UP主投稿 {} 的历史投稿选择已更新，选中 {} 个视频",
+            submission_record.upper_name, selected_count
+        )
+    } else {
+        format!(
+            "UP主投稿 {} 的历史投稿选择已清空，将下载全部投稿",
+            submission_record.upper_name
+        )
+    };
+
+    info!("{}", message);
+
+    Ok(ApiResponse::ok(crate::api::response::UpdateSubmissionSelectedVideosResponse {
+        success: true,
+        source_id: id,
+        selected_count,
+        message,
+    }))
 }
 
 /// 删除视频（软删除）
@@ -10227,6 +10304,7 @@ async fn reset_nfo_tasks_for_config_change(db: Arc<DatabaseConnection>) -> Resul
         .select_only()
         .columns([
             video::Column::Id,
+            video::Column::Bvid,
             video::Column::Name,
             video::Column::UpperName,
             video::Column::Path,
@@ -10234,7 +10312,7 @@ async fn reset_nfo_tasks_for_config_change(db: Arc<DatabaseConnection>) -> Resul
             video::Column::DownloadStatus,
             video::Column::Cover,
         ])
-        .into_tuple::<(i32, String, String, String, i32, u32, String)>()
+        .into_tuple::<(i32, String, String, String, String, i32, u32, String)>()
         .all(db.as_ref())
         .await?;
 
