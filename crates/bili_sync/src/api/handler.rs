@@ -639,7 +639,7 @@ pub async fn get_videos(
                     Option<i32>,
                 )>()
                 .paginate(db.as_ref(), page_size)
-                .fetch_page(page.saturating_sub(1))
+                .fetch_page(page)
                 .await?;
 
             // 转换为VideoInfo并填充番剧标题

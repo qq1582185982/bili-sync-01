@@ -123,7 +123,7 @@
 			// 获取该投稿源的所有视频
 			const response = await api.getVideos({
 				submission: sourceId,
-				page: 1,
+				page: 0,
 				page_size: 10000 // 获取全部
 			});
 
