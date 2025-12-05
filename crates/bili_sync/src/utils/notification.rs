@@ -271,7 +271,9 @@ impl NotificationClient {
                 self.client.post(webhook_url).json(&request).send().await?
             }
             "markdown" => {
-                let markdown_content = format!("# {}\n\n{}", title, content);
+                // 先拼接完整内容，再进行长度限制
+                let full_content = format!("# {}\n\n{}", title, content);
+                let markdown_content = self.truncate_wecom_markdown(&full_content);
 
                 let request = WecomMarkdownRequest {
                     msgtype: "markdown".to_string(),
@@ -303,11 +305,25 @@ impl NotificationClient {
     }
 
     /// 格式化企业微信消息内容（限制长度）
+    /// 企业微信 markdown 消息限制 4096 字符，预留 100 字符给标题和格式
     fn format_wecom_content(&self, content: &str) -> String {
-        const MAX_WECOM_LENGTH: usize = 4000;
+        const MAX_WECOM_LENGTH: usize = 3900;
 
         if content.len() > MAX_WECOM_LENGTH {
             let mut truncated = content.chars().take(MAX_WECOM_LENGTH - 50).collect::<String>();
+            truncated.push_str("\n\n...内容过长，已截断");
+            truncated
+        } else {
+            content.to_string()
+        }
+    }
+
+    /// 截断企业微信 markdown 消息（严格限制 4096 字符）
+    fn truncate_wecom_markdown(&self, content: &str) -> String {
+        const MAX_MARKDOWN_LENGTH: usize = 4000;
+
+        if content.len() > MAX_MARKDOWN_LENGTH {
+            let mut truncated = content.chars().take(MAX_MARKDOWN_LENGTH - 50).collect::<String>();
             truncated.push_str("\n\n...内容过长，已截断");
             truncated
         } else {
