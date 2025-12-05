@@ -224,15 +224,13 @@
 
 	// 监听搜索查询变化
 	let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-	$: {
+	$: if (isOpen && submissionSearchQuery !== undefined) {
 		if (searchDebounceTimer) {
 			clearTimeout(searchDebounceTimer);
 		}
-		if (isOpen) {
-			searchDebounceTimer = setTimeout(() => {
-				handleSearchChange();
-			}, 300);
-		}
+		searchDebounceTimer = setTimeout(() => {
+			handleSearchChange();
+		}, 300);
 	}
 
 	async function handleSearchChange() {
