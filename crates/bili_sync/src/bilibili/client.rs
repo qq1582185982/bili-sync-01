@@ -865,7 +865,7 @@ impl BiliClient {
         Ok(all_followings)
     }
 
-    /// 获取用户关注的收藏夹列表
+    /// 获取用户关注的合集和收藏夹列表
     pub async fn get_subscribed_collections(
         &self,
     ) -> Result<Vec<crate::api::response::UserCollectionInfo>, anyhow::Error> {
@@ -902,19 +902,27 @@ impl BiliClient {
 
             for item in list {
                 if let Some(item_obj) = item.as_object() {
+                    // 根据 type 字段区分：type=11 是收藏夹，type=21 是合集
+                    let item_type = item_obj["type"].as_i64().unwrap_or(0);
+                    let collection_type = if item_type == 11 {
+                        "favorite"  // 收藏夹
+                    } else {
+                        "season"    // 合集 (type=21)
+                    };
+
                     all_collections.push(crate::api::response::UserCollectionInfo {
                         sid: item_obj["id"].as_i64().unwrap_or(0).to_string(),
                         name: item_obj["title"].as_str().unwrap_or("").to_string(),
                         cover: item_obj.get("cover").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         description: item_obj
-                            .get("description")
+                            .get("intro")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string(),
                         total: item_obj["media_count"].as_i64().unwrap_or(0) as i32,
-                        collection_type: "favorite".to_string(),
-                        up_name: "".to_string(),
-                        up_mid: item_obj["mid"].as_i64().unwrap_or(0),
+                        collection_type: collection_type.to_string(),
+                        up_name: item_obj["upper"]["name"].as_str().unwrap_or("").to_string(),
+                        up_mid: item_obj["upper"]["mid"].as_i64().unwrap_or(0),
                     });
                 }
             }
@@ -928,9 +936,11 @@ impl BiliClient {
         }
 
         if all_collections.is_empty() {
-            info!("当前用户暂无关注的收藏夹");
+            info!("当前用户暂无关注的合集/收藏夹");
         } else {
-            info!("获取到用户关注的 {} 个收藏夹", all_collections.len());
+            let favorites_count = all_collections.iter().filter(|c| c.collection_type == "favorite").count();
+            let seasons_count = all_collections.iter().filter(|c| c.collection_type == "season").count();
+            info!("获取到用户关注的 {} 个合集和 {} 个收藏夹", seasons_count, favorites_count);
         }
 
         Ok(all_collections)

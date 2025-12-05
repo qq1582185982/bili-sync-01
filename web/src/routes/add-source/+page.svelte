@@ -596,19 +596,20 @@
 
 	// 选择搜索到的收藏夹
 	function selectSearchedFavorite(favorite: UserFavoriteFolder) {
-		// 检查收藏夹是否已存在
-		if (isFavoriteExists(favorite.fid)) {
+		// 检查收藏夹是否已存在（使用完整ID）
+		if (isFavoriteExists(favorite.id)) {
 			toast.error('收藏夹已存在', {
 				description: `该收藏夹「${favorite.title}」已经添加过了`
 			});
 			return;
 		}
 
-		sourceId = favorite.fid.toString();
+		// 使用完整ID（id字段），而不是短ID（fid字段）
+		sourceId = favorite.id.toString();
 		name = favorite.title;
 		favoriteValidationResult = {
 			valid: true,
-			fid: favorite.fid,
+			fid: Number(favorite.id),
 			title: favorite.title,
 			message: '收藏夹验证成功'
 		};
@@ -1178,14 +1179,29 @@
 		}
 	}
 
-	// 选择订阅的合集
+	// 选择订阅的合集或收藏夹
 	function selectSubscribedCollection(collection: UserCollectionInfo) {
-		sourceId = collection.sid;
-		name = collection.name;
-		cover = collection.cover || '';
-		upId = collection.up_mid.toString();
-		collectionType = collection.collection_type;
-		toast.success('已选择订阅合集', { description: collection.name });
+		// 根据 collection_type 决定添加为收藏夹还是合集
+		if (collection.collection_type === 'favorite') {
+			// 这是收藏夹，切换到收藏夹模式
+			sourceType = 'favorite';
+			sourceId = collection.sid;
+			name = collection.name;
+			// 收藏夹不需要 upId 和 cover
+			upId = '';
+			cover = '';
+			collectionType = '';
+			toast.success('已选择收藏夹', { description: collection.name });
+		} else {
+			// 这是合集，保持合集模式
+			sourceType = 'collection';
+			sourceId = collection.sid;
+			name = collection.name;
+			cover = collection.cover || '';
+			upId = collection.up_mid.toString();
+			collectionType = collection.collection_type;
+			toast.success('已选择合集', { description: collection.name });
+		}
 	}
 
 	// 处理投稿选择确认
@@ -1602,9 +1618,9 @@
 				break;
 			case 'searched-favorite':
 				searchedUserFavorites.forEach((favorite) => {
-					const key = `searched-favorite_${favorite.fid}`;
-					// 跳过已添加的收藏夹
-					const isDisabled = existingFavoriteIds.has(Number(favorite.fid));
+					const key = `searched-favorite_${favorite.id}`;
+					// 跳过已添加的收藏夹（使用完整ID）
+					const isDisabled = existingFavoriteIds.has(Number(favorite.id));
 					if (!batchSelectedItems.has(key) && !isDisabled) {
 						toggleBatchSelection(key, favorite, 'favorite');
 					}
@@ -2894,9 +2910,9 @@
 											? ''
 											: 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'}
 									>
-										{#each filteredSearchedUserFavorites as favorite (favorite.fid)}
-											{@const itemKey = `searched-favorite_${favorite.fid}`}
-												{@const isDisabled = existingFavoriteIds.has(Number(favorite.fid))}
+										{#each filteredSearchedUserFavorites as favorite (favorite.id)}
+											{@const itemKey = `searched-favorite_${favorite.id}`}
+												{@const isDisabled = existingFavoriteIds.has(Number(favorite.id))}
 											<button
 												onclick={() => {
 													if (batchMode) {
@@ -2935,7 +2951,7 @@
 													<div class="min-w-0 flex-1">
 														<div class="mb-1 flex items-center gap-2">
 															<h4 class="truncate text-sm font-medium">{favorite.title}</h4>
-															{#if existingFavoriteIds.has(Number(favorite.fid))}
+															{#if existingFavoriteIds.has(Number(favorite.id))}
 																<span
 																	class="flex-shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
 																>
@@ -2944,7 +2960,7 @@
 															{/if}
 														</div>
 														<p class="text-muted-foreground mb-1 text-xs">
-															收藏夹ID: {favorite.fid}
+															收藏夹ID: {favorite.id}
 														</p>
 														<p class="text-muted-foreground text-xs">
 															共 {favorite.media_count} 个视频
@@ -3175,14 +3191,13 @@
 								>
 									{#each subscribedCollections as collection (collection.sid)}
 										{@const itemKey = `subscribed-collection_${collection.sid}`}
-										{@const isExisting = isCollectionExists(
-											collection.sid,
-											collection.up_mid.toString()
-										)}
+										{@const isExisting = collection.collection_type === 'favorite'
+											? existingFavoriteIds.has(Number(collection.sid))
+											: isCollectionExists(collection.sid, collection.up_mid.toString())}
 										<button
 											onclick={() => {
 												if (batchMode) {
-													toggleBatchSelection(itemKey, collection, 'collection');
+													toggleBatchSelection(itemKey, collection, collection.collection_type === 'favorite' ? 'favorite' : 'collection');
 												} else {
 													selectSubscribedCollection(collection);
 												}
@@ -3203,7 +3218,7 @@
 															checked={batchCheckboxStates[itemKey] || false}
 															onclick={(e) => {
 																e.stopPropagation();
-																toggleBatchSelection(itemKey, collection, 'collection');
+																toggleBatchSelection(itemKey, collection, collection.collection_type === 'favorite' ? 'favorite' : 'collection');
 															}}
 															class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
 														/>
@@ -3223,16 +3238,18 @@
 													<div
 														class="bg-muted text-muted-foreground flex h-16 w-24 flex-shrink-0 items-center justify-center rounded text-xs"
 													>
-														无封面
+														{collection.collection_type === 'favorite' ? '收藏夹' : '无封面'}
 													</div>
 												{/if}
 												<div class="min-w-0 flex-1">
 													<div class="mb-1 flex items-center gap-2">
 														<h4 class="truncate text-sm font-medium">{collection.name}</h4>
 														<span
-															class="flex-shrink-0 rounded bg-purple-100 px-2 py-0.5 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+															class="flex-shrink-0 rounded px-2 py-0.5 text-xs {collection.collection_type === 'favorite'
+																? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+																: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'}"
 														>
-															{collection.collection_type === 'season' ? '合集' : '系列'}
+															{collection.collection_type === 'favorite' ? '收藏夹' : '合集'}
 														</span>
 														{#if isExisting}
 															<span
