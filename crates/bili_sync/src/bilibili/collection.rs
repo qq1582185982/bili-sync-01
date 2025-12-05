@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
 use anyhow::{anyhow, Context, Result};
@@ -6,6 +7,7 @@ use futures::Stream;
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::Value;
+use tracing::debug;
 
 use crate::bilibili::credential::encoded_query;
 use crate::bilibili::{BiliClient, Validate, VideoInfo, MIXIN_KEY};
@@ -215,6 +217,97 @@ impl<'a> Collection<'a> {
                 break;
             }
         }
+    }
+
+    /// 获取合集中所有视频的正确顺序（UP主定义的顺序）
+    /// 返回 bvid -> episode_number 的映射
+    pub async fn get_video_order_map(&self) -> Result<HashMap<String, i32>> {
+        let mut order_map = HashMap::new();
+        let mut page = 1;
+        let mut episode_number = 1;
+
+        loop {
+            let page_str = page.to_string();
+            // 使用 sort_reverse=false 获取正序（UP主定义的顺序）
+            let (url, query) = match self.collection.collection_type {
+                CollectionType::Series => (
+                    "https://api.bilibili.com/x/series/archives",
+                    encoded_query(
+                        vec![
+                            ("mid", self.collection.mid.as_str()),
+                            ("series_id", self.collection.sid.as_str()),
+                            ("only_normal", "true"),
+                            ("sort", "asc"),  // 正序
+                            ("pn", page_str.as_str()),
+                            ("ps", "30"),
+                        ],
+                        MIXIN_KEY.load().as_deref(),
+                    ),
+                ),
+                CollectionType::Season => (
+                    "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list",
+                    encoded_query(
+                        vec![
+                            ("mid", self.collection.mid.as_str()),
+                            ("season_id", self.collection.sid.as_str()),
+                            ("sort_reverse", "false"),  // 正序
+                            ("page_num", page_str.as_str()),
+                            ("page_size", "30"),
+                        ],
+                        MIXIN_KEY.load().as_deref(),
+                    ),
+                ),
+            };
+
+            let videos = self.client
+                .request(Method::GET, url)
+                .await
+                .query(&query)
+                .send()
+                .await?
+                .error_for_status()?
+                .json::<Value>()
+                .await?
+                .validate()?;
+
+            let archives = &videos["data"]["archives"];
+            if let Some(arr) = archives.as_array() {
+                if arr.is_empty() {
+                    break;
+                }
+                for video in arr {
+                    if let Some(bvid) = video["bvid"].as_str() {
+                        order_map.insert(bvid.to_string(), episode_number);
+                        episode_number += 1;
+                    }
+                }
+            } else {
+                break;
+            }
+
+            // 检查是否还有下一页
+            let page_info = &videos["data"]["page"];
+            let fields = match self.collection.collection_type {
+                CollectionType::Series => ["num", "size", "total"],
+                CollectionType::Season => ["page_num", "page_size", "total"],
+            };
+            let values: Vec<Option<i64>> = fields
+                .iter()
+                .map(|f| page_info[f].as_i64())
+                .collect();
+
+            if let [Some(num), Some(size), Some(total)] = values[..] {
+                if num * size >= total {
+                    break;
+                }
+                page += 1;
+            } else {
+                break;
+            }
+        }
+
+        debug!("获取合集 {:?} 的视频顺序，共 {} 个视频", self.collection, order_map.len());
+        Ok(order_map)
     }
 }
 
