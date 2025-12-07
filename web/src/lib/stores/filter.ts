@@ -140,6 +140,13 @@ export const setVideoIds = (videoIds: number[]) => {
 	}));
 };
 
+export const setTotalCount = (totalCount: number) => {
+	appStateStore.update((state) => ({
+		...state,
+		totalCount
+	}));
+};
+
 export const setVideoListInfo = (videoIds: number[], totalCount: number, pageSize: number) => {
 	appStateStore.update((state) => ({
 		...state,

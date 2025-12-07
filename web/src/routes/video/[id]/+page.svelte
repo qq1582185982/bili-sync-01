@@ -6,7 +6,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import VideoCard from '$lib/components/video-card.svelte';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
-	import { appStateStore, setVideoIds, setCurrentPage, setVideoListInfo, ToQuery } from '$lib/stores/filter';
+	import { appStateStore, setVideoIds, setCurrentPage, setVideoListInfo, setTotalCount, ToQuery } from '$lib/stores/filter';
 	import type { ApiError, UpdateVideoStatusRequest, VideoResponse } from '$lib/types';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -395,6 +395,8 @@
 					// 从列表中移除当前视频
 					const newVideoIds = videoIds.filter((id) => id !== currentVideoId);
 					setVideoIds(newVideoIds);
+					// 更新总数
+					setTotalCount(state.totalCount - 1);
 
 					// 跳转到下一个视频（如果是最后一个则跳转到上一个）
 					const nextIndex = currentIndex < newVideoIds.length ? currentIndex : newVideoIds.length - 1;
