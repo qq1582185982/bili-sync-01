@@ -180,6 +180,12 @@
 		try {
 			const result = await api.getVideo(videoId);
 			videoData = result.data;
+
+			// 如果 videoIds 为空（页面刷新后状态丢失），需要找到当前视频所在的页并加载
+			const state = get(appStateStore);
+			if (state.videoIds.length === 0) {
+				await findAndLoadPageForVideo(videoId);
+			}
 		} catch (error) {
 			console.error('加载视频详情失败:', error);
 			toast.error('加载视频详情失败', {
@@ -188,6 +194,56 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	// 查找视频所在的页并加载
+	async function findAndLoadPageForVideo(videoId: number) {
+		const state = get(appStateStore);
+		const pageSize = state.pageSize || 20;
+
+		// 从第0页开始查找
+		let currentPage = 0;
+		const maxPages = 100; // 防止无限循环
+
+		while (currentPage < maxPages) {
+			const params: Record<string, string | number | boolean> = {
+				page: currentPage,
+				page_size: pageSize,
+				sort_by: state.sortBy || 'id',
+				sort_order: state.sortOrder || 'desc'
+			};
+			if (state.query) {
+				params.query = state.query;
+			}
+			if (state.videoSource) {
+				params[state.videoSource.type] = parseInt(state.videoSource.id);
+			}
+			if (state.showFailedOnly) {
+				params.show_failed_only = true;
+			}
+
+			const result = await api.getVideos(params);
+			const videoIds = result.data.videos.map((v) => v.id);
+
+			if (videoIds.includes(videoId)) {
+				// 找到了，更新状态
+				setCurrentPage(currentPage);
+				setVideoListInfo(videoIds, result.data.total_count, pageSize);
+				return;
+			}
+
+			// 如果当前页没有数据或已经是最后一页，停止查找
+			if (videoIds.length === 0 || videoIds.length < pageSize) {
+				// 没找到视频，加载第0页作为默认
+				await loadPageVideos(0);
+				return;
+			}
+
+			currentPage++;
+		}
+
+		// 超过最大页数限制，加载第0页
+		await loadPageVideos(0);
 	}
 
 	onMount(() => {
@@ -391,23 +447,50 @@
 				const oldVideoIds = state.videoIds;
 				const currentIndex = oldVideoIds.indexOf(currentVideoId);
 
-				if (currentIndex !== -1 && oldVideoIds.length > 1) {
+				if (currentIndex !== -1 && state.totalCount > 1) {
 					// 先确定要跳转到的视频ID（在移除当前视频之前）
 					// 优先跳转到下一个视频，如果是最后一个则跳转到上一个
 					let targetVideoId: number;
+					let targetIsNext = true;
 					if (currentIndex < oldVideoIds.length - 1) {
-						// 不是最后一个，跳转到下一个
+						// 当前页内还有下一个视频
 						targetVideoId = oldVideoIds[currentIndex + 1];
-					} else {
-						// 是最后一个，跳转到上一个
+					} else if (currentIndex > 0) {
+						// 当前页内没有下一个，但有上一个
 						targetVideoId = oldVideoIds[currentIndex - 1];
+						targetIsNext = false;
+					} else {
+						// 当前页只有这一个视频，需要从服务器重新加载
+						// 重新加载当前页数据
+						await loadPageVideos(state.currentPage);
+						const newState = get(appStateStore);
+						if (newState.videoIds.length > 0) {
+							targetVideoId = newState.videoIds[0];
+						} else if (state.currentPage > 0) {
+							// 当前页没有数据了，尝试加载上一页
+							await loadPageVideos(state.currentPage - 1);
+							const prevState = get(appStateStore);
+							if (prevState.videoIds.length > 0) {
+								targetVideoId = prevState.videoIds[prevState.videoIds.length - 1];
+							} else {
+								// 没有更多视频，返回视频管理页面
+								const query = ToQuery(state);
+								goto(query ? `/videos?${query}` : '/videos');
+								return;
+							}
+						} else {
+							// 没有更多视频，返回视频管理页面
+							const query = ToQuery(state);
+							goto(query ? `/videos?${query}` : '/videos');
+							return;
+						}
 					}
 
-					// 从列表中移除当前视频
-					const newVideoIds = oldVideoIds.filter((id) => id !== currentVideoId);
-					setVideoIds(newVideoIds);
-					// 更新总数
-					setTotalCount(state.totalCount - 1);
+					// 如果是在当前页内跳转，需要重新加载当前页数据以保持同步
+					if (targetIsNext || currentIndex > 0) {
+						// 重新加载当前页数据
+						await loadPageVideos(state.currentPage);
+					}
 
 					// 跳转到目标视频
 					goto(`/video/${targetVideoId}`);
