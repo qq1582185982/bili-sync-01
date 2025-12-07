@@ -388,20 +388,29 @@
 
 				// 获取当前视频列表，找到下一个视频
 				const state = get(appStateStore);
-				const videoIds = state.videoIds;
-				const currentIndex = videoIds.indexOf(currentVideoId);
+				const oldVideoIds = state.videoIds;
+				const currentIndex = oldVideoIds.indexOf(currentVideoId);
 
-				if (currentIndex !== -1 && videoIds.length > 1) {
+				if (currentIndex !== -1 && oldVideoIds.length > 1) {
+					// 先确定要跳转到的视频ID（在移除当前视频之前）
+					// 优先跳转到下一个视频，如果是最后一个则跳转到上一个
+					let targetVideoId: number;
+					if (currentIndex < oldVideoIds.length - 1) {
+						// 不是最后一个，跳转到下一个
+						targetVideoId = oldVideoIds[currentIndex + 1];
+					} else {
+						// 是最后一个，跳转到上一个
+						targetVideoId = oldVideoIds[currentIndex - 1];
+					}
+
 					// 从列表中移除当前视频
-					const newVideoIds = videoIds.filter((id) => id !== currentVideoId);
+					const newVideoIds = oldVideoIds.filter((id) => id !== currentVideoId);
 					setVideoIds(newVideoIds);
 					// 更新总数
 					setTotalCount(state.totalCount - 1);
 
-					// 跳转到下一个视频（如果是最后一个则跳转到上一个）
-					const nextIndex = currentIndex < newVideoIds.length ? currentIndex : newVideoIds.length - 1;
-					const nextVideoId = newVideoIds[nextIndex];
-					goto(`/video/${nextVideoId}`);
+					// 跳转到目标视频
+					goto(`/video/${targetVideoId}`);
 				} else {
 					// 列表为空或没有更多视频，返回视频管理页面
 					const query = ToQuery(state);
