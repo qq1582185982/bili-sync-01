@@ -220,6 +220,11 @@
 		filteredSubmissionVideos = submissionVideos.filter(
 			(video) => !downloadedBvids.has(video.bvid)
 		);
+
+		// 如果过滤后的视频很少（少于10个）但还有更多视频可加载，显示"加载更多"按钮
+		if (filteredSubmissionVideos.length < 10 && hasMoreVideos && !isLoadingMore) {
+			showLoadMoreButton = true;
+		}
 	}
 
 	// 监听搜索查询变化
@@ -524,12 +529,33 @@
 								/>
 							</svg>
 							<p class="text-sm">
-								{#if downloadedBvids.size > 0 && notDownloadedCount === 0}
+								{#if hasMoreVideos}
+									当前加载的 {submissionVideos.length} 个视频都已下载
+								{:else if downloadedBvids.size > 0 && notDownloadedCount === 0}
 									所有历史投稿已下载完成
 								{:else}
 									没有找到未下载的视频
 								{/if}
 							</p>
+							{#if hasMoreVideos}
+								<button
+									type="button"
+									class="mt-4 rounded-md border border-transparent bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+									onclick={loadMoreSubmissionVideos}
+									disabled={isLoadingMore}
+								>
+									{#if isLoadingMore}
+										<div class="flex items-center gap-2">
+											<div
+												class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+											></div>
+											<span>加载中...</span>
+										</div>
+									{:else}
+										加载更多历史投稿 ({submissionVideos.length}/{submissionTotalCount})
+									{/if}
+								</button>
+							{/if}
 						</div>
 					{:else}
 						<div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));">
