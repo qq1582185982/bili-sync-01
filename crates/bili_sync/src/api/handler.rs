@@ -578,13 +578,20 @@ pub async fn get_videos(
                 query.order_by_desc(video::Column::UpperName)
             }
         }
-        "created_at" | "updated_at" => {
-            // 视频表只有created_at字段，没有updated_at
-            // 所以updated_at也使用created_at排序
+        "created_at" => {
+            // 添加时间（入库时间）
             if sort_order == "asc" {
                 query.order_by_asc(video::Column::CreatedAt)
             } else {
                 query.order_by_desc(video::Column::CreatedAt)
+            }
+        }
+        "pubtime" => {
+            // 发布时间（视频在B站的发布时间）
+            if sort_order == "asc" {
+                query.order_by_asc(video::Column::Pubtime)
+            } else {
+                query.order_by_desc(video::Column::Pubtime)
             }
         }
         _ => {

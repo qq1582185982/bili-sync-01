@@ -462,14 +462,14 @@
 						handleSortChange(sortBy, sortOrder);
 					}}
 				>
-					<option value="id_desc">最新添加</option>
-					<option value="id_asc">最早添加</option>
+					<option value="id_desc">添加时间 (最新)</option>
+					<option value="id_asc">添加时间 (最早)</option>
+					<option value="pubtime_desc">发布时间 (最新)</option>
+					<option value="pubtime_asc">发布时间 (最早)</option>
 					<option value="name_asc">名称 (A-Z)</option>
 					<option value="name_desc">名称 (Z-A)</option>
 					<option value="upper_name_asc">UP主 (A-Z)</option>
 					<option value="upper_name_desc">UP主 (Z-A)</option>
-					<option value="created_at_desc">创建时间 (最新)</option>
-					<option value="created_at_asc">创建时间 (最早)</option>
 				</select>
 			</div>
 		</div>
