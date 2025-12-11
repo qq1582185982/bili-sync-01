@@ -217,9 +217,7 @@
 			return;
 		}
 		// 排除已下载的视频
-		filteredSubmissionVideos = submissionVideos.filter(
-			(video) => !downloadedBvids.has(video.bvid)
-		);
+		filteredSubmissionVideos = submissionVideos.filter((video) => !downloadedBvids.has(video.bvid));
 
 		// 如果过滤后的视频很少（少于10个）但还有更多视频可加载，显示"加载更多"按钮
 		if (filteredSubmissionVideos.length < 10 && hasMoreVideos && !isLoadingMore) {
@@ -357,14 +355,18 @@
 </script>
 
 <AlertDialog.Root bind:open={isOpen}>
-	<AlertDialog.Content class="!w-[95vw] sm:!w-[85vw] !max-w-none max-h-[85vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
-		<AlertDialog.Header class="flex-shrink-0 border-b bg-blue-50 p-3 sm:p-4 dark:bg-blue-950 -m-6 mb-0">
+	<AlertDialog.Content
+		class="flex max-h-[85vh] !w-[95vw] !max-w-none flex-col overflow-hidden sm:max-h-[90vh] sm:!w-[85vw]"
+	>
+		<AlertDialog.Header
+			class="-m-6 mb-0 flex-shrink-0 border-b bg-blue-50 p-3 sm:p-4 dark:bg-blue-950"
+		>
 			<div class="flex items-center justify-between">
 				<div>
 					<AlertDialog.Title class="flex items-center gap-2 text-blue-800 dark:text-blue-200">
 						<span class="text-base sm:text-lg">选择历史投稿</span>
 					</AlertDialog.Title>
-					<AlertDialog.Description class="text-xs sm:text-sm text-blue-600 dark:text-blue-400 mt-1">
+					<AlertDialog.Description class="mt-1 text-xs text-blue-600 sm:text-sm dark:text-blue-400">
 						{#if submissionLoading && submissionVideos.length === 0}
 							正在加载...
 						{:else if submissionTotalCount > 0}
@@ -392,7 +394,7 @@
 			</div>
 		</AlertDialog.Header>
 
-		<div class="flex-1 flex flex-col overflow-hidden min-h-0 mt-4">
+		<div class="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
 			{#if submissionError}
 				<div class="m-3 rounded-lg border border-red-200 bg-red-50 p-4">
 					<div class="flex items-center gap-2">
@@ -417,14 +419,14 @@
 				</div>
 			{:else}
 				<!-- 搜索和操作栏 -->
-				<div class="flex-shrink-0 space-y-2 sm:space-y-3 px-1">
+				<div class="flex-shrink-0 space-y-2 px-1 sm:space-y-3">
 					<div class="flex gap-2">
 						<div class="relative flex-1">
 							<input
 								type="text"
 								bind:value={submissionSearchQuery}
 								placeholder="搜索视频标题..."
-								class="w-full rounded-md border border-gray-300 px-2 sm:px-3 py-1.5 sm:py-2 pr-8 text-xs sm:text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+								class="w-full rounded-md border border-gray-300 px-2 py-1.5 pr-8 text-xs focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none sm:px-3 sm:py-2 sm:text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
 								disabled={isSearching}
 							/>
 							{#if isSearching}
@@ -451,15 +453,17 @@
 
 					{#if submissionSearchQuery.trim()}
 						<div class="px-1 text-xs text-blue-600">
-							{isSearching ? '搜索中...' : `搜索结果：在UP主所有视频中搜索 "${submissionSearchQuery}"`}
+							{isSearching
+								? '搜索中...'
+								: `搜索结果：在UP主所有视频中搜索 "${submissionSearchQuery}"`}
 						</div>
 					{/if}
 
-					<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+					<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 						<div class="flex gap-1 sm:gap-2">
 							<button
 								type="button"
-								class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium dark:border-gray-600"
+								class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-2 py-1 text-xs font-medium sm:px-3 sm:text-sm dark:border-gray-600"
 								onclick={selectAllSubmissions}
 								disabled={filteredSubmissionVideos.length === 0}
 							>
@@ -467,7 +471,7 @@
 							</button>
 							<button
 								type="button"
-								class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium dark:border-gray-600"
+								class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-2 py-1 text-xs font-medium sm:px-3 sm:text-sm dark:border-gray-600"
 								onclick={selectNoneSubmissions}
 								disabled={selectedSubmissionCount === 0}
 							>
@@ -475,7 +479,7 @@
 							</button>
 							<button
 								type="button"
-								class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium dark:border-gray-600"
+								class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-2 py-1 text-xs font-medium sm:px-3 sm:text-sm dark:border-gray-600"
 								onclick={invertSubmissionSelection}
 								disabled={filteredSubmissionVideos.length === 0}
 							>
@@ -491,7 +495,7 @@
 
 				<!-- 视频列表 -->
 				<div
-					class="flex-1 overflow-y-auto mt-3 px-1 min-h-0"
+					class="mt-3 min-h-0 flex-1 overflow-y-auto px-1"
 					bind:this={submissionScrollContainer}
 					onscroll={handleSubmissionScroll}
 				>
@@ -558,7 +562,10 @@
 							{/if}
 						</div>
 					{:else}
-						<div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));">
+						<div
+							class="grid gap-3"
+							style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));"
+						>
 							{#each filteredSubmissionVideos as video (video.bvid)}
 								<div
 									class="hover:bg-muted relative cursor-pointer rounded-lg border p-2 transition-all duration-300 hover:shadow-md {selectedSubmissionVideos.has(
@@ -590,7 +597,7 @@
 										/>
 									</div>
 									<div class="mt-2">
-										<h4 class="line-clamp-2 text-xs font-medium leading-tight" title={video.title}>
+										<h4 class="line-clamp-2 text-xs leading-tight font-medium" title={video.title}>
 											{video.title}
 										</h4>
 										<div class="text-muted-foreground mt-1 flex items-center gap-1 text-[10px]">
@@ -636,8 +643,12 @@
 		</div>
 
 		<!-- 底部操作栏 -->
-		<AlertDialog.Footer class="flex-shrink-0 flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 border-t pt-3 sm:pt-4 -mx-6 -mb-6 px-4 sm:px-6 pb-4 sm:pb-6 mt-4">
-			<Button variant="outline" onclick={cancelSubmissionSelection} class="w-full sm:w-auto">取消</Button>
+		<AlertDialog.Footer
+			class="-mx-6 mt-4 -mb-6 flex flex-shrink-0 flex-col justify-end gap-2 border-t px-4 pt-3 pb-4 sm:flex-row sm:gap-3 sm:px-6 sm:pt-4 sm:pb-6"
+		>
+			<Button variant="outline" onclick={cancelSubmissionSelection} class="w-full sm:w-auto"
+				>取消</Button
+			>
 			<Button onclick={confirmSubmissionSelection} class="w-full sm:w-auto">
 				确认选择 ({selectedSubmissionVideos.size} 个视频)
 			</Button>

@@ -35,6 +35,7 @@ mod m20250921_000001_add_collection_cover;
 mod m20251210_000001_add_keyword_filters_field;
 mod m20251211_000001_add_keyword_filter_mode_field;
 mod m20251211_000002_split_keyword_filters;
+mod m20251211_000003_add_keyword_case_sensitive;
 
 pub struct Migrator;
 
@@ -77,6 +78,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20251210_000001_add_keyword_filters_field::Migration),
             Box::new(m20251211_000001_add_keyword_filter_mode_field::Migration),
             Box::new(m20251211_000002_split_keyword_filters::Migration),
+            Box::new(m20251211_000003_add_keyword_case_sensitive::Migration),
         ]
     }
 }

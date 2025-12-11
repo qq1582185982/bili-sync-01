@@ -21,6 +21,7 @@ pub struct Model {
     pub keyword_filter_mode: Option<String>,
     pub blacklist_keywords: Option<String>,
     pub whitelist_keywords: Option<String>,
+    pub keyword_case_sensitive: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

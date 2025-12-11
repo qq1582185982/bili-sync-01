@@ -98,6 +98,7 @@
 	// 关键词过滤器相关（双列表模式）
 	let blacklistKeywords: string[] = [];
 	let whitelistKeywords: string[] = [];
+	let keywordCaseSensitive = true; // 是否区分大小写
 	let newBlacklistKeyword = '';
 	let newWhitelistKeyword = '';
 	let blacklistValidationError = '';
@@ -105,6 +106,7 @@
 	let validatingBlacklistKeyword = false;
 	let validatingWhitelistKeyword = false;
 	let showKeywordSection = false; // 是否展开关键词过滤器部分
+	let keywordActiveTab: 'whitelist' | 'blacklist' = 'whitelist'; // 当前选中的标签页
 
 	// 批量添加相关
 	let batchMode = false; // 是否为批量模式
@@ -403,7 +405,10 @@
 	}
 
 	// 检查关键词是否在另一个列表中存在（互斥校验）
-	function checkMutualExclusivity(keyword: string, targetList: 'blacklist' | 'whitelist'): string | null {
+	function checkMutualExclusivity(
+		keyword: string,
+		targetList: 'blacklist' | 'whitelist'
+	): string | null {
 		if (targetList === 'blacklist' && whitelistKeywords.includes(keyword)) {
 			return '该关键词已存在于白名单中，同一关键词不能同时出现在黑名单和白名单';
 		}
@@ -639,14 +644,15 @@
 			const result = await api.addVideoSource(params);
 
 			if (result.data.success) {
-				// 如果同时设置了白名单，需要额外调用API更新
-				if (whitelistKeywords.length > 0 && result.data.source_id) {
+				// 如果同时设置了白名单或修改了大小写敏感设置，需要额外调用API更新
+				if ((whitelistKeywords.length > 0 || !keywordCaseSensitive) && result.data.source_id) {
 					try {
 						await api.updateVideoSourceKeywordFilters(
 							sourceType,
 							result.data.source_id,
 							blacklistKeywords,
-							whitelistKeywords
+							whitelistKeywords,
+							keywordCaseSensitive
 						);
 					} catch (e) {
 						console.warn('更新关键词过滤器失败:', e);
@@ -672,6 +678,7 @@
 				whitelistKeywords = [];
 				newBlacklistKeyword = '';
 				newWhitelistKeyword = '';
+				keywordCaseSensitive = true;
 				showKeywordSection = false;
 				// 跳转到视频源管理页面
 				goto('/video-sources');
@@ -2443,7 +2450,12 @@
 									stroke="currentColor"
 									viewBox="0 0 24 24"
 								>
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M19 9l-7 7-7-7"
+									/>
 								</svg>
 							</button>
 
@@ -2453,7 +2465,9 @@
 									transition:fly={{ y: -10, duration: 200 }}
 								>
 									<!-- 过滤逻辑说明 -->
-									<div class="rounded-md border border-blue-200 bg-blue-50 p-2 dark:border-blue-800 dark:bg-blue-950">
+									<div
+										class="rounded-md border border-blue-200 bg-blue-50 p-2 dark:border-blue-800 dark:bg-blue-950"
+									>
 										<p class="text-xs font-medium text-blue-800 dark:text-blue-200">过滤逻辑说明</p>
 										<ul class="mt-1 space-y-0.5 text-xs text-blue-700 dark:text-blue-300">
 											<li>1. 如果设置了白名单，视频必须匹配至少一个白名单关键词才会被下载</li>
@@ -2462,18 +2476,113 @@
 										</ul>
 									</div>
 
-									<!-- 双列表布局 -->
-									<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-										<!-- 白名单区域 -->
-										<div class="space-y-2 rounded-md border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
-											<div class="flex items-center gap-2">
-												<svg class="h-4 w-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-												</svg>
-												<span class="text-xs font-medium text-green-800 dark:text-green-200">白名单</span>
-												<span class="text-xs text-green-600 dark:text-green-400">({whitelistKeywords.length})</span>
-											</div>
-											<p class="text-[10px] text-green-700 dark:text-green-300">只下载匹配的视频（留空则不限制）</p>
+									<!-- 大小写敏感设置 -->
+									<div
+										class="flex items-center justify-between rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+									>
+										<div class="flex items-center gap-2">
+											<svg
+												class="h-4 w-4 text-gray-600 dark:text-gray-400"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+												/>
+											</svg>
+											<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+												>区分大小写</span
+											>
+										</div>
+										<label class="relative inline-flex cursor-pointer items-center">
+											<input
+												type="checkbox"
+												bind:checked={keywordCaseSensitive}
+												class="peer sr-only"
+											/>
+											<div
+												class="peer h-5 w-9 rounded-full bg-gray-300 peer-checked:bg-purple-600 peer-focus:ring-2 peer-focus:ring-purple-500 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-600 dark:peer-checked:bg-purple-500"
+											></div>
+										</label>
+									</div>
+									<p class="text-[10px] text-gray-500 dark:text-gray-400">
+										{keywordCaseSensitive
+											? '启用：ABC 和 abc 被视为不同的关键词'
+											: '禁用：ABC 和 abc 被视为相同的关键词'}
+									</p>
+
+									<!-- 标签页切换 -->
+									<div class="flex border-b border-gray-200 dark:border-gray-700">
+										<button
+											type="button"
+											class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors {keywordActiveTab ===
+											'whitelist'
+												? 'border-b-2 border-green-500 text-green-600 dark:text-green-400'
+												: 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}"
+											onclick={() => (keywordActiveTab = 'whitelist')}
+										>
+											<svg
+												class="h-3.5 w-3.5"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+												/>
+											</svg>
+											白名单
+											<span
+												class="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] text-green-700 dark:bg-green-900 dark:text-green-300"
+											>
+												{whitelistKeywords.length}
+											</span>
+										</button>
+										<button
+											type="button"
+											class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors {keywordActiveTab ===
+											'blacklist'
+												? 'border-b-2 border-red-500 text-red-600 dark:text-red-400'
+												: 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}"
+											onclick={() => (keywordActiveTab = 'blacklist')}
+										>
+											<svg
+												class="h-3.5 w-3.5"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+												/>
+											</svg>
+											黑名单
+											<span
+												class="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700 dark:bg-red-900 dark:text-red-300"
+											>
+												{blacklistKeywords.length}
+											</span>
+										</button>
+									</div>
+
+									<!-- 白名单内容 -->
+									{#if keywordActiveTab === 'whitelist'}
+										<div
+											class="space-y-2 rounded-md border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950"
+										>
+											<p class="text-[10px] text-green-700 dark:text-green-300">
+												只下载匹配的视频（留空则不限制）
+											</p>
 
 											<!-- 添加白名单关键词 -->
 											<div class="flex gap-1">
@@ -2482,14 +2591,14 @@
 													placeholder="输入关键词"
 													onkeydown={handleWhitelistKeywordKeydown}
 													disabled={validatingWhitelistKeyword}
-													class="flex-1 h-8 text-xs"
+													class="h-8 flex-1 text-xs"
 												/>
 												<Button
 													type="button"
 													size="sm"
 													onclick={addWhitelistKeyword}
 													disabled={!newWhitelistKeyword.trim() || validatingWhitelistKeyword}
-													class="bg-green-600 hover:bg-green-700 h-8 px-2 text-xs"
+													class="h-8 bg-green-600 px-2 text-xs hover:bg-green-700"
 												>
 													{validatingWhitelistKeyword ? '...' : '添加'}
 												</Button>
@@ -2499,13 +2608,22 @@
 											{/if}
 
 											<!-- 白名单列表 -->
-											<div class="max-h-24 space-y-1 overflow-y-auto">
+											<div class="max-h-32 space-y-1 overflow-y-auto">
 												{#if whitelistKeywords.length === 0}
-													<p class="text-[10px] text-green-600 dark:text-green-400 italic">暂无白名单关键词</p>
+													<p
+														class="py-2 text-center text-[10px] text-green-600 italic dark:text-green-400"
+													>
+														暂无白名单关键词
+													</p>
 												{:else}
 													{#each whitelistKeywords as keyword, index}
-														<div class="flex items-center justify-between rounded bg-green-100 px-2 py-1 dark:bg-green-900">
-															<code class="flex-1 truncate text-[10px] text-green-800 dark:text-green-200">{keyword}</code>
+														<div
+															class="flex items-center justify-between rounded bg-green-100 px-2 py-1 dark:bg-green-900"
+														>
+															<code
+																class="flex-1 truncate text-[10px] text-green-800 dark:text-green-200"
+																>{keyword}</code
+															>
 															<button
 																type="button"
 																onclick={() => removeWhitelistKeyword(index)}
@@ -2519,17 +2637,16 @@
 												{/if}
 											</div>
 										</div>
+									{/if}
 
-										<!-- 黑名单区域 -->
-										<div class="space-y-2 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
-											<div class="flex items-center gap-2">
-												<svg class="h-4 w-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-												</svg>
-												<span class="text-xs font-medium text-red-800 dark:text-red-200">黑名单</span>
-												<span class="text-xs text-red-600 dark:text-red-400">({blacklistKeywords.length})</span>
-											</div>
-											<p class="text-[10px] text-red-700 dark:text-red-300">排除匹配的视频（优先级高于白名单）</p>
+									<!-- 黑名单内容 -->
+									{#if keywordActiveTab === 'blacklist'}
+										<div
+											class="space-y-2 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950"
+										>
+											<p class="text-[10px] text-red-700 dark:text-red-300">
+												排除匹配的视频（优先级高于白名单）
+											</p>
 
 											<!-- 添加黑名单关键词 -->
 											<div class="flex gap-1">
@@ -2538,14 +2655,14 @@
 													placeholder="输入关键词"
 													onkeydown={handleBlacklistKeywordKeydown}
 													disabled={validatingBlacklistKeyword}
-													class="flex-1 h-8 text-xs"
+													class="h-8 flex-1 text-xs"
 												/>
 												<Button
 													type="button"
 													size="sm"
 													onclick={addBlacklistKeyword}
 													disabled={!newBlacklistKeyword.trim() || validatingBlacklistKeyword}
-													class="bg-red-600 hover:bg-red-700 h-8 px-2 text-xs"
+													class="h-8 bg-red-600 px-2 text-xs hover:bg-red-700"
 												>
 													{validatingBlacklistKeyword ? '...' : '添加'}
 												</Button>
@@ -2555,13 +2672,22 @@
 											{/if}
 
 											<!-- 黑名单列表 -->
-											<div class="max-h-24 space-y-1 overflow-y-auto">
+											<div class="max-h-32 space-y-1 overflow-y-auto">
 												{#if blacklistKeywords.length === 0}
-													<p class="text-[10px] text-red-600 dark:text-red-400 italic">暂无黑名单关键词</p>
+													<p
+														class="py-2 text-center text-[10px] text-red-600 italic dark:text-red-400"
+													>
+														暂无黑名单关键词
+													</p>
 												{:else}
 													{#each blacklistKeywords as keyword, index}
-														<div class="flex items-center justify-between rounded bg-red-100 px-2 py-1 dark:bg-red-900">
-															<code class="flex-1 truncate text-[10px] text-red-800 dark:text-red-200">{keyword}</code>
+														<div
+															class="flex items-center justify-between rounded bg-red-100 px-2 py-1 dark:bg-red-900"
+														>
+															<code
+																class="flex-1 truncate text-[10px] text-red-800 dark:text-red-200"
+																>{keyword}</code
+															>
 															<button
 																type="button"
 																onclick={() => removeBlacklistKeyword(index)}
@@ -2575,11 +2701,15 @@
 												{/if}
 											</div>
 										</div>
-									</div>
+									{/if}
 
 									<!-- 正则表达式示例 -->
-									<div class="rounded border border-purple-200 bg-white p-2 dark:border-purple-700 dark:bg-gray-800">
-										<p class="text-xs font-medium text-purple-700 dark:text-purple-300">正则表达式示例：</p>
+									<div
+										class="rounded border border-purple-200 bg-white p-2 dark:border-purple-700 dark:bg-gray-800"
+									>
+										<p class="text-xs font-medium text-purple-700 dark:text-purple-300">
+											正则表达式示例：
+										</p>
 										<ul class="mt-1 space-y-0.5 text-[10px] text-purple-600 dark:text-purple-400">
 											<li>
 												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">PV</code> - 匹配包含"PV"的标题
@@ -2588,7 +2718,8 @@
 												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">预告</code> - 匹配包含"预告"的标题
 											</li>
 											<li>
-												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">第\d+期</code> - 匹配"第N期"格式
+												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">第\d+期</code> -
+												匹配"第N期"格式
 											</li>
 										</ul>
 										<p class="mt-1 text-[10px] text-purple-500 dark:text-purple-400">
@@ -3260,7 +3391,7 @@
 									>
 										{#each filteredSearchedUserFavorites as favorite (favorite.id)}
 											{@const itemKey = `searched-favorite_${favorite.id}`}
-												{@const isDisabled = existingFavoriteIds.has(Number(favorite.id))}
+											{@const isDisabled = existingFavoriteIds.has(Number(favorite.id))}
 											<button
 												onclick={() => {
 													if (batchMode) {
@@ -3539,13 +3670,18 @@
 								>
 									{#each subscribedCollections as collection (collection.sid)}
 										{@const itemKey = `subscribed-collection_${collection.sid}`}
-										{@const isExisting = collection.collection_type === 'favorite'
-											? existingFavoriteIds.has(Number(collection.sid))
-											: isCollectionExists(collection.sid, collection.up_mid.toString())}
+										{@const isExisting =
+											collection.collection_type === 'favorite'
+												? existingFavoriteIds.has(Number(collection.sid))
+												: isCollectionExists(collection.sid, collection.up_mid.toString())}
 										<button
 											onclick={() => {
 												if (batchMode) {
-													toggleBatchSelection(itemKey, collection, collection.collection_type === 'favorite' ? 'favorite' : 'collection');
+													toggleBatchSelection(
+														itemKey,
+														collection,
+														collection.collection_type === 'favorite' ? 'favorite' : 'collection'
+													);
 												} else {
 													selectSubscribedCollection(collection);
 												}
@@ -3566,7 +3702,13 @@
 															checked={batchCheckboxStates[itemKey] || false}
 															onclick={(e) => {
 																e.stopPropagation();
-																toggleBatchSelection(itemKey, collection, collection.collection_type === 'favorite' ? 'favorite' : 'collection');
+																toggleBatchSelection(
+																	itemKey,
+																	collection,
+																	collection.collection_type === 'favorite'
+																		? 'favorite'
+																		: 'collection'
+																);
 															}}
 															class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
 														/>
@@ -3593,7 +3735,8 @@
 													<div class="mb-1 flex items-center gap-2">
 														<h4 class="truncate text-sm font-medium">{collection.name}</h4>
 														<span
-															class="flex-shrink-0 rounded px-2 py-0.5 text-xs {collection.collection_type === 'favorite'
+															class="flex-shrink-0 rounded px-2 py-0.5 text-xs {collection.collection_type ===
+															'favorite'
 																? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
 																: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'}"
 														>

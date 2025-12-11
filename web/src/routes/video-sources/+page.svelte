@@ -413,7 +413,9 @@
 																}
 															})()}
 															{#if selectedCount > 0}
-																<span class="ml-2 text-purple-600">| 已选 {selectedCount} 个历史投稿</span>
+																<span class="ml-2 text-purple-600"
+																	>| 已选 {selectedCount} 个历史投稿</span
+																>
 															{/if}
 														{/if}
 													{:else if sourceConfig.type === 'bangumi'}
@@ -518,16 +520,13 @@
 													size="sm"
 													variant="ghost"
 													onclick={() =>
-														handleOpenKeywordFilter(
-															sourceConfig.type,
-															source.id,
-															source.name
-														)}
+														handleOpenKeywordFilter(sourceConfig.type, source.id, source.name)}
 													title="关键词过滤"
 													class="h-8 w-8 p-0"
 												>
 													<FilterIcon
-														class="h-4 w-4 {source.keyword_filters && source.keyword_filters.length > 0
+														class="h-4 w-4 {source.keyword_filters &&
+														source.keyword_filters.length > 0
 															? 'text-purple-600'
 															: 'text-gray-400'}"
 													/>

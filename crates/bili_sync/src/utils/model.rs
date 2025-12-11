@@ -219,6 +219,7 @@ pub async fn create_videos(
     // 黑名单：匹配黑名单的视频即使通过白名单也不下载
     let blacklist_keywords = video_source.get_blacklist_keywords();
     let whitelist_keywords = video_source.get_whitelist_keywords();
+    let case_sensitive = video_source.get_keyword_case_sensitive();
     // 向后兼容：旧的单列表模式
     let keyword_filters = video_source.get_keyword_filters();
     let keyword_filter_mode = video_source.get_keyword_filter_mode();
@@ -238,7 +239,7 @@ pub async fn create_videos(
 
                 // 优先使用新的双列表模式
                 let should_filter = if has_dual_list {
-                    should_filter_video_dual_list(&title, &blacklist_keywords, &whitelist_keywords)
+                    should_filter_video_dual_list(&title, &blacklist_keywords, &whitelist_keywords, case_sensitive)
                 } else {
                     // 向后兼容：使用旧的单列表模式
                     should_filter_video_with_mode(&title, &keyword_filters, &keyword_filter_mode)

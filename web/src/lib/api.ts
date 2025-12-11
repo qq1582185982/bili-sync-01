@@ -402,13 +402,15 @@ class ApiClient {
 		sourceType: string,
 		id: number,
 		blacklistKeywords: string[],
-		whitelistKeywords: string[]
+		whitelistKeywords: string[],
+		caseSensitive: boolean = true
 	): Promise<ApiResponse<UpdateKeywordFiltersResponse>> {
 		return this.put<UpdateKeywordFiltersResponse>(
 			`/video-sources/${sourceType}/${id}/keyword-filters`,
 			{
 				blacklist_keywords: blacklistKeywords,
-				whitelist_keywords: whitelistKeywords
+				whitelist_keywords: whitelistKeywords,
+				case_sensitive: caseSensitive
 			}
 		);
 	}
@@ -903,8 +905,20 @@ export const api = {
 	/**
 	 * 更新视频源关键词过滤器（双列表模式）
 	 */
-	updateVideoSourceKeywordFilters: (sourceType: string, id: number, blacklistKeywords: string[], whitelistKeywords: string[]) =>
-		apiClient.updateVideoSourceKeywordFilters(sourceType, id, blacklistKeywords, whitelistKeywords),
+	updateVideoSourceKeywordFilters: (
+		sourceType: string,
+		id: number,
+		blacklistKeywords: string[],
+		whitelistKeywords: string[],
+		caseSensitive: boolean = true
+	) =>
+		apiClient.updateVideoSourceKeywordFilters(
+			sourceType,
+			id,
+			blacklistKeywords,
+			whitelistKeywords,
+			caseSensitive
+		),
 
 	/**
 	 * 验证正则表达式

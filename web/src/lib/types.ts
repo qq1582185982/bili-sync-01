@@ -46,6 +46,7 @@ export interface VideoSource {
 	// 新的双列表模式关键词过滤
 	blacklist_keywords?: string[]; // 黑名单关键词列表（匹配的视频将被排除）
 	whitelist_keywords?: string[]; // 白名单关键词列表（只下载匹配的视频）
+	case_sensitive: boolean; // 是否区分大小写
 	// 向后兼容的旧字段
 	keyword_filters?: string[]; // 【已废弃】关键词过滤器列表（支持正则表达式）
 	keyword_filter_mode?: KeywordFilterMode; // 【已废弃】关键词过滤模式
@@ -635,6 +636,7 @@ export interface UpdateSubmissionSelectedVideosResponse {
 export interface UpdateKeywordFiltersRequest {
 	blacklist_keywords?: string[]; // 黑名单关键词列表（匹配的视频将被排除）
 	whitelist_keywords?: string[]; // 白名单关键词列表（只下载匹配的视频）
+	case_sensitive?: boolean; // 是否区分大小写
 	// 向后兼容的旧字段
 	keyword_filters?: string[]; // 【已废弃】关键词过滤器列表
 	keyword_filter_mode?: KeywordFilterMode; // 【已废弃】关键词过滤模式
@@ -657,6 +659,7 @@ export interface GetKeywordFiltersResponse {
 	source_type: string;
 	blacklist_keywords: string[]; // 黑名单关键词列表
 	whitelist_keywords: string[]; // 白名单关键词列表
+	case_sensitive: boolean; // 是否区分大小写
 	// 向后兼容的旧字段
 	keyword_filters: string[]; // 【已废弃】关键词过滤器列表
 	keyword_filter_mode?: string; // 【已废弃】关键词过滤模式

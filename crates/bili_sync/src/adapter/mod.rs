@@ -128,6 +128,11 @@ pub trait VideoSource {
     fn get_whitelist_keywords(&self) -> Option<String> {
         None // 默认实现：没有白名单
     }
+
+    /// 获取关键词是否区分大小写（默认为 true，区分大小写）
+    fn get_keyword_case_sensitive(&self) -> bool {
+        true // 默认实现：区分大小写
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -261,6 +266,7 @@ pub async fn bangumi_from<'a>(
             keyword_filter_mode: model.keyword_filter_mode,
             blacklist_keywords: model.blacklist_keywords,
             whitelist_keywords: model.whitelist_keywords,
+            keyword_case_sensitive: model.keyword_case_sensitive,
         }
     } else {
         // 如果数据库中不存在，使用默认值并发出警告
@@ -288,6 +294,7 @@ pub async fn bangumi_from<'a>(
             keyword_filter_mode: None,
             blacklist_keywords: None,
             whitelist_keywords: None,
+            keyword_case_sensitive: true,
         }
     };
 

@@ -3377,9 +3377,7 @@
 									启用扫描完成推送通知
 								</Label>
 							</div>
-							<p class="text-muted-foreground text-sm">
-								当扫描完成且有新视频时，发送推送通知
-							</p>
+							<p class="text-muted-foreground text-sm">当扫描完成且有新视频时，发送推送通知</p>
 						</div>
 
 						<!-- 选择通知渠道 -->
@@ -3405,130 +3403,134 @@
 
 						<!-- Server酱配置 -->
 						{#if activeNotificationChannel === 'serverchan'}
-							<div class="space-y-4 rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/10">
+							<div
+								class="space-y-4 rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/10"
+							>
 								<h3 class="text-base font-semibold">Server酱配置</h3>
 
-							<div class="space-y-2">
-								<Label for="serverchan-key">Server酱 SendKey</Label>
-								<Input
-									id="serverchan-key"
-									type="password"
-									bind:value={serverchanKey}
-									placeholder={notificationStatus?.configured
-										? '已配置（留空保持不变）'
-										: '请输入Server酱密钥'}
-								/>
-								<p class="text-muted-foreground text-sm">
-									从 <a
-										href="https://sct.ftqq.com/"
-										target="_blank"
-										class="text-primary hover:underline">sct.ftqq.com</a
-									> 获取您的SendKey
+								<div class="space-y-2">
+									<Label for="serverchan-key">Server酱 SendKey</Label>
+									<Input
+										id="serverchan-key"
+										type="password"
+										bind:value={serverchanKey}
+										placeholder={notificationStatus?.configured
+											? '已配置（留空保持不变）'
+											: '请输入Server酱密钥'}
+									/>
+									<p class="text-muted-foreground text-sm">
+										从 <a
+											href="https://sct.ftqq.com/"
+											target="_blank"
+											class="text-primary hover:underline">sct.ftqq.com</a
+										> 获取您的SendKey
+									</p>
+								</div>
+							</div>
+						{/if}
+
+						<!-- 企业微信配置 -->
+						{#if activeNotificationChannel === 'wecom'}
+							<div
+								class="space-y-4 rounded-lg border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800 dark:bg-purple-950/10"
+							>
+								<h3 class="text-base font-semibold">企业微信群机器人配置</h3>
+
+								<div class="space-y-2">
+									<Label for="wecom-webhook-url">Webhook URL</Label>
+									<Input
+										id="wecom-webhook-url"
+										type="password"
+										bind:value={wecomWebhookUrl}
+										placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+									/>
+									<p class="text-muted-foreground text-sm">
+										从企业微信群机器人获取的 Webhook URL（包含key参数）
+									</p>
+								</div>
+
+								<div class="space-y-2">
+									<Label for="wecom-msgtype">消息格式</Label>
+									<select
+										id="wecom-msgtype"
+										bind:value={wecomMsgtype}
+										class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+									>
+										<option value="markdown">Markdown格式（推荐）</option>
+										<option value="text">纯文本格式</option>
+									</select>
+									<p class="text-muted-foreground text-sm">
+										Markdown格式支持富文本显示，纯文本更简洁
+									</p>
+								</div>
+
+								<div class="flex items-center space-x-2">
+									<input
+										type="checkbox"
+										id="wecom-mention-all"
+										bind:checked={wecomMentionAll}
+										class="text-primary focus:ring-primary h-4 w-4 rounded border-gray-300"
+									/>
+									<Label
+										for="wecom-mention-all"
+										class="text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+									>
+										@所有人
+									</Label>
+								</div>
+
+								<div class="space-y-2">
+									<Label for="wecom-mentioned-list">@特定成员（可选）</Label>
+									<Input
+										id="wecom-mentioned-list"
+										type="text"
+										bind:value={wecomMentionedList}
+										placeholder="user1, user2, user3"
+										disabled={wecomMentionAll}
+									/>
+									<p class="text-muted-foreground text-sm">
+										多个成员用逗号分隔，如：zhangsan, lisi（@所有人时忽略此项）
+									</p>
+								</div>
+							</div>
+						{/if}
+
+						<!-- 通用配置 -->
+						{#if activeNotificationChannel !== 'none'}
+							<div class="space-y-4">
+								<h3 class="text-base font-semibold">推送设置</h3>
+
+								<div class="space-y-2">
+									<Label for="min-videos">最小视频数阈值</Label>
+									<Input
+										id="min-videos"
+										type="number"
+										bind:value={notificationMinVideos}
+										min="1"
+										max="100"
+										placeholder="1"
+									/>
+									<p class="text-muted-foreground text-sm">
+										只有新增视频数量达到此阈值时才会发送推送通知
+									</p>
+								</div>
+							</div>
+						{/if}
+
+						<!-- 测试推送 -->
+						{#if activeNotificationChannel !== 'none'}
+							<div
+								class="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/20"
+							>
+								<h4 class="mb-3 font-medium text-blue-800 dark:text-blue-400">测试推送</h4>
+								<p class="mb-3 text-sm text-blue-700 dark:text-blue-300">
+									发送一条测试消息到您的推送接收端，验证配置是否正确
 								</p>
+								<Button type="button" variant="outline" size="sm" onclick={testNotification}>
+									发送测试推送
+								</Button>
 							</div>
-						</div>
-					{/if}
-
-					<!-- 企业微信配置 -->
-					{#if activeNotificationChannel === 'wecom'}
-						<div class="space-y-4 rounded-lg border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800 dark:bg-purple-950/10">
-							<h3 class="text-base font-semibold">企业微信群机器人配置</h3>
-
-							<div class="space-y-2">
-								<Label for="wecom-webhook-url">Webhook URL</Label>
-								<Input
-									id="wecom-webhook-url"
-									type="password"
-									bind:value={wecomWebhookUrl}
-									placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
-								/>
-								<p class="text-muted-foreground text-sm">
-									从企业微信群机器人获取的 Webhook URL（包含key参数）
-								</p>
-							</div>
-
-							<div class="space-y-2">
-								<Label for="wecom-msgtype">消息格式</Label>
-								<select
-									id="wecom-msgtype"
-									bind:value={wecomMsgtype}
-									class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-								>
-									<option value="markdown">Markdown格式（推荐）</option>
-									<option value="text">纯文本格式</option>
-								</select>
-								<p class="text-muted-foreground text-sm">
-									Markdown格式支持富文本显示，纯文本更简洁
-								</p>
-							</div>
-
-							<div class="flex items-center space-x-2">
-								<input
-									type="checkbox"
-									id="wecom-mention-all"
-									bind:checked={wecomMentionAll}
-									class="text-primary focus:ring-primary h-4 w-4 rounded border-gray-300"
-								/>
-								<Label
-									for="wecom-mention-all"
-									class="text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-								>
-									@所有人
-								</Label>
-							</div>
-
-							<div class="space-y-2">
-								<Label for="wecom-mentioned-list">@特定成员（可选）</Label>
-								<Input
-									id="wecom-mentioned-list"
-									type="text"
-									bind:value={wecomMentionedList}
-									placeholder="user1, user2, user3"
-									disabled={wecomMentionAll}
-								/>
-								<p class="text-muted-foreground text-sm">
-									多个成员用逗号分隔，如：zhangsan, lisi（@所有人时忽略此项）
-								</p>
-							</div>
-						</div>
-					{/if}
-
-					<!-- 通用配置 -->
-					{#if activeNotificationChannel !== 'none'}
-						<div class="space-y-4">
-							<h3 class="text-base font-semibold">推送设置</h3>
-
-							<div class="space-y-2">
-								<Label for="min-videos">最小视频数阈值</Label>
-								<Input
-									id="min-videos"
-									type="number"
-									bind:value={notificationMinVideos}
-									min="1"
-									max="100"
-									placeholder="1"
-								/>
-								<p class="text-muted-foreground text-sm">
-									只有新增视频数量达到此阈值时才会发送推送通知
-								</p>
-							</div>
-						</div>
-					{/if}
-
-					<!-- 测试推送 -->
-					{#if activeNotificationChannel !== 'none'}
-						<div
-							class="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/20"
-						>
-							<h4 class="mb-3 font-medium text-blue-800 dark:text-blue-400">测试推送</h4>
-							<p class="mb-3 text-sm text-blue-700 dark:text-blue-300">
-								发送一条测试消息到您的推送接收端，验证配置是否正确
-							</p>
-							<Button type="button" variant="outline" size="sm" onclick={testNotification}>
-								发送测试推送
-							</Button>
-						</div>
-					{/if}
+						{/if}
 
 						<!-- 使用说明 -->
 						<div

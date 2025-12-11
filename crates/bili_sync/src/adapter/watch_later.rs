@@ -98,6 +98,10 @@ impl VideoSource for watch_later::Model {
     fn get_whitelist_keywords(&self) -> Option<String> {
         self.whitelist_keywords.clone()
     }
+
+    fn get_keyword_case_sensitive(&self) -> bool {
+        self.keyword_case_sensitive
+    }
 }
 
 // 稍后观看源的初始化现在通过Web API完成，不再需要这个函数

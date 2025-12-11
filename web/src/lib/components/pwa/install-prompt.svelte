@@ -100,33 +100,31 @@
 
 {#if showBanner && !isInstalled}
 	<div
-		class="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-50 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg p-4 animate-in slide-in-from-bottom-5"
+		class="animate-in slide-in-from-bottom-5 fixed right-4 bottom-4 left-4 z-50 rounded-lg border border-zinc-200 bg-white p-4 shadow-lg md:right-4 md:left-auto md:w-96 dark:border-zinc-800 dark:bg-zinc-900"
 	>
 		<div class="flex items-start gap-3">
 			<div
-				class="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center"
+				class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-600"
 			>
-				<Download class="w-5 h-5 text-white" />
+				<Download class="h-5 w-5 text-white" />
 			</div>
 
-			<div class="flex-1 min-w-0">
-				<h3 class="font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
-					安装 bili-sync
-				</h3>
-				<p class="text-sm text-zinc-600 dark:text-zinc-400 mb-3">
+			<div class="min-w-0 flex-1">
+				<h3 class="mb-1 font-semibold text-zinc-900 dark:text-zinc-100">安装 bili-sync</h3>
+				<p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
 					将应用添加到桌面，获得更好的使用体验
 				</p>
 
 				<div class="flex gap-2">
 					<button
 						onclick={handleInstall}
-						class="flex-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors"
+						class="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
 					>
 						安装
 					</button>
 					<button
 						onclick={dismissBanner}
-						class="px-3 py-1.5 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm font-medium rounded-md transition-colors"
+						class="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
 					>
 						稍后
 					</button>
@@ -135,9 +133,9 @@
 
 			<button
 				onclick={dismissBanner}
-				class="flex-shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+				class="flex-shrink-0 text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
 			>
-				<X class="w-4 h-4" />
+				<X class="h-4 w-4" />
 			</button>
 		</div>
 	</div>

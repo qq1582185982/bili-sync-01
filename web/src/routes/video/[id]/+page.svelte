@@ -6,7 +6,14 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import VideoCard from '$lib/components/video-card.svelte';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
-	import { appStateStore, setVideoIds, setCurrentPage, setVideoListInfo, setTotalCount, ToQuery } from '$lib/stores/filter';
+	import {
+		appStateStore,
+		setVideoIds,
+		setCurrentPage,
+		setVideoListInfo,
+		setTotalCount,
+		ToQuery
+	} from '$lib/stores/filter';
 	import type { ApiError, UpdateVideoStatusRequest, VideoResponse } from '$lib/types';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';

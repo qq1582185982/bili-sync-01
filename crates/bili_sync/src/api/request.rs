@@ -361,12 +361,19 @@ pub struct UpdateKeywordFiltersRequest {
     /// 白名单关键词列表（支持正则表达式）
     /// 如果设置了白名单，视频必须匹配其中之一才会被下载
     pub whitelist_keywords: Option<Vec<String>>,
+    /// 是否区分大小写（默认为 true）
+    #[serde(default = "default_case_sensitive")]
+    pub case_sensitive: Option<bool>,
     /// 【已废弃】关键词列表（支持正则表达式）- 向后兼容
     #[serde(default)]
     pub keyword_filters: Option<Vec<String>>,
     /// 【已废弃】关键词过滤模式 - 向后兼容
     #[serde(default)]
     pub keyword_filter_mode: Option<String>,
+}
+
+fn default_case_sensitive() -> Option<bool> {
+    None
 }
 
 // 验证正则表达式的请求结构体

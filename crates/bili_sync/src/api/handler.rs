@@ -212,6 +212,7 @@ pub async fn get_video_sources(
                 selected_seasons: None,
                 blacklist_keywords,
                 whitelist_keywords,
+                case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -247,6 +248,7 @@ pub async fn get_video_sources(
                 selected_seasons: None,
                 blacklist_keywords,
                 whitelist_keywords,
+                case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -282,6 +284,7 @@ pub async fn get_video_sources(
                 selected_seasons: None,
                 blacklist_keywords,
                 whitelist_keywords,
+                case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -317,6 +320,7 @@ pub async fn get_video_sources(
                 selected_seasons: None,
                 blacklist_keywords,
                 whitelist_keywords,
+                case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -366,6 +370,7 @@ pub async fn get_video_sources(
                 selected_seasons,
                 blacklist_keywords,
                 whitelist_keywords,
+                case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -1715,6 +1720,7 @@ pub async fn add_video_source_internal(
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
                 blacklist_keywords: sea_orm::Set(None),
                 whitelist_keywords: sea_orm::Set(None),
+                keyword_case_sensitive: sea_orm::Set(true),
             };
 
             let insert_result = collection::Entity::insert(collection).exec(&txn).await?;
@@ -1772,6 +1778,7 @@ pub async fn add_video_source_internal(
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
                 blacklist_keywords: sea_orm::Set(None),
                 whitelist_keywords: sea_orm::Set(None),
+                keyword_case_sensitive: sea_orm::Set(true),
             };
 
             let insert_result = favorite::Entity::insert(favorite).exec(&txn).await?;
@@ -1834,6 +1841,7 @@ pub async fn add_video_source_internal(
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
                 blacklist_keywords: sea_orm::Set(None),
                 whitelist_keywords: sea_orm::Set(None),
+                keyword_case_sensitive: sea_orm::Set(true),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -2198,6 +2206,7 @@ pub async fn add_video_source_internal(
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
                 blacklist_keywords: sea_orm::Set(None),
                 whitelist_keywords: sea_orm::Set(None),
+                keyword_case_sensitive: sea_orm::Set(true),
             };
 
             let insert_result = watch_later::Entity::insert(watch_later).exec(&txn).await?;
@@ -11173,6 +11182,9 @@ pub async fn update_video_source_keyword_filters(
         .map(|v| serde_json::to_string(v).unwrap_or_default());
     let keyword_filter_mode = params.keyword_filter_mode.clone();
 
+    // 处理大小写敏感设置
+    let case_sensitive = params.case_sensitive.unwrap_or(true);
+
     let result = match source_type.as_str() {
         "collection" => {
             let record = collection::Entity::find_by_id(id)
@@ -11186,6 +11198,7 @@ pub async fn update_video_source_keyword_filters(
                 whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
+                keyword_case_sensitive: sea_orm::Set(case_sensitive),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11212,6 +11225,7 @@ pub async fn update_video_source_keyword_filters(
                 whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
+                keyword_case_sensitive: sea_orm::Set(case_sensitive),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11238,6 +11252,7 @@ pub async fn update_video_source_keyword_filters(
                 whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
+                keyword_case_sensitive: sea_orm::Set(case_sensitive),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11267,6 +11282,7 @@ pub async fn update_video_source_keyword_filters(
                 whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
+                keyword_case_sensitive: sea_orm::Set(case_sensitive),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11293,6 +11309,7 @@ pub async fn update_video_source_keyword_filters(
                 whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
+                keyword_case_sensitive: sea_orm::Set(case_sensitive),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11337,6 +11354,7 @@ pub async fn get_video_source_keyword_filters(
     struct FilterInfo {
         blacklist: Vec<String>,
         whitelist: Vec<String>,
+        case_sensitive: bool,
         legacy_filters: Vec<String>,
         legacy_mode: Option<String>,
     }
@@ -11355,6 +11373,7 @@ pub async fn get_video_source_keyword_filters(
                 whitelist: record.whitelist_keywords.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
+                case_sensitive: record.keyword_case_sensitive,
                 legacy_filters: record.keyword_filters.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
@@ -11374,6 +11393,7 @@ pub async fn get_video_source_keyword_filters(
                 whitelist: record.whitelist_keywords.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
+                case_sensitive: record.keyword_case_sensitive,
                 legacy_filters: record.keyword_filters.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
@@ -11393,6 +11413,7 @@ pub async fn get_video_source_keyword_filters(
                 whitelist: record.whitelist_keywords.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
+                case_sensitive: record.keyword_case_sensitive,
                 legacy_filters: record.keyword_filters.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
@@ -11412,6 +11433,7 @@ pub async fn get_video_source_keyword_filters(
                 whitelist: record.whitelist_keywords.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
+                case_sensitive: record.keyword_case_sensitive,
                 legacy_filters: record.keyword_filters.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
@@ -11431,6 +11453,7 @@ pub async fn get_video_source_keyword_filters(
                 whitelist: record.whitelist_keywords.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
+                case_sensitive: record.keyword_case_sensitive,
                 legacy_filters: record.keyword_filters.as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
@@ -11446,6 +11469,7 @@ pub async fn get_video_source_keyword_filters(
         source_type,
         blacklist_keywords: filter_info.blacklist,
         whitelist_keywords: filter_info.whitelist,
+        case_sensitive: filter_info.case_sensitive,
         keyword_filters: filter_info.legacy_filters,
         keyword_filter_mode: filter_info.legacy_mode,
     }))

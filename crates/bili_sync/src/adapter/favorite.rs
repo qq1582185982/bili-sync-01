@@ -99,6 +99,10 @@ impl VideoSource for favorite::Model {
     fn get_whitelist_keywords(&self) -> Option<String> {
         self.whitelist_keywords.clone()
     }
+
+    fn get_keyword_case_sensitive(&self) -> bool {
+        self.keyword_case_sensitive
+    }
 }
 
 #[allow(dead_code)]
@@ -139,6 +143,7 @@ pub async fn init_favorite_sources(
                         keyword_filter_mode: Set(None),
                         blacklist_keywords: Set(None),
                         whitelist_keywords: Set(None),
+                        keyword_case_sensitive: Set(true),
                     };
 
                     let result = favorite::Entity::insert(model)
@@ -167,6 +172,7 @@ pub async fn init_favorite_sources(
                         keyword_filter_mode: Set(None),
                         blacklist_keywords: Set(None),
                         whitelist_keywords: Set(None),
+                        keyword_case_sensitive: Set(true),
                     };
 
                     let result = favorite::Entity::insert(model)

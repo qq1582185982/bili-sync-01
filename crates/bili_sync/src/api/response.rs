@@ -181,6 +181,7 @@ pub struct VideoSource {
     pub blacklist_keywords: Option<Vec<String>>,  // 黑名单关键词列表
     #[serde(skip_serializing_if = "Option::is_none")]
     pub whitelist_keywords: Option<Vec<String>>,  // 白名单关键词列表
+    pub case_sensitive: bool,  // 是否区分大小写
     // 向后兼容的旧字段
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keyword_filters: Option<Vec<String>>,  // 【已废弃】关键词过滤器列表
@@ -787,6 +788,7 @@ pub struct GetKeywordFiltersResponse {
     pub source_type: String,
     pub blacklist_keywords: Vec<String>,  // 黑名单关键词列表
     pub whitelist_keywords: Vec<String>,  // 白名单关键词列表
+    pub case_sensitive: bool,             // 是否区分大小写
     // 向后兼容的旧字段
     pub keyword_filters: Vec<String>,     // 【已废弃】关键词过滤器列表
     pub keyword_filter_mode: Option<String>, // 【已废弃】关键词过滤模式

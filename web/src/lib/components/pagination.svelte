@@ -143,7 +143,9 @@
 				size="sm"
 				class="h-8 cursor-pointer"
 				onclick={handleJumpToPage}
-				disabled={!jumpInputValue || parseInt(jumpInputValue) < 1 || parseInt(jumpInputValue) > totalPages}
+				disabled={!jumpInputValue ||
+					parseInt(jumpInputValue) < 1 ||
+					parseInt(jumpInputValue) > totalPages}
 			>
 				跳转
 			</Button>

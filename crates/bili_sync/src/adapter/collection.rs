@@ -108,6 +108,10 @@ impl VideoSource for collection::Model {
     fn get_whitelist_keywords(&self) -> Option<String> {
         self.whitelist_keywords.clone()
     }
+
+    fn get_keyword_case_sensitive(&self) -> bool {
+        self.keyword_case_sensitive
+    }
 }
 
 // 修改初始化合集源的方法中的类型转换问题

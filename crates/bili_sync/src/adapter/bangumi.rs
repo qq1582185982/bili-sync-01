@@ -34,6 +34,7 @@ pub struct BangumiSource {
     pub keyword_filter_mode: Option<String>,
     pub blacklist_keywords: Option<String>,
     pub whitelist_keywords: Option<String>,
+    pub keyword_case_sensitive: bool,
 }
 
 impl BangumiSource {
@@ -503,5 +504,9 @@ impl VideoSource for BangumiSource {
 
     fn get_whitelist_keywords(&self) -> Option<String> {
         self.whitelist_keywords.clone()
+    }
+
+    fn get_keyword_case_sensitive(&self) -> bool {
+        self.keyword_case_sensitive
     }
 }
