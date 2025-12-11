@@ -43,7 +43,8 @@ import type {
 	SysInfo,
 	TaskStatus,
 	BangumiSeasonsResponse,
-	VideoBvidResponse
+	VideoBvidResponse,
+	KeywordFilterMode
 } from './types';
 import { ErrorType } from './types';
 import { wsManager } from './ws';
@@ -395,15 +396,20 @@ class ApiClient {
 	 * @param sourceType 视频源类型
 	 * @param id 视频源ID
 	 * @param keywordFilters 关键词过滤器列表
+	 * @param filterMode 过滤模式 (blacklist/whitelist)
 	 */
 	async updateVideoSourceKeywordFilters(
 		sourceType: string,
 		id: number,
-		keywordFilters: string[]
+		keywordFilters: string[],
+		filterMode?: KeywordFilterMode
 	): Promise<ApiResponse<UpdateKeywordFiltersResponse>> {
 		return this.put<UpdateKeywordFiltersResponse>(
 			`/video-sources/${sourceType}/${id}/keyword-filters`,
-			{ keyword_filters: keywordFilters }
+			{
+				keyword_filters: keywordFilters,
+				keyword_filter_mode: filterMode
+			}
 		);
 	}
 
@@ -897,8 +903,8 @@ export const api = {
 	/**
 	 * 更新视频源关键词过滤器
 	 */
-	updateVideoSourceKeywordFilters: (sourceType: string, id: number, keywordFilters: string[]) =>
-		apiClient.updateVideoSourceKeywordFilters(sourceType, id, keywordFilters),
+	updateVideoSourceKeywordFilters: (sourceType: string, id: number, keywordFilters: string[], filterMode?: KeywordFilterMode) =>
+		apiClient.updateVideoSourceKeywordFilters(sourceType, id, keywordFilters, filterMode),
 
 	/**
 	 * 验证正则表达式

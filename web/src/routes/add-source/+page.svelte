@@ -17,7 +17,8 @@
 		BangumiSourceListResponse,
 		ValidateFavoriteResponse,
 		UserCollectionInfo,
-		AddVideoSourceRequest
+		AddVideoSourceRequest,
+		KeywordFilterMode
 	} from '$lib/types';
 	import { Search, X, Plus as PlusIcon, Filter as FilterIcon } from '@lucide/svelte';
 	import { onDestroy, onMount } from 'svelte';
@@ -100,6 +101,7 @@
 	let keywordValidationError = '';
 	let validatingKeyword = false;
 	let showKeywordSection = false; // 是否展开关键词过滤器部分
+	let keywordFilterMode: KeywordFilterMode = 'blacklist'; // 过滤模式：blacklist（排除匹配）或 whitelist（只下载匹配）
 
 	// 批量添加相关
 	let batchMode = false; // 是否为批量模式
@@ -544,9 +546,10 @@
 				}
 			}
 
-			// 如果有关键词过滤器，添加keyword_filters参数
+			// 如果有关键词过滤器，添加keyword_filters和keyword_filter_mode参数
 			if (keywordFilters.length > 0) {
 				params.keyword_filters = keywordFilters;
+				params.keyword_filter_mode = keywordFilterMode;
 			}
 
 			const result = await api.addVideoSource(params);
@@ -569,6 +572,7 @@
 				existingBangumiSources = [];
 				keywordFilters = [];
 				newKeyword = '';
+				keywordFilterMode = 'blacklist';
 				showKeywordSection = false;
 				// 跳转到视频源管理页面
 				goto('/video-sources');
@@ -2349,9 +2353,55 @@
 									class="space-y-3 rounded-md border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800 dark:bg-purple-950/50"
 									transition:fly={{ y: -10, duration: 200 }}
 								>
-									<p class="text-xs text-purple-700 dark:text-purple-300">
-										匹配任一关键词的视频将被跳过，不会下载。支持正则表达式。
-									</p>
+									<!-- 过滤模式选择 -->
+									<div class="space-y-2">
+										<p class="text-xs font-medium text-purple-700 dark:text-purple-300">过滤模式</p>
+										<div class="flex gap-2">
+											<button
+												type="button"
+												class="flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors {keywordFilterMode === 'blacklist'
+													? 'bg-red-100 text-red-800 ring-2 ring-red-500 dark:bg-red-900 dark:text-red-200'
+													: 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'}"
+												onclick={() => (keywordFilterMode = 'blacklist')}
+											>
+												<span class="flex items-center justify-center gap-1">
+													<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+													</svg>
+													黑名单
+												</span>
+												<span class="mt-0.5 block text-[10px] opacity-75">排除匹配的视频</span>
+											</button>
+											<button
+												type="button"
+												class="flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors {keywordFilterMode === 'whitelist'
+													? 'bg-green-100 text-green-800 ring-2 ring-green-500 dark:bg-green-900 dark:text-green-200'
+													: 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'}"
+												onclick={() => (keywordFilterMode = 'whitelist')}
+											>
+												<span class="flex items-center justify-center gap-1">
+													<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+													</svg>
+													白名单
+												</span>
+												<span class="mt-0.5 block text-[10px] opacity-75">只下载匹配的视频</span>
+											</button>
+										</div>
+									</div>
+
+									<!-- 模式说明 -->
+									<div
+										class="rounded-md border p-2 {keywordFilterMode === 'blacklist'
+											? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950'
+											: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950'}"
+									>
+										<p class="text-xs {keywordFilterMode === 'blacklist' ? 'text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}">
+											{keywordFilterMode === 'blacklist'
+												? '匹配任一关键词的视频将被跳过，不会下载。支持正则表达式。'
+												: '只有匹配任一关键词的视频才会下载，不匹配的视频将被跳过。支持正则表达式。'}
+										</p>
+									</div>
 
 									<!-- 添加新关键词 -->
 									<div class="flex gap-2">

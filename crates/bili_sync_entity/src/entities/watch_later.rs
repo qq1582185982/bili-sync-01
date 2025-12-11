@@ -13,6 +13,7 @@ pub struct Model {
     pub enabled: bool,
     pub scan_deleted_videos: bool,
     pub keyword_filters: Option<String>,
+    pub keyword_filter_mode: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

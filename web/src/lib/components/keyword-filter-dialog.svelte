@@ -2,19 +2,22 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { createEventDispatcher } from 'svelte';
 	import { api } from '$lib/api';
+	import type { KeywordFilterMode } from '$lib/types';
 
 	export let isOpen = false;
 	export let sourceName = '';
 	export let sourceType = '';
 	export let sourceId = 0;
 	export let initialKeywords: string[] = [];
+	export let initialFilterMode: KeywordFilterMode = 'blacklist';
 
 	const dispatch = createEventDispatcher<{
-		save: string[];
+		save: { keywords: string[]; filterMode: KeywordFilterMode };
 		cancel: void;
 	}>();
 
 	let keywords: string[] = [];
+	let filterMode: KeywordFilterMode = 'blacklist';
 	let newKeyword = '';
 	let isLoading = false;
 	let isSaving = false;
@@ -24,6 +27,7 @@
 	// 重置状态
 	function resetState() {
 		keywords = [...initialKeywords];
+		filterMode = initialFilterMode || 'blacklist';
 		newKeyword = '';
 		validationError = '';
 		validationStatus = {};
@@ -46,6 +50,7 @@
 			const response = await api.getVideoSourceKeywordFilters(sourceType, sourceId);
 			if (response.status_code === 200) {
 				keywords = response.data.keyword_filters || [];
+				// filterMode 从 initialFilterMode 获取，因为 API 可能不返回这个字段
 			}
 		} catch (error) {
 			console.error('加载关键词失败:', error);
@@ -118,9 +123,9 @@
 	async function handleSave() {
 		isSaving = true;
 		try {
-			const response = await api.updateVideoSourceKeywordFilters(sourceType, sourceId, keywords);
+			const response = await api.updateVideoSourceKeywordFilters(sourceType, sourceId, keywords, filterMode);
 			if (response.status_code === 200) {
-				dispatch('save', keywords);
+				dispatch('save', { keywords, filterMode });
 				isOpen = false;
 			} else {
 				validationError = '保存失败';
@@ -164,12 +169,57 @@
 				关键词过滤器
 			</AlertDialog.Title>
 			<AlertDialog.Description class="space-y-4">
+				<!-- 过滤模式选择 -->
+				<div class="space-y-2">
+					<p class="text-sm font-medium text-gray-700 dark:text-gray-300">过滤模式</p>
+					<div class="flex gap-2">
+						<button
+							type="button"
+							class="flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors {filterMode === 'blacklist'
+								? 'bg-red-100 text-red-800 ring-2 ring-red-500 dark:bg-red-900 dark:text-red-200'
+								: 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'}"
+							on:click={() => (filterMode = 'blacklist')}
+							disabled={isSaving || isLoading}
+						>
+							<span class="flex items-center justify-center gap-2">
+								<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+								</svg>
+								黑名单模式
+							</span>
+							<span class="mt-1 block text-xs opacity-75">排除匹配的视频</span>
+						</button>
+						<button
+							type="button"
+							class="flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors {filterMode === 'whitelist'
+								? 'bg-green-100 text-green-800 ring-2 ring-green-500 dark:bg-green-900 dark:text-green-200'
+								: 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'}"
+							on:click={() => (filterMode = 'whitelist')}
+							disabled={isSaving || isLoading}
+						>
+							<span class="flex items-center justify-center gap-2">
+								<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+								</svg>
+								白名单模式
+							</span>
+							<span class="mt-1 block text-xs opacity-75">只下载匹配的视频</span>
+						</button>
+					</div>
+				</div>
+
 				<div
-					class="rounded-lg border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-950"
+					class="rounded-lg border p-3 {filterMode === 'blacklist'
+						? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950'
+						: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950'}"
 				>
-					<p class="text-sm font-medium text-purple-800 dark:text-purple-200">过滤说明</p>
-					<p class="mt-1 text-xs text-purple-700 dark:text-purple-300">
-						匹配任一关键词的视频将被跳过，不会下载。支持正则表达式。
+					<p class="text-sm font-medium {filterMode === 'blacklist' ? 'text-red-800 dark:text-red-200' : 'text-green-800 dark:text-green-200'}">
+						{filterMode === 'blacklist' ? '黑名单模式说明' : '白名单模式说明'}
+					</p>
+					<p class="mt-1 text-xs {filterMode === 'blacklist' ? 'text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}">
+						{filterMode === 'blacklist'
+							? '匹配任一关键词的视频将被跳过，不会下载。支持正则表达式。'
+							: '只有匹配任一关键词的视频才会下载，不匹配的视频将被跳过。支持正则表达式。'}
 					</p>
 				</div>
 

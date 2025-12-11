@@ -25,6 +25,9 @@ export interface VideosRequest {
 	sort_order?: SortOrder;
 }
 
+// 关键词过滤模式类型
+export type KeywordFilterMode = 'blacklist' | 'whitelist';
+
 // 视频来源类型
 export interface VideoSource {
 	id: number;
@@ -41,6 +44,7 @@ export interface VideoSource {
 	media_id?: string; // 番剧media_id
 	selected_seasons?: string[];
 	keyword_filters?: string[]; // 关键词过滤器列表（支持正则表达式）
+	keyword_filter_mode?: KeywordFilterMode; // 关键词过滤模式: "blacklist"（排除匹配）或 "whitelist"（只下载匹配）
 }
 
 // 视频来源响应类型
@@ -168,6 +172,7 @@ export interface AddVideoSourceRequest {
 	selected_videos?: string[];
 	merge_to_source_id?: number;
 	keyword_filters?: string[]; // 关键词过滤器列表（支持正则表达式）
+	keyword_filter_mode?: KeywordFilterMode; // 关键词过滤模式: "blacklist"（排除匹配）或 "whitelist"（只下载匹配）
 }
 
 // 添加视频源响应类型

@@ -991,6 +991,7 @@ impl AddTaskQueue {
                 cover: None,           // 任务队列中暂时不支持封面，等前端传递
                 merge_to_source_id: None, // 任务队列中暂时不支持合并功能
                 keyword_filters: None, // 任务队列中暂时不支持关键词过滤器
+                keyword_filter_mode: None, // 任务队列中暂时不支持过滤模式
             };
 
             match add_video_source_internal(db.clone(), request).await {

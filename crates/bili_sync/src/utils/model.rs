@@ -214,21 +214,31 @@ pub async fn create_videos(
         videos_info
     };
 
-    // 关键词过滤：过滤掉标题匹配关键词的视频
+    // 关键词过滤：根据过滤模式过滤视频
+    // 黑名单模式：过滤掉匹配关键词的视频
+    // 白名单模式：只保留匹配关键词的视频
     let keyword_filters = video_source.get_keyword_filters();
+    let keyword_filter_mode = video_source.get_keyword_filter_mode();
     let final_videos_info = if keyword_filters.is_some() {
-        use crate::utils::keyword_filter::should_filter_video;
+        use crate::utils::keyword_filter::should_filter_video_with_mode;
+
+        let is_whitelist = keyword_filter_mode
+            .as_ref()
+            .map(|m| m.to_lowercase() == "whitelist")
+            .unwrap_or(false);
+        let mode_desc = if is_whitelist { "白名单" } else { "黑名单" };
 
         let before_count = final_videos_info.len();
         let filtered_videos: Vec<VideoInfo> = final_videos_info
             .into_iter()
             .filter(|info| {
                 let title = extract_title(info);
-                let should_filter = should_filter_video(&title, &keyword_filters);
+                let should_filter = should_filter_video_with_mode(&title, &keyword_filters, &keyword_filter_mode);
                 if should_filter {
                     info!(
-                        "视频 '{}' 被关键词过滤器过滤，跳过: {}",
+                        "视频 '{}' 被{}过滤器过滤，跳过: {}",
                         title,
+                        mode_desc,
                         extract_bvid(info)
                     );
                 }

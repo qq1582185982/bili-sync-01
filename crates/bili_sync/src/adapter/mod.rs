@@ -113,6 +113,11 @@ pub trait VideoSource {
     fn get_keyword_filters(&self) -> Option<String> {
         None // 默认实现：没有关键词过滤
     }
+
+    /// 获取关键词过滤模式（blacklist/whitelist）
+    fn get_keyword_filter_mode(&self) -> Option<String> {
+        None // 默认实现：没有过滤模式（使用默认黑名单模式）
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -243,6 +248,7 @@ pub async fn bangumi_from<'a>(
             selected_seasons,
             scan_deleted_videos: model.scan_deleted_videos,
             keyword_filters: model.keyword_filters,
+            keyword_filter_mode: model.keyword_filter_mode,
         }
     } else {
         // 如果数据库中不存在，使用默认值并发出警告
@@ -267,6 +273,7 @@ pub async fn bangumi_from<'a>(
             selected_seasons: None,
             scan_deleted_videos: false,
             keyword_filters: None,
+            keyword_filter_mode: None,
         }
     };
 

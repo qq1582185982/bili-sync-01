@@ -178,6 +178,8 @@ pub struct VideoSource {
     pub selected_seasons: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keyword_filters: Option<Vec<String>>,  // 关键词过滤器列表
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keyword_filter_mode: Option<String>,   // 关键词过滤模式: "blacklist" 或 "whitelist"
 }
 
 #[derive(Serialize, ToSchema)]

@@ -53,8 +53,10 @@ pub struct AddVideoSourceRequest {
     pub cover: Option<String>,
     // 合并到现有番剧源的ID，仅当source_type为"bangumi"时有效
     pub merge_to_source_id: Option<i32>,
-    // 关键词过滤器列表（支持正则表达式），匹配任一关键词的视频将不会下载
+    // 关键词过滤器列表（支持正则表达式）
     pub keyword_filters: Option<Vec<String>>,
+    // 关键词过滤模式: "blacklist"（黑名单-排除匹配）或 "whitelist"（白名单-只下载匹配）
+    pub keyword_filter_mode: Option<String>,
 }
 
 // 删除视频源的请求结构体
@@ -355,6 +357,8 @@ pub struct QRPollRequest {
 pub struct UpdateKeywordFiltersRequest {
     /// 关键词列表（支持正则表达式）
     pub keyword_filters: Vec<String>,
+    /// 关键词过滤模式: "blacklist"（黑名单-排除匹配）或 "whitelist"（白名单-只下载匹配）
+    pub keyword_filter_mode: Option<String>,
 }
 
 // 验证正则表达式的请求结构体

@@ -31,6 +31,7 @@ pub struct BangumiSource {
     pub selected_seasons: Option<Vec<String>>,
     pub scan_deleted_videos: bool,
     pub keyword_filters: Option<String>,
+    pub keyword_filter_mode: Option<String>,
 }
 
 impl BangumiSource {
@@ -488,5 +489,9 @@ impl VideoSource for BangumiSource {
 
     fn get_keyword_filters(&self) -> Option<String> {
         self.keyword_filters.clone()
+    }
+
+    fn get_keyword_filter_mode(&self) -> Option<String> {
+        self.keyword_filter_mode.clone()
     }
 }

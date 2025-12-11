@@ -87,6 +87,10 @@ impl VideoSource for favorite::Model {
     fn get_keyword_filters(&self) -> Option<String> {
         self.keyword_filters.clone()
     }
+
+    fn get_keyword_filter_mode(&self) -> Option<String> {
+        self.keyword_filter_mode.clone()
+    }
 }
 
 #[allow(dead_code)]
@@ -124,6 +128,7 @@ pub async fn init_favorite_sources(
                         enabled: Set(true),
                         scan_deleted_videos: Set(false),
                         keyword_filters: Set(None),
+                        keyword_filter_mode: Set(None),
                     };
 
                     let result = favorite::Entity::insert(model)
@@ -149,6 +154,7 @@ pub async fn init_favorite_sources(
                         enabled: Set(true),
                         scan_deleted_videos: Set(false),
                         keyword_filters: Set(None),
+                        keyword_filter_mode: Set(None),
                     };
 
                     let result = favorite::Entity::insert(model)

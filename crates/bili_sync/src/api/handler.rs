@@ -182,232 +182,113 @@ pub async fn get_video_sources(
     Extension(db): Extension<Arc<DatabaseConnection>>,
 ) -> Result<ApiResponse<VideoSourcesResponse>, ApiError> {
     // 获取各类视频源
-    let collection_sources = collection::Entity::find()
-        .select_only()
-        .columns([
-            collection::Column::Id,
-            collection::Column::Name,
-            collection::Column::Enabled,
-            collection::Column::Path,
-            collection::Column::ScanDeletedVideos,
-            collection::Column::SId,
-            collection::Column::MId,
-            collection::Column::KeywordFilters,
-        ])
-        .column_as(Expr::value(None::<i64>), "f_id")
-        .column_as(Expr::value(None::<i64>), "upper_id")
-        .column_as(Expr::value(None::<String>), "season_id")
-        .column_as(Expr::value(None::<String>), "media_id")
-        .into_tuple::<(
-            i32,
-            String,
-            bool,
-            String,
-            bool,
-            i64,
-            i64,
-            Option<String>,
-            Option<i64>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-        )>()
+    // 使用全模型查询，避免tuple元素数量限制（最多12个）
+    let collection_sources: Vec<VideoSource> = collection::Entity::find()
         .all(db.as_ref())
         .await?
         .into_iter()
-        .map(
-            |(id, name, enabled, path, scan_deleted_videos, s_id, m_id, keyword_filters_json, f_id, upper_id, season_id, media_id)| {
-                let keyword_filters = keyword_filters_json.and_then(|json| {
-                    serde_json::from_str::<Vec<String>>(&json).ok()
-                });
-                VideoSource {
-                    id,
-                    name,
-                    enabled,
-                    path,
-                    scan_deleted_videos,
-                    f_id,
-                    s_id: Some(s_id),
-                    m_id: Some(m_id),
-                    upper_id,
-                    season_id,
-                    media_id,
-                    selected_seasons: None,
-                    keyword_filters,
-                }
-            },
-        )
+        .map(|model| {
+            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            VideoSource {
+                id: model.id,
+                name: model.name,
+                enabled: model.enabled,
+                path: model.path,
+                scan_deleted_videos: model.scan_deleted_videos,
+                f_id: None,
+                s_id: Some(model.s_id),
+                m_id: Some(model.m_id),
+                upper_id: None,
+                season_id: None,
+                media_id: None,
+                selected_seasons: None,
+                keyword_filters,
+                keyword_filter_mode: model.keyword_filter_mode,
+            }
+        })
         .collect();
 
-    let favorite_sources = favorite::Entity::find()
-        .select_only()
-        .columns([
-            favorite::Column::Id,
-            favorite::Column::Name,
-            favorite::Column::Enabled,
-            favorite::Column::Path,
-            favorite::Column::ScanDeletedVideos,
-            favorite::Column::FId,
-            favorite::Column::KeywordFilters,
-        ])
-        .column_as(Expr::value(None::<i64>), "s_id")
-        .column_as(Expr::value(None::<i64>), "m_id")
-        .column_as(Expr::value(None::<i64>), "upper_id")
-        .column_as(Expr::value(None::<String>), "season_id")
-        .column_as(Expr::value(None::<String>), "media_id")
-        .into_tuple::<(
-            i32,
-            String,
-            bool,
-            String,
-            bool,
-            i64,
-            Option<String>,
-            Option<i64>,
-            Option<i64>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-        )>()
+    let favorite_sources: Vec<VideoSource> = favorite::Entity::find()
         .all(db.as_ref())
         .await?
         .into_iter()
-        .map(
-            |(id, name, enabled, path, scan_deleted_videos, f_id, keyword_filters_json, s_id, m_id, upper_id, season_id, media_id)| {
-                let keyword_filters = keyword_filters_json.and_then(|json| {
-                    serde_json::from_str::<Vec<String>>(&json).ok()
-                });
-                VideoSource {
-                    id,
-                    name,
-                    enabled,
-                    path,
-                    scan_deleted_videos,
-                    f_id: Some(f_id),
-                    s_id,
-                    m_id,
-                    upper_id,
-                    season_id,
-                    media_id,
-                    selected_seasons: None,
-                    keyword_filters,
-                }
-            },
-        )
+        .map(|model| {
+            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            VideoSource {
+                id: model.id,
+                name: model.name,
+                enabled: model.enabled,
+                path: model.path,
+                scan_deleted_videos: model.scan_deleted_videos,
+                f_id: Some(model.f_id),
+                s_id: None,
+                m_id: None,
+                upper_id: None,
+                season_id: None,
+                media_id: None,
+                selected_seasons: None,
+                keyword_filters,
+                keyword_filter_mode: model.keyword_filter_mode,
+            }
+        })
         .collect();
 
-    let submission_sources = submission::Entity::find()
-        .select_only()
-        .columns([
-            submission::Column::Id,
-            submission::Column::Enabled,
-            submission::Column::Path,
-            submission::Column::ScanDeletedVideos,
-            submission::Column::UpperId,
-            submission::Column::KeywordFilters,
-        ])
-        .column_as(submission::Column::UpperName, "name")
-        .column_as(Expr::value(None::<i64>), "f_id")
-        .column_as(Expr::value(None::<i64>), "s_id")
-        .column_as(Expr::value(None::<i64>), "m_id")
-        .column_as(Expr::value(None::<String>), "season_id")
-        .column_as(Expr::value(None::<String>), "media_id")
-        .into_tuple::<(
-            i32,
-            bool,
-            String,
-            bool,
-            i64,
-            Option<String>,
-            String,
-            Option<i64>,
-            Option<i64>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-        )>()
+    let submission_sources: Vec<VideoSource> = submission::Entity::find()
         .all(db.as_ref())
         .await?
         .into_iter()
-        .map(
-            |(id, enabled, path, scan_deleted_videos, upper_id, keyword_filters_json, name, f_id, s_id, m_id, season_id, media_id)| {
-                let keyword_filters = keyword_filters_json.and_then(|json| {
-                    serde_json::from_str::<Vec<String>>(&json).ok()
-                });
-                VideoSource {
-                    id,
-                    name,
-                    enabled,
-                    path,
-                    scan_deleted_videos,
-                    f_id,
-                    s_id,
-                    m_id,
-                    upper_id: Some(upper_id),
-                    season_id,
-                    media_id,
-                    selected_seasons: None,
-                    keyword_filters,
-                }
-            },
-        )
+        .map(|model| {
+            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            VideoSource {
+                id: model.id,
+                name: model.upper_name.clone(),
+                enabled: model.enabled,
+                path: model.path,
+                scan_deleted_videos: model.scan_deleted_videos,
+                f_id: None,
+                s_id: None,
+                m_id: None,
+                upper_id: Some(model.upper_id),
+                season_id: None,
+                media_id: None,
+                selected_seasons: None,
+                keyword_filters,
+                keyword_filter_mode: model.keyword_filter_mode,
+            }
+        })
         .collect();
 
-    let watch_later_sources = watch_later::Entity::find()
-        .select_only()
-        .columns([
-            watch_later::Column::Id,
-            watch_later::Column::Enabled,
-            watch_later::Column::Path,
-            watch_later::Column::ScanDeletedVideos,
-            watch_later::Column::KeywordFilters,
-        ])
-        .column_as(Expr::value("稍后再看"), "name")
-        .column_as(Expr::value(None::<i64>), "f_id")
-        .column_as(Expr::value(None::<i64>), "s_id")
-        .column_as(Expr::value(None::<i64>), "m_id")
-        .column_as(Expr::value(None::<i64>), "upper_id")
-        .column_as(Expr::value(None::<String>), "season_id")
-        .column_as(Expr::value(None::<String>), "media_id")
-        .into_tuple::<(
-            i32,
-            bool,
-            String,
-            bool,
-            Option<String>,
-            String,
-            Option<i64>,
-            Option<i64>,
-            Option<i64>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-        )>()
+    let watch_later_sources: Vec<VideoSource> = watch_later::Entity::find()
         .all(db.as_ref())
         .await?
         .into_iter()
-        .map(
-            |(id, enabled, path, scan_deleted_videos, keyword_filters_json, name, f_id, s_id, m_id, upper_id, season_id, media_id)| {
-                let keyword_filters = keyword_filters_json.and_then(|json| {
-                    serde_json::from_str::<Vec<String>>(&json).ok()
-                });
-                VideoSource {
-                    id,
-                    name,
-                    enabled,
-                    path,
-                    scan_deleted_videos,
-                    f_id,
-                    s_id,
-                    m_id,
-                    upper_id,
-                    season_id,
-                    media_id,
-                    selected_seasons: None,
-                    keyword_filters,
-                }
-            },
-        )
+        .map(|model| {
+            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            VideoSource {
+                id: model.id,
+                name: "稍后再看".to_string(),
+                enabled: model.enabled,
+                path: model.path,
+                scan_deleted_videos: model.scan_deleted_videos,
+                f_id: None,
+                s_id: None,
+                m_id: None,
+                upper_id: None,
+                season_id: None,
+                media_id: None,
+                selected_seasons: None,
+                keyword_filters,
+                keyword_filter_mode: model.keyword_filter_mode,
+            }
+        })
         .collect();
 
     // 确保bangumi_sources是一个数组，即使为空
@@ -446,6 +327,7 @@ pub async fn get_video_sources(
                 media_id: model.media_id,
                 selected_seasons,
                 keyword_filters,
+                keyword_filter_mode: model.keyword_filter_mode,
             }
         })
         .collect();
@@ -1774,6 +1656,9 @@ pub async fn add_video_source_internal(
                 .filter(|kf| !kf.is_empty())
                 .map(|kf| serde_json::to_string(kf).unwrap_or_default());
 
+            // 处理关键词过滤模式
+            let keyword_filter_mode = params.keyword_filter_mode.clone();
+
             let collection = collection::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 s_id: sea_orm::Set(s_id),
@@ -1787,6 +1672,7 @@ pub async fn add_video_source_internal(
                 scan_deleted_videos: sea_orm::Set(false),
                 cover: sea_orm::Set(cover_url),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
             };
 
             let insert_result = collection::Entity::insert(collection).exec(&txn).await?;
@@ -1828,6 +1714,9 @@ pub async fn add_video_source_internal(
                 .filter(|kf| !kf.is_empty())
                 .map(|kf| serde_json::to_string(kf).unwrap_or_default());
 
+            // 处理关键词过滤模式
+            let keyword_filter_mode = params.keyword_filter_mode.clone();
+
             let favorite = favorite::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 f_id: sea_orm::Set(f_id),
@@ -1838,6 +1727,7 @@ pub async fn add_video_source_internal(
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
             };
 
             let insert_result = favorite::Entity::insert(favorite).exec(&txn).await?;
@@ -1879,6 +1769,9 @@ pub async fn add_video_source_internal(
                 .filter(|kf| !kf.is_empty())
                 .map(|kf| serde_json::to_string(kf).unwrap_or_default());
 
+            // 处理关键词过滤模式
+            let keyword_filter_mode = params.keyword_filter_mode.clone();
+
             let submission = submission::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 upper_id: sea_orm::Set(upper_id),
@@ -1894,6 +1787,7 @@ pub async fn add_video_source_internal(
                         .map(|videos| serde_json::to_string(&videos).unwrap_or_default()),
                 ),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -2175,6 +2069,9 @@ pub async fn add_video_source_internal(
                     .filter(|kf| !kf.is_empty())
                     .map(|kf| serde_json::to_string(kf).unwrap_or_default());
 
+                // 处理关键词过滤模式
+                let keyword_filter_mode = params.keyword_filter_mode.clone();
+
                 let bangumi = video_source::ActiveModel {
                     id: sea_orm::ActiveValue::NotSet,
                     name: sea_orm::Set(params.name),
@@ -2188,6 +2085,7 @@ pub async fn add_video_source_internal(
                     download_all_seasons: sea_orm::Set(Some(download_all_seasons)),
                     selected_seasons: sea_orm::Set(selected_seasons_json),
                     keyword_filters: sea_orm::Set(keyword_filters_json),
+                    keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
                     ..Default::default()
                 };
 
@@ -2240,6 +2138,9 @@ pub async fn add_video_source_internal(
                 .filter(|kf| !kf.is_empty())
                 .map(|kf| serde_json::to_string(kf).unwrap_or_default());
 
+            // 处理关键词过滤模式
+            let keyword_filter_mode = params.keyword_filter_mode.clone();
+
             let watch_later = watch_later::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 path: sea_orm::Set(params.path.clone()),
@@ -2248,6 +2149,7 @@ pub async fn add_video_source_internal(
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
             };
 
             let insert_result = watch_later::Entity::insert(watch_later).exec(&txn).await?;
@@ -11194,6 +11096,9 @@ pub async fn update_video_source_keyword_filters(
         None
     };
 
+    // 获取过滤模式
+    let keyword_filter_mode = params.keyword_filter_mode.clone();
+
     let result = match source_type.as_str() {
         "collection" => {
             let record = collection::Entity::find_by_id(id)
@@ -11204,6 +11109,7 @@ pub async fn update_video_source_keyword_filters(
             collection::Entity::update(collection::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11226,6 +11132,7 @@ pub async fn update_video_source_keyword_filters(
             favorite::Entity::update(favorite::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11248,6 +11155,7 @@ pub async fn update_video_source_keyword_filters(
             submission::Entity::update(submission::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11273,6 +11181,7 @@ pub async fn update_video_source_keyword_filters(
             watch_later::Entity::update(watch_later::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -11295,6 +11204,7 @@ pub async fn update_video_source_keyword_filters(
             video_source::Entity::update(video_source::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
+                keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
             })
             .exec(&txn)

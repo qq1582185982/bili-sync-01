@@ -181,6 +181,10 @@ impl VideoSource for submission::Model {
     fn get_keyword_filters(&self) -> Option<String> {
         self.keyword_filters.clone()
     }
+
+    fn get_keyword_filter_mode(&self) -> Option<String> {
+        self.keyword_filter_mode.clone()
+    }
 }
 
 #[allow(dead_code)]
@@ -227,6 +231,7 @@ pub async fn init_submission_sources(
                         scan_deleted_videos: Set(false),
                         selected_videos: Set(None),
                         keyword_filters: Set(None),
+                        keyword_filter_mode: Set(None),
                     };
 
                     // 插入数据库
@@ -251,6 +256,7 @@ pub async fn init_submission_sources(
                         scan_deleted_videos: Set(false),
                         selected_videos: Set(None),
                         keyword_filters: Set(None),
+                        keyword_filter_mode: Set(None),
                     };
 
                     let result = submission::Entity::insert(model)
