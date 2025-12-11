@@ -1767,6 +1767,13 @@ pub async fn add_video_source_internal(
                 }
             };
 
+            // 处理关键词过滤器
+            let keyword_filters_json = params
+                .keyword_filters
+                .as_ref()
+                .filter(|kf| !kf.is_empty())
+                .map(|kf| serde_json::to_string(kf).unwrap_or_default());
+
             let collection = collection::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 s_id: sea_orm::Set(s_id),
@@ -1779,7 +1786,7 @@ pub async fn add_video_source_internal(
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
                 cover: sea_orm::Set(cover_url),
-                keyword_filters: sea_orm::Set(None),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
             };
 
             let insert_result = collection::Entity::insert(collection).exec(&txn).await?;
@@ -1813,6 +1820,14 @@ pub async fn add_video_source_internal(
 
             // 添加收藏夹
             let favorite_name = params.name.clone();
+
+            // 处理关键词过滤器
+            let keyword_filters_json = params
+                .keyword_filters
+                .as_ref()
+                .filter(|kf| !kf.is_empty())
+                .map(|kf| serde_json::to_string(kf).unwrap_or_default());
+
             let favorite = favorite::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 f_id: sea_orm::Set(f_id),
@@ -1822,7 +1837,7 @@ pub async fn add_video_source_internal(
                 latest_row_at: sea_orm::Set("1970-01-01 00:00:00".to_string()),
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
-                keyword_filters: sea_orm::Set(None),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
             };
 
             let insert_result = favorite::Entity::insert(favorite).exec(&txn).await?;
@@ -1856,6 +1871,14 @@ pub async fn add_video_source_internal(
 
             // 添加UP主投稿
             let upper_name = params.name.clone();
+
+            // 处理关键词过滤器
+            let keyword_filters_json = params
+                .keyword_filters
+                .as_ref()
+                .filter(|kf| !kf.is_empty())
+                .map(|kf| serde_json::to_string(kf).unwrap_or_default());
+
             let submission = submission::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 upper_id: sea_orm::Set(upper_id),
@@ -1870,7 +1893,7 @@ pub async fn add_video_source_internal(
                         .selected_videos
                         .map(|videos| serde_json::to_string(&videos).unwrap_or_default()),
                 ),
-                keyword_filters: sea_orm::Set(None),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -2145,6 +2168,13 @@ pub async fn add_video_source_internal(
                     None
                 };
 
+                // 处理关键词过滤器
+                let keyword_filters_json = params
+                    .keyword_filters
+                    .as_ref()
+                    .filter(|kf| !kf.is_empty())
+                    .map(|kf| serde_json::to_string(kf).unwrap_or_default());
+
                 let bangumi = video_source::ActiveModel {
                     id: sea_orm::ActiveValue::NotSet,
                     name: sea_orm::Set(params.name),
@@ -2157,6 +2187,7 @@ pub async fn add_video_source_internal(
                     ep_id: sea_orm::Set(params.ep_id),
                     download_all_seasons: sea_orm::Set(Some(download_all_seasons)),
                     selected_seasons: sea_orm::Set(selected_seasons_json),
+                    keyword_filters: sea_orm::Set(keyword_filters_json),
                     ..Default::default()
                 };
 
@@ -2202,6 +2233,13 @@ pub async fn add_video_source_internal(
                 ).into());
             }
 
+            // 处理关键词过滤器
+            let keyword_filters_json = params
+                .keyword_filters
+                .as_ref()
+                .filter(|kf| !kf.is_empty())
+                .map(|kf| serde_json::to_string(kf).unwrap_or_default());
+
             let watch_later = watch_later::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
                 path: sea_orm::Set(params.path.clone()),
@@ -2209,7 +2247,7 @@ pub async fn add_video_source_internal(
                 latest_row_at: sea_orm::Set(crate::utils::time_format::now_standard_string()),
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
-                keyword_filters: sea_orm::Set(None),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
             };
 
             let insert_result = watch_later::Entity::insert(watch_later).exec(&txn).await?;

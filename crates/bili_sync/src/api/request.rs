@@ -53,6 +53,8 @@ pub struct AddVideoSourceRequest {
     pub cover: Option<String>,
     // 合并到现有番剧源的ID，仅当source_type为"bangumi"时有效
     pub merge_to_source_id: Option<i32>,
+    // 关键词过滤器列表（支持正则表达式），匹配任一关键词的视频将不会下载
+    pub keyword_filters: Option<Vec<String>>,
 }
 
 // 删除视频源的请求结构体

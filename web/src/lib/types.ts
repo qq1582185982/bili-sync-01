@@ -167,6 +167,7 @@ export interface AddVideoSourceRequest {
 	selected_seasons?: string[];
 	selected_videos?: string[];
 	merge_to_source_id?: number;
+	keyword_filters?: string[]; // 关键词过滤器列表（支持正则表达式）
 }
 
 // 添加视频源响应类型

@@ -19,7 +19,7 @@
 		UserCollectionInfo,
 		AddVideoSourceRequest
 	} from '$lib/types';
-	import { Search, X, Plus as PlusIcon } from '@lucide/svelte';
+	import { Search, X, Plus as PlusIcon, Filter as FilterIcon } from '@lucide/svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { flip } from 'svelte/animate';
@@ -93,6 +93,13 @@
 	let existingBangumiSeasonIds: Set<string> = new Set();
 	let loadingExistingSources = false;
 	let isMergingBangumi = false;
+
+	// 关键词过滤器相关
+	let keywordFilters: string[] = [];
+	let newKeyword = '';
+	let keywordValidationError = '';
+	let validatingKeyword = false;
+	let showKeywordSection = false; // 是否展开关键词过滤器部分
 
 	// 批量添加相关
 	let batchMode = false; // 是否为批量模式
@@ -390,6 +397,54 @@
 		return div.textContent || div.innerText || title;
 	}
 
+	// 添加关键词过滤器
+	async function addKeyword() {
+		const pattern = newKeyword.trim();
+		if (!pattern) {
+			keywordValidationError = '请输入关键词';
+			return;
+		}
+
+		if (keywordFilters.includes(pattern)) {
+			keywordValidationError = '该关键词已存在';
+			return;
+		}
+
+		// 验证正则表达式
+		validatingKeyword = true;
+		try {
+			const result = await api.validateRegex(pattern);
+			if (result.status_code === 200) {
+				if (result.data.valid) {
+					keywordFilters = [...keywordFilters, pattern];
+					newKeyword = '';
+					keywordValidationError = '';
+				} else {
+					keywordValidationError = result.data.error || '无效的正则表达式';
+				}
+			} else {
+				keywordValidationError = '验证请求失败';
+			}
+		} catch {
+			keywordValidationError = '网络错误';
+		} finally {
+			validatingKeyword = false;
+		}
+	}
+
+	// 删除关键词
+	function removeKeyword(index: number) {
+		keywordFilters = keywordFilters.filter((_, i) => i !== index);
+	}
+
+	// 处理关键词输入框键盘事件
+	function handleKeywordKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			addKeyword();
+		}
+	}
+
 	// 处理图片URL
 	function processBilibiliImageUrl(url: string): string {
 		if (!url) return '';
@@ -489,6 +544,11 @@
 				}
 			}
 
+			// 如果有关键词过滤器，添加keyword_filters参数
+			if (keywordFilters.length > 0) {
+				params.keyword_filters = keywordFilters;
+			}
+
 			const result = await api.addVideoSource(params);
 
 			if (result.data.success) {
@@ -507,6 +567,9 @@
 				selectedUpName = '';
 				mergeToSourceId = null;
 				existingBangumiSources = [];
+				keywordFilters = [];
+				newKeyword = '';
+				showKeywordSection = false;
 				// 跳转到视频源管理页面
 				goto('/video-sources');
 			} else {
@@ -2248,6 +2311,118 @@
 								<p class="text-xs text-purple-600">合并时自动沿用目标番剧源的保存路径</p>
 							{:else}
 								<p class="text-muted-foreground text-sm">请输入绝对路径</p>
+							{/if}
+						</div>
+
+						<!-- 关键词过滤器（可折叠） -->
+						<div class="space-y-2">
+							<button
+								type="button"
+								onclick={() => (showKeywordSection = !showKeywordSection)}
+								class="flex w-full items-center justify-between rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-left text-sm transition-colors hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950 dark:hover:bg-purple-900"
+							>
+								<div class="flex items-center gap-2">
+									<FilterIcon class="h-4 w-4 text-purple-600 dark:text-purple-400" />
+									<span class="font-medium text-purple-800 dark:text-purple-200">关键词过滤器</span>
+									{#if keywordFilters.length > 0}
+										<span
+											class="rounded-full bg-purple-600 px-2 py-0.5 text-xs text-white dark:bg-purple-500"
+										>
+											{keywordFilters.length}
+										</span>
+									{/if}
+								</div>
+								<svg
+									class="h-4 w-4 transform text-purple-600 transition-transform dark:text-purple-400 {showKeywordSection
+										? 'rotate-180'
+										: ''}"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+								>
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+							</button>
+
+							{#if showKeywordSection}
+								<div
+									class="space-y-3 rounded-md border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800 dark:bg-purple-950/50"
+									transition:fly={{ y: -10, duration: 200 }}
+								>
+									<p class="text-xs text-purple-700 dark:text-purple-300">
+										匹配任一关键词的视频将被跳过，不会下载。支持正则表达式。
+									</p>
+
+									<!-- 添加新关键词 -->
+									<div class="flex gap-2">
+										<Input
+											bind:value={newKeyword}
+											placeholder="输入关键词或正则表达式"
+											onkeydown={handleKeywordKeydown}
+											disabled={validatingKeyword}
+											class="flex-1"
+										/>
+										<Button
+											type="button"
+											size="sm"
+											onclick={addKeyword}
+											disabled={!newKeyword.trim() || validatingKeyword}
+											class="bg-purple-600 hover:bg-purple-700"
+										>
+											{validatingKeyword ? '验证中...' : '添加'}
+										</Button>
+									</div>
+
+									{#if keywordValidationError}
+										<p class="text-xs text-red-500">{keywordValidationError}</p>
+									{/if}
+
+									<!-- 已添加的关键词列表 -->
+									{#if keywordFilters.length > 0}
+										<div class="space-y-2">
+											<p class="text-xs font-medium text-purple-700 dark:text-purple-300">
+												已添加的关键词 ({keywordFilters.length})
+											</p>
+											<div
+												class="max-h-32 space-y-1 overflow-y-auto rounded border border-purple-200 bg-white p-2 dark:border-purple-700 dark:bg-gray-800"
+											>
+												{#each keywordFilters as keyword, index}
+													<div
+														class="flex items-center justify-between rounded bg-purple-100 px-2 py-1 dark:bg-purple-900"
+													>
+														<code class="flex-1 truncate text-xs text-purple-800 dark:text-purple-200">
+															{keyword}
+														</code>
+														<button
+															type="button"
+															onclick={() => removeKeyword(index)}
+															class="ml-2 flex-shrink-0 rounded p-0.5 text-purple-500 hover:bg-purple-200 hover:text-red-600 dark:hover:bg-purple-800 dark:hover:text-red-400"
+															title="删除"
+														>
+															<X class="h-3 w-3" />
+														</button>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+
+									<!-- 正则表达式示例 -->
+									<div class="rounded border border-purple-200 bg-white p-2 dark:border-purple-700 dark:bg-gray-800">
+										<p class="text-xs font-medium text-purple-700 dark:text-purple-300">正则表达式示例：</p>
+										<ul class="mt-1 space-y-0.5 text-xs text-purple-600 dark:text-purple-400">
+											<li>
+												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">广告</code> - 匹配包含"广告"的标题
+											</li>
+											<li>
+												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">第\d+期</code> - 匹配"第N期"格式
+											</li>
+											<li>
+												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">^测试</code> - 匹配以"测试"开头的标题
+											</li>
+										</ul>
+									</div>
+								</div>
 							{/if}
 						</div>
 
