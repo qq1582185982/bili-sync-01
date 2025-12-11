@@ -17,6 +17,8 @@ pub struct Model {
     pub selected_videos: Option<String>,
     pub keyword_filters: Option<String>,
     pub keyword_filter_mode: Option<String>,
+    pub blacklist_keywords: Option<String>,
+    pub whitelist_keywords: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

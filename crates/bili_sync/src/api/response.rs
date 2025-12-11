@@ -176,10 +176,16 @@ pub struct VideoSource {
     pub media_id: Option<String>,  // 番剧media_id
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_seasons: Option<Vec<String>>,
+    // 新的双列表模式关键词过滤
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub keyword_filters: Option<Vec<String>>,  // 关键词过滤器列表
+    pub blacklist_keywords: Option<Vec<String>>,  // 黑名单关键词列表
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub keyword_filter_mode: Option<String>,   // 关键词过滤模式: "blacklist" 或 "whitelist"
+    pub whitelist_keywords: Option<Vec<String>>,  // 白名单关键词列表
+    // 向后兼容的旧字段
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keyword_filters: Option<Vec<String>>,  // 【已废弃】关键词过滤器列表
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keyword_filter_mode: Option<String>,   // 【已废弃】关键词过滤模式
 }
 
 #[derive(Serialize, ToSchema)]
@@ -762,23 +768,28 @@ pub struct TestRiskControlResponse {
     pub instructions: Option<String>,
 }
 
-// 更新关键词过滤器响应
+// 更新关键词过滤器响应（支持双列表模式）
 #[derive(Serialize, ToSchema)]
 pub struct UpdateKeywordFiltersResponse {
     pub success: bool,
     pub source_id: i32,
     pub source_type: String,
-    pub keyword_filters_count: usize,
+    pub blacklist_count: usize,   // 黑名单关键词数量
+    pub whitelist_count: usize,   // 白名单关键词数量
     pub message: String,
 }
 
-// 获取关键词过滤器响应
+// 获取关键词过滤器响应（支持双列表模式）
 #[derive(Serialize, ToSchema)]
 pub struct GetKeywordFiltersResponse {
     pub success: bool,
     pub source_id: i32,
     pub source_type: String,
-    pub keyword_filters: Vec<String>,
+    pub blacklist_keywords: Vec<String>,  // 黑名单关键词列表
+    pub whitelist_keywords: Vec<String>,  // 白名单关键词列表
+    // 向后兼容的旧字段
+    pub keyword_filters: Vec<String>,     // 【已废弃】关键词过滤器列表
+    pub keyword_filter_mode: Option<String>, // 【已废弃】关键词过滤模式
 }
 
 // 验证正则表达式响应

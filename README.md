@@ -48,7 +48,7 @@ docker run -d \
 services:
 
   bili-sync:
-    image: docker.cnb.cool/sviplk.com/docker/bili-sync:beta
+    image: docker.cnb.cool/sviplk.com/docker/bili-sync:latest
     # build:
     #   context: .
     #   dockerfile: Dockerfile

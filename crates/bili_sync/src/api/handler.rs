@@ -191,6 +191,12 @@ pub async fn get_video_sources(
             let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
                 serde_json::from_str::<Vec<String>>(json).ok()
             });
+            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
             VideoSource {
                 id: model.id,
                 name: model.name,
@@ -204,6 +210,8 @@ pub async fn get_video_sources(
                 season_id: None,
                 media_id: None,
                 selected_seasons: None,
+                blacklist_keywords,
+                whitelist_keywords,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -216,6 +224,12 @@ pub async fn get_video_sources(
         .into_iter()
         .map(|model| {
             let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
                 serde_json::from_str::<Vec<String>>(json).ok()
             });
             VideoSource {
@@ -231,6 +245,8 @@ pub async fn get_video_sources(
                 season_id: None,
                 media_id: None,
                 selected_seasons: None,
+                blacklist_keywords,
+                whitelist_keywords,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -243,6 +259,12 @@ pub async fn get_video_sources(
         .into_iter()
         .map(|model| {
             let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
                 serde_json::from_str::<Vec<String>>(json).ok()
             });
             VideoSource {
@@ -258,6 +280,8 @@ pub async fn get_video_sources(
                 season_id: None,
                 media_id: None,
                 selected_seasons: None,
+                blacklist_keywords,
+                whitelist_keywords,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -270,6 +294,12 @@ pub async fn get_video_sources(
         .into_iter()
         .map(|model| {
             let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
                 serde_json::from_str::<Vec<String>>(json).ok()
             });
             VideoSource {
@@ -285,6 +315,8 @@ pub async fn get_video_sources(
                 season_id: None,
                 media_id: None,
                 selected_seasons: None,
+                blacklist_keywords,
+                whitelist_keywords,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -312,6 +344,12 @@ pub async fn get_video_sources(
             let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
                 serde_json::from_str::<Vec<String>>(json).ok()
             });
+            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
 
             VideoSource {
                 id: model.id,
@@ -326,6 +364,8 @@ pub async fn get_video_sources(
                 season_id: model.season_id,
                 media_id: model.media_id,
                 selected_seasons,
+                blacklist_keywords,
+                whitelist_keywords,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
             }
@@ -1673,6 +1713,8 @@ pub async fn add_video_source_internal(
                 cover: sea_orm::Set(cover_url),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
+                blacklist_keywords: sea_orm::Set(None),
+                whitelist_keywords: sea_orm::Set(None),
             };
 
             let insert_result = collection::Entity::insert(collection).exec(&txn).await?;
@@ -1728,6 +1770,8 @@ pub async fn add_video_source_internal(
                 scan_deleted_videos: sea_orm::Set(false),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
+                blacklist_keywords: sea_orm::Set(None),
+                whitelist_keywords: sea_orm::Set(None),
             };
 
             let insert_result = favorite::Entity::insert(favorite).exec(&txn).await?;
@@ -1788,6 +1832,8 @@ pub async fn add_video_source_internal(
                 ),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
+                blacklist_keywords: sea_orm::Set(None),
+                whitelist_keywords: sea_orm::Set(None),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -2150,6 +2196,8 @@ pub async fn add_video_source_internal(
                 scan_deleted_videos: sea_orm::Set(false),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
+                blacklist_keywords: sea_orm::Set(None),
+                whitelist_keywords: sea_orm::Set(None),
             };
 
             let insert_result = watch_later::Entity::insert(watch_later).exec(&txn).await?;
@@ -11078,25 +11126,51 @@ pub async fn update_video_source_keyword_filters(
 ) -> Result<ApiResponse<crate::api::response::UpdateKeywordFiltersResponse>, ApiError> {
     use crate::utils::keyword_filter::validate_regex;
 
-    // 先验证所有正则表达式
-    for pattern in &params.keyword_filters {
-        if let Err(e) = validate_regex(pattern) {
-            return Err(anyhow!("正则表达式验证失败: {} - {}", pattern, e).into());
+    // 验证黑名单正则表达式
+    if let Some(ref blacklist) = params.blacklist_keywords {
+        for pattern in blacklist {
+            if let Err(e) = validate_regex(pattern) {
+                return Err(anyhow!("黑名单正则表达式验证失败: {} - {}", pattern, e).into());
+            }
+        }
+    }
+
+    // 验证白名单正则表达式
+    if let Some(ref whitelist) = params.whitelist_keywords {
+        for pattern in whitelist {
+            if let Err(e) = validate_regex(pattern) {
+                return Err(anyhow!("白名单正则表达式验证失败: {} - {}", pattern, e).into());
+            }
+        }
+    }
+
+    // 向后兼容：验证旧的关键词列表
+    if let Some(ref keyword_filters) = params.keyword_filters {
+        for pattern in keyword_filters {
+            if let Err(e) = validate_regex(pattern) {
+                return Err(anyhow!("正则表达式验证失败: {} - {}", pattern, e).into());
+            }
         }
     }
 
     let txn = db.begin().await?;
 
-    let keyword_filters_count = params.keyword_filters.len();
+    // 处理黑名单
+    let blacklist_count = params.blacklist_keywords.as_ref().map(|v| v.len()).unwrap_or(0);
+    let blacklist_json = params.blacklist_keywords.as_ref()
+        .filter(|v| !v.is_empty())
+        .map(|v| serde_json::to_string(v).unwrap_or_default());
 
-    // 将关键词列表序列化为JSON字符串存储
-    let keyword_filters_json = if keyword_filters_count > 0 {
-        Some(serde_json::to_string(&params.keyword_filters).unwrap_or_default())
-    } else {
-        None
-    };
+    // 处理白名单
+    let whitelist_count = params.whitelist_keywords.as_ref().map(|v| v.len()).unwrap_or(0);
+    let whitelist_json = params.whitelist_keywords.as_ref()
+        .filter(|v| !v.is_empty())
+        .map(|v| serde_json::to_string(v).unwrap_or_default());
 
-    // 获取过滤模式
+    // 向后兼容：处理旧的关键词列表
+    let keyword_filters_json = params.keyword_filters.as_ref()
+        .filter(|v| !v.is_empty())
+        .map(|v| serde_json::to_string(v).unwrap_or_default());
     let keyword_filter_mode = params.keyword_filter_mode.clone();
 
     let result = match source_type.as_str() {
@@ -11108,6 +11182,8 @@ pub async fn update_video_source_keyword_filters(
 
             collection::Entity::update(collection::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
+                blacklist_keywords: sea_orm::Set(blacklist_json),
+                whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
@@ -11119,8 +11195,9 @@ pub async fn update_video_source_keyword_filters(
                 success: true,
                 source_id: id,
                 source_type: "collection".to_string(),
-                keyword_filters_count,
-                message: format!("合集 {} 的关键词过滤器已更新，共 {} 个规则", record.name, keyword_filters_count),
+                blacklist_count,
+                whitelist_count,
+                message: format!("合集 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个", record.name, blacklist_count, whitelist_count),
             }
         }
         "favorite" => {
@@ -11131,6 +11208,8 @@ pub async fn update_video_source_keyword_filters(
 
             favorite::Entity::update(favorite::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
+                blacklist_keywords: sea_orm::Set(blacklist_json),
+                whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
@@ -11142,8 +11221,9 @@ pub async fn update_video_source_keyword_filters(
                 success: true,
                 source_id: id,
                 source_type: "favorite".to_string(),
-                keyword_filters_count,
-                message: format!("收藏夹 {} 的关键词过滤器已更新，共 {} 个规则", record.name, keyword_filters_count),
+                blacklist_count,
+                whitelist_count,
+                message: format!("收藏夹 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个", record.name, blacklist_count, whitelist_count),
             }
         }
         "submission" => {
@@ -11154,6 +11234,8 @@ pub async fn update_video_source_keyword_filters(
 
             submission::Entity::update(submission::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
+                blacklist_keywords: sea_orm::Set(blacklist_json),
+                whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
@@ -11165,10 +11247,11 @@ pub async fn update_video_source_keyword_filters(
                 success: true,
                 source_id: id,
                 source_type: "submission".to_string(),
-                keyword_filters_count,
+                blacklist_count,
+                whitelist_count,
                 message: format!(
-                    "UP主投稿 {} 的关键词过滤器已更新，共 {} 个规则",
-                    record.upper_name, keyword_filters_count
+                    "UP主投稿 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个",
+                    record.upper_name, blacklist_count, whitelist_count
                 ),
             }
         }
@@ -11180,6 +11263,8 @@ pub async fn update_video_source_keyword_filters(
 
             watch_later::Entity::update(watch_later::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
+                blacklist_keywords: sea_orm::Set(blacklist_json),
+                whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
@@ -11191,8 +11276,9 @@ pub async fn update_video_source_keyword_filters(
                 success: true,
                 source_id: id,
                 source_type: "watch_later".to_string(),
-                keyword_filters_count,
-                message: format!("稍后观看的关键词过滤器已更新，共 {} 个规则", keyword_filters_count),
+                blacklist_count,
+                whitelist_count,
+                message: format!("稍后观看的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个", blacklist_count, whitelist_count),
             }
         }
         "bangumi" => {
@@ -11203,6 +11289,8 @@ pub async fn update_video_source_keyword_filters(
 
             video_source::Entity::update(video_source::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
+                blacklist_keywords: sea_orm::Set(blacklist_json),
+                whitelist_keywords: sea_orm::Set(whitelist_json),
                 keyword_filters: sea_orm::Set(keyword_filters_json),
                 keyword_filter_mode: sea_orm::Set(keyword_filter_mode.clone()),
                 ..Default::default()
@@ -11214,8 +11302,9 @@ pub async fn update_video_source_keyword_filters(
                 success: true,
                 source_id: id,
                 source_type: "bangumi".to_string(),
-                keyword_filters_count,
-                message: format!("番剧 {} 的关键词过滤器已更新，共 {} 个规则", record.name, keyword_filters_count),
+                blacklist_count,
+                whitelist_count,
+                message: format!("番剧 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个", record.name, blacklist_count, whitelist_count),
             }
         }
         _ => return Err(anyhow!("不支持的视频源类型: {}", source_type).into()),
@@ -11244,18 +11333,33 @@ pub async fn get_video_source_keyword_filters(
     Extension(db): Extension<Arc<DatabaseConnection>>,
     Path((source_type, id)): Path<(String, i32)>,
 ) -> Result<ApiResponse<crate::api::response::GetKeywordFiltersResponse>, ApiError> {
-    let keyword_filters: Vec<String> = match source_type.as_str() {
+    // 定义一个辅助结构体来存储所有过滤器信息
+    struct FilterInfo {
+        blacklist: Vec<String>,
+        whitelist: Vec<String>,
+        legacy_filters: Vec<String>,
+        legacy_mode: Option<String>,
+    }
+
+    let filter_info: FilterInfo = match source_type.as_str() {
         "collection" => {
             let record = collection::Entity::find_by_id(id)
                 .one(db.as_ref())
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的合集"))?;
 
-            record
-                .keyword_filters
-                .as_ref()
-                .and_then(|json_str| serde_json::from_str(json_str).ok())
-                .unwrap_or_default()
+            FilterInfo {
+                blacklist: record.blacklist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                whitelist: record.whitelist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_filters: record.keyword_filters.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_mode: record.keyword_filter_mode,
+            }
         }
         "favorite" => {
             let record = favorite::Entity::find_by_id(id)
@@ -11263,11 +11367,18 @@ pub async fn get_video_source_keyword_filters(
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的收藏夹"))?;
 
-            record
-                .keyword_filters
-                .as_ref()
-                .and_then(|json_str| serde_json::from_str(json_str).ok())
-                .unwrap_or_default()
+            FilterInfo {
+                blacklist: record.blacklist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                whitelist: record.whitelist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_filters: record.keyword_filters.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_mode: record.keyword_filter_mode,
+            }
         }
         "submission" => {
             let record = submission::Entity::find_by_id(id)
@@ -11275,11 +11386,18 @@ pub async fn get_video_source_keyword_filters(
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
 
-            record
-                .keyword_filters
-                .as_ref()
-                .and_then(|json_str| serde_json::from_str(json_str).ok())
-                .unwrap_or_default()
+            FilterInfo {
+                blacklist: record.blacklist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                whitelist: record.whitelist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_filters: record.keyword_filters.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_mode: record.keyword_filter_mode,
+            }
         }
         "watch_later" => {
             let record = watch_later::Entity::find_by_id(id)
@@ -11287,11 +11405,18 @@ pub async fn get_video_source_keyword_filters(
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的稍后观看"))?;
 
-            record
-                .keyword_filters
-                .as_ref()
-                .and_then(|json_str| serde_json::from_str(json_str).ok())
-                .unwrap_or_default()
+            FilterInfo {
+                blacklist: record.blacklist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                whitelist: record.whitelist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_filters: record.keyword_filters.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_mode: record.keyword_filter_mode,
+            }
         }
         "bangumi" => {
             let record = video_source::Entity::find_by_id(id)
@@ -11299,11 +11424,18 @@ pub async fn get_video_source_keyword_filters(
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的番剧"))?;
 
-            record
-                .keyword_filters
-                .as_ref()
-                .and_then(|json_str| serde_json::from_str(json_str).ok())
-                .unwrap_or_default()
+            FilterInfo {
+                blacklist: record.blacklist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                whitelist: record.whitelist_keywords.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_filters: record.keyword_filters.as_ref()
+                    .and_then(|json_str| serde_json::from_str(json_str).ok())
+                    .unwrap_or_default(),
+                legacy_mode: record.keyword_filter_mode,
+            }
         }
         _ => return Err(anyhow!("不支持的视频源类型: {}", source_type).into()),
     };
@@ -11312,7 +11444,10 @@ pub async fn get_video_source_keyword_filters(
         success: true,
         source_id: id,
         source_type,
-        keyword_filters,
+        blacklist_keywords: filter_info.blacklist,
+        whitelist_keywords: filter_info.whitelist,
+        keyword_filters: filter_info.legacy_filters,
+        keyword_filter_mode: filter_info.legacy_mode,
     }))
 }
 

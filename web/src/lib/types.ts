@@ -43,8 +43,12 @@ export interface VideoSource {
 	season_id?: string; // 番剧season_id
 	media_id?: string; // 番剧media_id
 	selected_seasons?: string[];
-	keyword_filters?: string[]; // 关键词过滤器列表（支持正则表达式）
-	keyword_filter_mode?: KeywordFilterMode; // 关键词过滤模式: "blacklist"（排除匹配）或 "whitelist"（只下载匹配）
+	// 新的双列表模式关键词过滤
+	blacklist_keywords?: string[]; // 黑名单关键词列表（匹配的视频将被排除）
+	whitelist_keywords?: string[]; // 白名单关键词列表（只下载匹配的视频）
+	// 向后兼容的旧字段
+	keyword_filters?: string[]; // 【已废弃】关键词过滤器列表（支持正则表达式）
+	keyword_filter_mode?: KeywordFilterMode; // 【已废弃】关键词过滤模式
 }
 
 // 视频来源响应类型
@@ -627,26 +631,35 @@ export interface UpdateSubmissionSelectedVideosResponse {
 	message: string;
 }
 
-// 更新关键词过滤器请求类型
+// 更新关键词过滤器请求类型（支持双列表模式）
 export interface UpdateKeywordFiltersRequest {
-	keyword_filters: string[];
+	blacklist_keywords?: string[]; // 黑名单关键词列表（匹配的视频将被排除）
+	whitelist_keywords?: string[]; // 白名单关键词列表（只下载匹配的视频）
+	// 向后兼容的旧字段
+	keyword_filters?: string[]; // 【已废弃】关键词过滤器列表
+	keyword_filter_mode?: KeywordFilterMode; // 【已废弃】关键词过滤模式
 }
 
-// 更新关键词过滤器响应类型
+// 更新关键词过滤器响应类型（支持双列表模式）
 export interface UpdateKeywordFiltersResponse {
 	success: boolean;
 	source_id: number;
 	source_type: string;
-	keyword_filters_count: number;
+	blacklist_count: number; // 黑名单关键词数量
+	whitelist_count: number; // 白名单关键词数量
 	message: string;
 }
 
-// 获取关键词过滤器响应类型
+// 获取关键词过滤器响应类型（支持双列表模式）
 export interface GetKeywordFiltersResponse {
 	success: boolean;
 	source_id: number;
 	source_type: string;
-	keyword_filters: string[];
+	blacklist_keywords: string[]; // 黑名单关键词列表
+	whitelist_keywords: string[]; // 白名单关键词列表
+	// 向后兼容的旧字段
+	keyword_filters: string[]; // 【已废弃】关键词过滤器列表
+	keyword_filter_mode?: string; // 【已废弃】关键词过滤模式
 }
 
 // 验证正则表达式请求类型

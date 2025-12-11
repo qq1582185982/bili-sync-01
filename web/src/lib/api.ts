@@ -392,23 +392,23 @@ class ApiClient {
 	}
 
 	/**
-	 * 更新视频源关键词过滤器
+	 * 更新视频源关键词过滤器（双列表模式）
 	 * @param sourceType 视频源类型
 	 * @param id 视频源ID
-	 * @param keywordFilters 关键词过滤器列表
-	 * @param filterMode 过滤模式 (blacklist/whitelist)
+	 * @param blacklistKeywords 黑名单关键词列表
+	 * @param whitelistKeywords 白名单关键词列表
 	 */
 	async updateVideoSourceKeywordFilters(
 		sourceType: string,
 		id: number,
-		keywordFilters: string[],
-		filterMode?: KeywordFilterMode
+		blacklistKeywords: string[],
+		whitelistKeywords: string[]
 	): Promise<ApiResponse<UpdateKeywordFiltersResponse>> {
 		return this.put<UpdateKeywordFiltersResponse>(
 			`/video-sources/${sourceType}/${id}/keyword-filters`,
 			{
-				keyword_filters: keywordFilters,
-				keyword_filter_mode: filterMode
+				blacklist_keywords: blacklistKeywords,
+				whitelist_keywords: whitelistKeywords
 			}
 		);
 	}
@@ -901,10 +901,10 @@ export const api = {
 		apiClient.getVideoSourceKeywordFilters(sourceType, id),
 
 	/**
-	 * 更新视频源关键词过滤器
+	 * 更新视频源关键词过滤器（双列表模式）
 	 */
-	updateVideoSourceKeywordFilters: (sourceType: string, id: number, keywordFilters: string[], filterMode?: KeywordFilterMode) =>
-		apiClient.updateVideoSourceKeywordFilters(sourceType, id, keywordFilters, filterMode),
+	updateVideoSourceKeywordFilters: (sourceType: string, id: number, blacklistKeywords: string[], whitelistKeywords: string[]) =>
+		apiClient.updateVideoSourceKeywordFilters(sourceType, id, blacklistKeywords, whitelistKeywords),
 
 	/**
 	 * 验证正则表达式

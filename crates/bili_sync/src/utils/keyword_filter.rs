@@ -1,15 +1,20 @@
 //! 关键词过滤工具模块
 //!
 //! 提供视频标题的正则表达式关键词过滤功能
-//! 支持两种模式：
-//! - blacklist（黑名单）：匹配关键词的视频将被排除
-//! - whitelist（白名单）：只下载匹配关键词的视频
+//! 支持黑名单和白名单两套列表同时生效：
+//! - 白名单：如果设置了白名单，视频必须匹配其中之一才下载
+//! - 黑名单：匹配黑名单的视频即使通过白名单也不下载
+//!
+//! 过滤逻辑：
+//! 1. 如果有白名单 → 必须匹配白名单中的任一关键词
+//! 2. 如果匹配黑名单 → 即使通过白名单也排除
 
 use regex::Regex;
 use tracing::{debug, warn};
 
-/// 关键词过滤模式
+/// 关键词过滤模式（已废弃，保留用于向后兼容）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)]
 pub enum KeywordFilterMode {
     /// 黑名单模式：匹配关键词的视频将被排除（不下载）
     #[default]
@@ -20,6 +25,7 @@ pub enum KeywordFilterMode {
 
 impl KeywordFilterMode {
     /// 从字符串解析过滤模式
+    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "whitelist" => KeywordFilterMode::Whitelist,
@@ -37,7 +43,69 @@ impl KeywordFilterMode {
     }
 }
 
+/// 检查视频标题是否应该被过滤（使用独立的黑白名单列表）
+///
+/// 过滤逻辑：
+/// 1. 如果有白名单且不为空 → 必须匹配白名单中的任一关键词，否则过滤
+/// 2. 如果匹配黑名单中的任一关键词 → 过滤（即使通过了白名单）
+///
+/// # Arguments
+/// * `title` - 视频标题
+/// * `blacklist_keywords` - 黑名单关键词（JSON数组字符串）
+/// * `whitelist_keywords` - 白名单关键词（JSON数组字符串）
+///
+/// # Returns
+/// * `true` - 视频应该被过滤（不下载）
+/// * `false` - 视频不应该被过滤（可以下载）
+pub fn should_filter_video_dual_list(
+    title: &str,
+    blacklist_keywords: &Option<String>,
+    whitelist_keywords: &Option<String>,
+) -> bool {
+    let blacklist = blacklist_keywords
+        .as_ref()
+        .map(|s| parse_keywords(s))
+        .unwrap_or_default();
+    let whitelist = whitelist_keywords
+        .as_ref()
+        .map(|s| parse_keywords(s))
+        .unwrap_or_default();
+
+    // 1. 检查白名单（如果有白名单，必须匹配其中之一）
+    if !whitelist.is_empty() {
+        let matches_whitelist = whitelist.iter().any(|regex| regex.is_match(title));
+        if !matches_whitelist {
+            debug!(
+                "视频标题 '{}' 未匹配白名单关键词，将被过滤",
+                title
+            );
+            return true; // 不在白名单中，过滤
+        }
+        debug!(
+            "视频标题 '{}' 匹配白名单关键词",
+            title
+        );
+    }
+
+    // 2. 检查黑名单（即使通过白名单，匹配黑名单的也过滤）
+    if !blacklist.is_empty() {
+        let matches_blacklist = blacklist.iter().any(|regex| regex.is_match(title));
+        if matches_blacklist {
+            debug!(
+                "视频标题 '{}' 匹配黑名单关键词，将被过滤",
+                title
+            );
+            return true; // 在黑名单中，过滤
+        }
+    }
+
+    // 通过所有检查，不过滤
+    false
+}
+
 /// 检查视频标题是否应该被过滤（支持黑名单/白名单模式）
+///
+/// 已废弃：推荐使用 `should_filter_video_dual_list` 函数
 ///
 /// # Arguments
 /// * `title` - 视频标题
@@ -47,6 +115,7 @@ impl KeywordFilterMode {
 /// # Returns
 /// * `true` - 视频应该被过滤（不下载）
 /// * `false` - 视频不应该被过滤（可以下载）
+#[allow(dead_code)]
 pub fn should_filter_video_with_mode(
     title: &str,
     keyword_filters: &Option<String>,
@@ -102,8 +171,7 @@ pub fn should_filter_video_with_mode(
 
 /// 检查视频标题是否匹配任一关键词（正则表达式匹配）
 ///
-/// 注意：此函数仅支持黑名单模式，保留用于向后兼容
-/// 推荐使用 `should_filter_video_with_mode` 函数
+/// 已废弃：推荐使用 `should_filter_video_dual_list` 函数
 ///
 /// # Arguments
 /// * `title` - 视频标题
@@ -154,25 +222,61 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_should_filter_video_no_filters() {
-        assert!(!should_filter_video("测试视频", &None));
-        assert!(!should_filter_video("测试视频", &Some("[]".to_string())));
+    fn test_dual_list_no_filters() {
+        // 没有任何过滤器，不过滤
+        assert!(!should_filter_video_dual_list("测试视频", &None, &None));
+        assert!(!should_filter_video_dual_list("测试视频", &Some("[]".to_string()), &Some("[]".to_string())));
     }
 
     #[test]
-    fn test_should_filter_video_simple_match() {
-        let filters = Some(r#"["广告", "推广"]"#.to_string());
-        assert!(should_filter_video("这是一个广告视频", &filters));
-        assert!(should_filter_video("推广内容", &filters));
-        assert!(!should_filter_video("正常视频", &filters));
+    fn test_dual_list_blacklist_only() {
+        let blacklist = Some(r#"["广告", "预告"]"#.to_string());
+        // 只有黑名单：匹配黑名单的被过滤
+        assert!(should_filter_video_dual_list("这是一个广告视频", &blacklist, &None));
+        assert!(should_filter_video_dual_list("预告片", &blacklist, &None));
+        // 不匹配黑名单的不过滤
+        assert!(!should_filter_video_dual_list("正常视频", &blacklist, &None));
     }
 
     #[test]
-    fn test_should_filter_video_regex_match() {
-        let filters = Some(r#"["第\\d+期", "EP\\d+"]"#.to_string());
-        assert!(should_filter_video("第123期节目", &filters));
-        assert!(should_filter_video("EP45特辑", &filters));
-        assert!(!should_filter_video("普通视频", &filters));
+    fn test_dual_list_whitelist_only() {
+        let whitelist = Some(r#"["PV", "MV"]"#.to_string());
+        // 只有白名单：必须匹配白名单才下载
+        assert!(!should_filter_video_dual_list("官方PV", &None, &whitelist));
+        assert!(!should_filter_video_dual_list("新曲MV", &None, &whitelist));
+        // 不匹配白名单的被过滤
+        assert!(should_filter_video_dual_list("正常视频", &None, &whitelist));
+        assert!(should_filter_video_dual_list("第一集", &None, &whitelist));
+    }
+
+    #[test]
+    fn test_dual_list_both() {
+        let blacklist = Some(r#"["预告"]"#.to_string());
+        let whitelist = Some(r#"["PV"]"#.to_string());
+
+        // 匹配白名单且不匹配黑名单 → 下载
+        assert!(!should_filter_video_dual_list("官方PV", &blacklist, &whitelist));
+
+        // 匹配白名单但也匹配黑名单 → 过滤（黑名单优先）
+        assert!(should_filter_video_dual_list("预告PV", &blacklist, &whitelist));
+
+        // 不匹配白名单 → 过滤
+        assert!(should_filter_video_dual_list("第一集", &blacklist, &whitelist));
+
+        // 不匹配白名单但匹配黑名单 → 过滤
+        assert!(should_filter_video_dual_list("预告片", &blacklist, &whitelist));
+    }
+
+    #[test]
+    fn test_dual_list_real_case() {
+        // 你的例子：想下载PV但不想下载预告PV
+        let blacklist = Some(r#"["预告"]"#.to_string());
+        let whitelist = Some(r#"["PV"]"#.to_string());
+
+        assert!(!should_filter_video_dual_list("XXX PV", &blacklist, &whitelist));      // 下载
+        assert!(should_filter_video_dual_list("预告PV", &blacklist, &whitelist));       // 不下载
+        assert!(should_filter_video_dual_list("第一集", &blacklist, &whitelist));       // 不下载
+        assert!(should_filter_video_dual_list("预告", &blacklist, &whitelist));         // 不下载
     }
 
     #[test]
@@ -186,47 +290,5 @@ mod tests {
     fn test_validate_regex_invalid() {
         assert!(validate_regex(r"[").is_err());
         assert!(validate_regex(r"(unclosed").is_err());
-    }
-
-    #[test]
-    fn test_keyword_filter_mode_blacklist() {
-        let filters = Some(r#"["广告", "推广"]"#.to_string());
-        let mode = Some("blacklist".to_string());
-        // 黑名单模式：匹配到关键词的视频应该被过滤
-        assert!(should_filter_video_with_mode("这是一个广告视频", &filters, &mode));
-        assert!(should_filter_video_with_mode("推广内容", &filters, &mode));
-        // 不匹配的视频不应该被过滤
-        assert!(!should_filter_video_with_mode("正常视频", &filters, &mode));
-    }
-
-    #[test]
-    fn test_keyword_filter_mode_whitelist() {
-        let filters = Some(r#"["教程", "学习"]"#.to_string());
-        let mode = Some("whitelist".to_string());
-        // 白名单模式：匹配到关键词的视频不应该被过滤（可以下载）
-        assert!(!should_filter_video_with_mode("Python教程第一集", &filters, &mode));
-        assert!(!should_filter_video_with_mode("学习笔记", &filters, &mode));
-        // 不匹配关键词的视频应该被过滤（不下载）
-        assert!(should_filter_video_with_mode("娱乐视频", &filters, &mode));
-        assert!(should_filter_video_with_mode("游戏实况", &filters, &mode));
-    }
-
-    #[test]
-    fn test_keyword_filter_mode_default() {
-        let filters = Some(r#"["广告"]"#.to_string());
-        // 不指定模式时默认为黑名单模式
-        assert!(should_filter_video_with_mode("广告视频", &filters, &None));
-        assert!(!should_filter_video_with_mode("正常视频", &filters, &None));
-    }
-
-    #[test]
-    fn test_keyword_filter_mode_from_str() {
-        assert_eq!(KeywordFilterMode::from_str("blacklist"), KeywordFilterMode::Blacklist);
-        assert_eq!(KeywordFilterMode::from_str("whitelist"), KeywordFilterMode::Whitelist);
-        assert_eq!(KeywordFilterMode::from_str("WHITELIST"), KeywordFilterMode::Whitelist);
-        assert_eq!(KeywordFilterMode::from_str("Blacklist"), KeywordFilterMode::Blacklist);
-        // 无效值默认为黑名单
-        assert_eq!(KeywordFilterMode::from_str("invalid"), KeywordFilterMode::Blacklist);
-        assert_eq!(KeywordFilterMode::from_str(""), KeywordFilterMode::Blacklist);
     }
 }

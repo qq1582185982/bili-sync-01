@@ -352,12 +352,20 @@ pub struct QRPollRequest {
     pub session_id: String,
 }
 
-// 更新关键词过滤器的请求结构体
+// 更新关键词过滤器的请求结构体（支持双列表模式）
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateKeywordFiltersRequest {
-    /// 关键词列表（支持正则表达式）
-    pub keyword_filters: Vec<String>,
-    /// 关键词过滤模式: "blacklist"（黑名单-排除匹配）或 "whitelist"（白名单-只下载匹配）
+    /// 黑名单关键词列表（支持正则表达式）
+    /// 匹配黑名单的视频将被排除（即使通过了白名单）
+    pub blacklist_keywords: Option<Vec<String>>,
+    /// 白名单关键词列表（支持正则表达式）
+    /// 如果设置了白名单，视频必须匹配其中之一才会被下载
+    pub whitelist_keywords: Option<Vec<String>>,
+    /// 【已废弃】关键词列表（支持正则表达式）- 向后兼容
+    #[serde(default)]
+    pub keyword_filters: Option<Vec<String>>,
+    /// 【已废弃】关键词过滤模式 - 向后兼容
+    #[serde(default)]
     pub keyword_filter_mode: Option<String>,
 }
 

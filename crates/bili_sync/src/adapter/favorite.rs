@@ -91,6 +91,14 @@ impl VideoSource for favorite::Model {
     fn get_keyword_filter_mode(&self) -> Option<String> {
         self.keyword_filter_mode.clone()
     }
+
+    fn get_blacklist_keywords(&self) -> Option<String> {
+        self.blacklist_keywords.clone()
+    }
+
+    fn get_whitelist_keywords(&self) -> Option<String> {
+        self.whitelist_keywords.clone()
+    }
 }
 
 #[allow(dead_code)]
@@ -129,6 +137,8 @@ pub async fn init_favorite_sources(
                         scan_deleted_videos: Set(false),
                         keyword_filters: Set(None),
                         keyword_filter_mode: Set(None),
+                        blacklist_keywords: Set(None),
+                        whitelist_keywords: Set(None),
                     };
 
                     let result = favorite::Entity::insert(model)
@@ -155,6 +165,8 @@ pub async fn init_favorite_sources(
                         scan_deleted_videos: Set(false),
                         keyword_filters: Set(None),
                         keyword_filter_mode: Set(None),
+                        blacklist_keywords: Set(None),
+                        whitelist_keywords: Set(None),
                     };
 
                     let result = favorite::Entity::insert(model)

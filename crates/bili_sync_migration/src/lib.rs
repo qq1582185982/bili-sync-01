@@ -34,6 +34,7 @@ mod m20250914_000001_fix_video_unique_index_for_bangumi;
 mod m20250921_000001_add_collection_cover;
 mod m20251210_000001_add_keyword_filters_field;
 mod m20251211_000001_add_keyword_filter_mode_field;
+mod m20251211_000002_split_keyword_filters;
 
 pub struct Migrator;
 
@@ -75,6 +76,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250921_000001_add_collection_cover::Migration),
             Box::new(m20251210_000001_add_keyword_filters_field::Migration),
             Box::new(m20251211_000001_add_keyword_filter_mode_field::Migration),
+            Box::new(m20251211_000002_split_keyword_filters::Migration),
         ]
     }
 }

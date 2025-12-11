@@ -95,13 +95,16 @@
 	let loadingExistingSources = false;
 	let isMergingBangumi = false;
 
-	// 关键词过滤器相关
-	let keywordFilters: string[] = [];
-	let newKeyword = '';
-	let keywordValidationError = '';
-	let validatingKeyword = false;
+	// 关键词过滤器相关（双列表模式）
+	let blacklistKeywords: string[] = [];
+	let whitelistKeywords: string[] = [];
+	let newBlacklistKeyword = '';
+	let newWhitelistKeyword = '';
+	let blacklistValidationError = '';
+	let whitelistValidationError = '';
+	let validatingBlacklistKeyword = false;
+	let validatingWhitelistKeyword = false;
 	let showKeywordSection = false; // 是否展开关键词过滤器部分
-	let keywordFilterMode: KeywordFilterMode = 'blacklist'; // 过滤模式：blacklist（排除匹配）或 whitelist（只下载匹配）
 
 	// 批量添加相关
 	let batchMode = false; // 是否为批量模式
@@ -399,51 +402,124 @@
 		return div.textContent || div.innerText || title;
 	}
 
-	// 添加关键词过滤器
-	async function addKeyword() {
-		const pattern = newKeyword.trim();
+	// 检查关键词是否在另一个列表中存在（互斥校验）
+	function checkMutualExclusivity(keyword: string, targetList: 'blacklist' | 'whitelist'): string | null {
+		if (targetList === 'blacklist' && whitelistKeywords.includes(keyword)) {
+			return '该关键词已存在于白名单中，同一关键词不能同时出现在黑名单和白名单';
+		}
+		if (targetList === 'whitelist' && blacklistKeywords.includes(keyword)) {
+			return '该关键词已存在于黑名单中，同一关键词不能同时出现在黑名单和白名单';
+		}
+		return null;
+	}
+
+	// 添加黑名单关键词
+	async function addBlacklistKeyword() {
+		const pattern = newBlacklistKeyword.trim();
 		if (!pattern) {
-			keywordValidationError = '请输入关键词';
+			blacklistValidationError = '请输入关键词';
 			return;
 		}
 
-		if (keywordFilters.includes(pattern)) {
-			keywordValidationError = '该关键词已存在';
+		if (blacklistKeywords.includes(pattern)) {
+			blacklistValidationError = '该关键词已存在于黑名单中';
+			return;
+		}
+
+		// 互斥校验
+		const mutualError = checkMutualExclusivity(pattern, 'blacklist');
+		if (mutualError) {
+			blacklistValidationError = mutualError;
 			return;
 		}
 
 		// 验证正则表达式
-		validatingKeyword = true;
+		validatingBlacklistKeyword = true;
 		try {
 			const result = await api.validateRegex(pattern);
 			if (result.status_code === 200) {
 				if (result.data.valid) {
-					keywordFilters = [...keywordFilters, pattern];
-					newKeyword = '';
-					keywordValidationError = '';
+					blacklistKeywords = [...blacklistKeywords, pattern];
+					newBlacklistKeyword = '';
+					blacklistValidationError = '';
 				} else {
-					keywordValidationError = result.data.error || '无效的正则表达式';
+					blacklistValidationError = result.data.error || '无效的正则表达式';
 				}
 			} else {
-				keywordValidationError = '验证请求失败';
+				blacklistValidationError = '验证请求失败';
 			}
 		} catch {
-			keywordValidationError = '网络错误';
+			blacklistValidationError = '网络错误';
 		} finally {
-			validatingKeyword = false;
+			validatingBlacklistKeyword = false;
 		}
 	}
 
-	// 删除关键词
-	function removeKeyword(index: number) {
-		keywordFilters = keywordFilters.filter((_, i) => i !== index);
+	// 添加白名单关键词
+	async function addWhitelistKeyword() {
+		const pattern = newWhitelistKeyword.trim();
+		if (!pattern) {
+			whitelistValidationError = '请输入关键词';
+			return;
+		}
+
+		if (whitelistKeywords.includes(pattern)) {
+			whitelistValidationError = '该关键词已存在于白名单中';
+			return;
+		}
+
+		// 互斥校验
+		const mutualError = checkMutualExclusivity(pattern, 'whitelist');
+		if (mutualError) {
+			whitelistValidationError = mutualError;
+			return;
+		}
+
+		// 验证正则表达式
+		validatingWhitelistKeyword = true;
+		try {
+			const result = await api.validateRegex(pattern);
+			if (result.status_code === 200) {
+				if (result.data.valid) {
+					whitelistKeywords = [...whitelistKeywords, pattern];
+					newWhitelistKeyword = '';
+					whitelistValidationError = '';
+				} else {
+					whitelistValidationError = result.data.error || '无效的正则表达式';
+				}
+			} else {
+				whitelistValidationError = '验证请求失败';
+			}
+		} catch {
+			whitelistValidationError = '网络错误';
+		} finally {
+			validatingWhitelistKeyword = false;
+		}
 	}
 
-	// 处理关键词输入框键盘事件
-	function handleKeywordKeydown(event: KeyboardEvent) {
+	// 删除黑名单关键词
+	function removeBlacklistKeyword(index: number) {
+		blacklistKeywords = blacklistKeywords.filter((_, i) => i !== index);
+	}
+
+	// 删除白名单关键词
+	function removeWhitelistKeyword(index: number) {
+		whitelistKeywords = whitelistKeywords.filter((_, i) => i !== index);
+	}
+
+	// 处理黑名单关键词输入框键盘事件
+	function handleBlacklistKeywordKeydown(event: KeyboardEvent) {
 		if (event.key === 'Enter') {
 			event.preventDefault();
-			addKeyword();
+			addBlacklistKeyword();
+		}
+	}
+
+	// 处理白名单关键词输入框键盘事件
+	function handleWhitelistKeywordKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			addWhitelistKeyword();
 		}
 	}
 
@@ -546,15 +622,37 @@
 				}
 			}
 
-			// 如果有关键词过滤器，添加keyword_filters和keyword_filter_mode参数
-			if (keywordFilters.length > 0) {
-				params.keyword_filters = keywordFilters;
-				params.keyword_filter_mode = keywordFilterMode;
+			// 如果有关键词过滤器，添加blacklist_keywords和whitelist_keywords参数（双列表模式）
+			// 注意：后端API仍使用keyword_filters和keyword_filter_mode，但会被转换为新格式
+			// 为了向后兼容，在添加时使用旧格式，后端会自动处理
+			if (blacklistKeywords.length > 0 || whitelistKeywords.length > 0) {
+				// 使用新的双列表模式，直接传递两个列表
+				// 后端handler会根据是否存在这些字段来决定使用哪种模式
+				if (blacklistKeywords.length > 0) {
+					params.keyword_filters = blacklistKeywords;
+					params.keyword_filter_mode = 'blacklist';
+				}
+				// 注意：当前添加接口只支持单一模式，双列表需要后续通过编辑接口设置
+				// 如果同时有白名单，需要先添加视频源，然后再通过关键词过滤器编辑功能设置完整的双列表
 			}
 
 			const result = await api.addVideoSource(params);
 
 			if (result.data.success) {
+				// 如果同时设置了白名单，需要额外调用API更新
+				if (whitelistKeywords.length > 0 && result.data.source_id) {
+					try {
+						await api.updateVideoSourceKeywordFilters(
+							sourceType,
+							result.data.source_id,
+							blacklistKeywords,
+							whitelistKeywords
+						);
+					} catch (e) {
+						console.warn('更新关键词过滤器失败:', e);
+					}
+				}
+
 				toast.success('添加成功', { description: result.data.message });
 				// 重置表单
 				sourceId = '';
@@ -570,9 +668,10 @@
 				selectedUpName = '';
 				mergeToSourceId = null;
 				existingBangumiSources = [];
-				keywordFilters = [];
-				newKeyword = '';
-				keywordFilterMode = 'blacklist';
+				blacklistKeywords = [];
+				whitelistKeywords = [];
+				newBlacklistKeyword = '';
+				newWhitelistKeyword = '';
 				showKeywordSection = false;
 				// 跳转到视频源管理页面
 				goto('/video-sources');
@@ -2318,7 +2417,7 @@
 							{/if}
 						</div>
 
-						<!-- 关键词过滤器（可折叠） -->
+						<!-- 关键词过滤器（可折叠，双列表模式） -->
 						<div class="space-y-2">
 							<button
 								type="button"
@@ -2328,11 +2427,11 @@
 								<div class="flex items-center gap-2">
 									<FilterIcon class="h-4 w-4 text-purple-600 dark:text-purple-400" />
 									<span class="font-medium text-purple-800 dark:text-purple-200">关键词过滤器</span>
-									{#if keywordFilters.length > 0}
+									{#if blacklistKeywords.length > 0 || whitelistKeywords.length > 0}
 										<span
 											class="rounded-full bg-purple-600 px-2 py-0.5 text-xs text-white dark:bg-purple-500"
 										>
-											{keywordFilters.length}
+											{blacklistKeywords.length + whitelistKeywords.length}
 										</span>
 									{/if}
 								</div>
@@ -2353,124 +2452,148 @@
 									class="space-y-3 rounded-md border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800 dark:bg-purple-950/50"
 									transition:fly={{ y: -10, duration: 200 }}
 								>
-									<!-- 过滤模式选择 -->
-									<div class="space-y-2">
-										<p class="text-xs font-medium text-purple-700 dark:text-purple-300">过滤模式</p>
-										<div class="flex gap-2">
-											<button
-												type="button"
-												class="flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors {keywordFilterMode === 'blacklist'
-													? 'bg-red-100 text-red-800 ring-2 ring-red-500 dark:bg-red-900 dark:text-red-200'
-													: 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'}"
-												onclick={() => (keywordFilterMode = 'blacklist')}
-											>
-												<span class="flex items-center justify-center gap-1">
-													<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-													</svg>
-													黑名单
-												</span>
-												<span class="mt-0.5 block text-[10px] opacity-75">排除匹配的视频</span>
-											</button>
-											<button
-												type="button"
-												class="flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors {keywordFilterMode === 'whitelist'
-													? 'bg-green-100 text-green-800 ring-2 ring-green-500 dark:bg-green-900 dark:text-green-200'
-													: 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'}"
-												onclick={() => (keywordFilterMode = 'whitelist')}
-											>
-												<span class="flex items-center justify-center gap-1">
-													<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-													</svg>
-													白名单
-												</span>
-												<span class="mt-0.5 block text-[10px] opacity-75">只下载匹配的视频</span>
-											</button>
-										</div>
+									<!-- 过滤逻辑说明 -->
+									<div class="rounded-md border border-blue-200 bg-blue-50 p-2 dark:border-blue-800 dark:bg-blue-950">
+										<p class="text-xs font-medium text-blue-800 dark:text-blue-200">过滤逻辑说明</p>
+										<ul class="mt-1 space-y-0.5 text-xs text-blue-700 dark:text-blue-300">
+											<li>1. 如果设置了白名单，视频必须匹配至少一个白名单关键词才会被下载</li>
+											<li>2. 匹配黑名单的视频会被排除（即使通过了白名单）</li>
+											<li>3. 同一关键词不能同时出现在黑名单和白名单中</li>
+										</ul>
 									</div>
 
-									<!-- 模式说明 -->
-									<div
-										class="rounded-md border p-2 {keywordFilterMode === 'blacklist'
-											? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950'
-											: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950'}"
-									>
-										<p class="text-xs {keywordFilterMode === 'blacklist' ? 'text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}">
-											{keywordFilterMode === 'blacklist'
-												? '匹配任一关键词的视频将被跳过，不会下载。支持正则表达式。'
-												: '只有匹配任一关键词的视频才会下载，不匹配的视频将被跳过。支持正则表达式。'}
-										</p>
-									</div>
+									<!-- 双列表布局 -->
+									<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+										<!-- 白名单区域 -->
+										<div class="space-y-2 rounded-md border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
+											<div class="flex items-center gap-2">
+												<svg class="h-4 w-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+												</svg>
+												<span class="text-xs font-medium text-green-800 dark:text-green-200">白名单</span>
+												<span class="text-xs text-green-600 dark:text-green-400">({whitelistKeywords.length})</span>
+											</div>
+											<p class="text-[10px] text-green-700 dark:text-green-300">只下载匹配的视频（留空则不限制）</p>
 
-									<!-- 添加新关键词 -->
-									<div class="flex gap-2">
-										<Input
-											bind:value={newKeyword}
-											placeholder="输入关键词或正则表达式"
-											onkeydown={handleKeywordKeydown}
-											disabled={validatingKeyword}
-											class="flex-1"
-										/>
-										<Button
-											type="button"
-											size="sm"
-											onclick={addKeyword}
-											disabled={!newKeyword.trim() || validatingKeyword}
-											class="bg-purple-600 hover:bg-purple-700"
-										>
-											{validatingKeyword ? '验证中...' : '添加'}
-										</Button>
-									</div>
+											<!-- 添加白名单关键词 -->
+											<div class="flex gap-1">
+												<Input
+													bind:value={newWhitelistKeyword}
+													placeholder="输入关键词"
+													onkeydown={handleWhitelistKeywordKeydown}
+													disabled={validatingWhitelistKeyword}
+													class="flex-1 h-8 text-xs"
+												/>
+												<Button
+													type="button"
+													size="sm"
+													onclick={addWhitelistKeyword}
+													disabled={!newWhitelistKeyword.trim() || validatingWhitelistKeyword}
+													class="bg-green-600 hover:bg-green-700 h-8 px-2 text-xs"
+												>
+													{validatingWhitelistKeyword ? '...' : '添加'}
+												</Button>
+											</div>
+											{#if whitelistValidationError}
+												<p class="text-[10px] text-red-500">{whitelistValidationError}</p>
+											{/if}
 
-									{#if keywordValidationError}
-										<p class="text-xs text-red-500">{keywordValidationError}</p>
-									{/if}
-
-									<!-- 已添加的关键词列表 -->
-									{#if keywordFilters.length > 0}
-										<div class="space-y-2">
-											<p class="text-xs font-medium text-purple-700 dark:text-purple-300">
-												已添加的关键词 ({keywordFilters.length})
-											</p>
-											<div
-												class="max-h-32 space-y-1 overflow-y-auto rounded border border-purple-200 bg-white p-2 dark:border-purple-700 dark:bg-gray-800"
-											>
-												{#each keywordFilters as keyword, index}
-													<div
-														class="flex items-center justify-between rounded bg-purple-100 px-2 py-1 dark:bg-purple-900"
-													>
-														<code class="flex-1 truncate text-xs text-purple-800 dark:text-purple-200">
-															{keyword}
-														</code>
-														<button
-															type="button"
-															onclick={() => removeKeyword(index)}
-															class="ml-2 flex-shrink-0 rounded p-0.5 text-purple-500 hover:bg-purple-200 hover:text-red-600 dark:hover:bg-purple-800 dark:hover:text-red-400"
-															title="删除"
-														>
-															<X class="h-3 w-3" />
-														</button>
-													</div>
-												{/each}
+											<!-- 白名单列表 -->
+											<div class="max-h-24 space-y-1 overflow-y-auto">
+												{#if whitelistKeywords.length === 0}
+													<p class="text-[10px] text-green-600 dark:text-green-400 italic">暂无白名单关键词</p>
+												{:else}
+													{#each whitelistKeywords as keyword, index}
+														<div class="flex items-center justify-between rounded bg-green-100 px-2 py-1 dark:bg-green-900">
+															<code class="flex-1 truncate text-[10px] text-green-800 dark:text-green-200">{keyword}</code>
+															<button
+																type="button"
+																onclick={() => removeWhitelistKeyword(index)}
+																class="ml-1 flex-shrink-0 rounded p-0.5 text-green-600 hover:bg-green-200 hover:text-red-600 dark:hover:bg-green-800"
+																title="删除"
+															>
+																<X class="h-3 w-3" />
+															</button>
+														</div>
+													{/each}
+												{/if}
 											</div>
 										</div>
-									{/if}
+
+										<!-- 黑名单区域 -->
+										<div class="space-y-2 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
+											<div class="flex items-center gap-2">
+												<svg class="h-4 w-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+												</svg>
+												<span class="text-xs font-medium text-red-800 dark:text-red-200">黑名单</span>
+												<span class="text-xs text-red-600 dark:text-red-400">({blacklistKeywords.length})</span>
+											</div>
+											<p class="text-[10px] text-red-700 dark:text-red-300">排除匹配的视频（优先级高于白名单）</p>
+
+											<!-- 添加黑名单关键词 -->
+											<div class="flex gap-1">
+												<Input
+													bind:value={newBlacklistKeyword}
+													placeholder="输入关键词"
+													onkeydown={handleBlacklistKeywordKeydown}
+													disabled={validatingBlacklistKeyword}
+													class="flex-1 h-8 text-xs"
+												/>
+												<Button
+													type="button"
+													size="sm"
+													onclick={addBlacklistKeyword}
+													disabled={!newBlacklistKeyword.trim() || validatingBlacklistKeyword}
+													class="bg-red-600 hover:bg-red-700 h-8 px-2 text-xs"
+												>
+													{validatingBlacklistKeyword ? '...' : '添加'}
+												</Button>
+											</div>
+											{#if blacklistValidationError}
+												<p class="text-[10px] text-red-500">{blacklistValidationError}</p>
+											{/if}
+
+											<!-- 黑名单列表 -->
+											<div class="max-h-24 space-y-1 overflow-y-auto">
+												{#if blacklistKeywords.length === 0}
+													<p class="text-[10px] text-red-600 dark:text-red-400 italic">暂无黑名单关键词</p>
+												{:else}
+													{#each blacklistKeywords as keyword, index}
+														<div class="flex items-center justify-between rounded bg-red-100 px-2 py-1 dark:bg-red-900">
+															<code class="flex-1 truncate text-[10px] text-red-800 dark:text-red-200">{keyword}</code>
+															<button
+																type="button"
+																onclick={() => removeBlacklistKeyword(index)}
+																class="ml-1 flex-shrink-0 rounded p-0.5 text-red-600 hover:bg-red-200 hover:text-red-800 dark:hover:bg-red-800"
+																title="删除"
+															>
+																<X class="h-3 w-3" />
+															</button>
+														</div>
+													{/each}
+												{/if}
+											</div>
+										</div>
+									</div>
 
 									<!-- 正则表达式示例 -->
 									<div class="rounded border border-purple-200 bg-white p-2 dark:border-purple-700 dark:bg-gray-800">
 										<p class="text-xs font-medium text-purple-700 dark:text-purple-300">正则表达式示例：</p>
-										<ul class="mt-1 space-y-0.5 text-xs text-purple-600 dark:text-purple-400">
+										<ul class="mt-1 space-y-0.5 text-[10px] text-purple-600 dark:text-purple-400">
 											<li>
-												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">广告</code> - 匹配包含"广告"的标题
+												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">PV</code> - 匹配包含"PV"的标题
+											</li>
+											<li>
+												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">预告</code> - 匹配包含"预告"的标题
 											</li>
 											<li>
 												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">第\d+期</code> - 匹配"第N期"格式
 											</li>
-											<li>
-												<code class="rounded bg-purple-100 px-1 dark:bg-purple-800">^测试</code> - 匹配以"测试"开头的标题
-											</li>
 										</ul>
+										<p class="mt-1 text-[10px] text-purple-500 dark:text-purple-400">
+											示例：白名单添加"PV"，黑名单添加"预告"，则下载含"PV"但不含"预告"的视频
+										</p>
 									</div>
 								</div>
 							{/if}

@@ -32,6 +32,8 @@ pub struct BangumiSource {
     pub scan_deleted_videos: bool,
     pub keyword_filters: Option<String>,
     pub keyword_filter_mode: Option<String>,
+    pub blacklist_keywords: Option<String>,
+    pub whitelist_keywords: Option<String>,
 }
 
 impl BangumiSource {
@@ -493,5 +495,13 @@ impl VideoSource for BangumiSource {
 
     fn get_keyword_filter_mode(&self) -> Option<String> {
         self.keyword_filter_mode.clone()
+    }
+
+    fn get_blacklist_keywords(&self) -> Option<String> {
+        self.blacklist_keywords.clone()
+    }
+
+    fn get_whitelist_keywords(&self) -> Option<String> {
+        self.whitelist_keywords.clone()
     }
 }

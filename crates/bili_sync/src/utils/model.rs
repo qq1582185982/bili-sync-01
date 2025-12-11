@@ -214,31 +214,40 @@ pub async fn create_videos(
         videos_info
     };
 
-    // 关键词过滤：根据过滤模式过滤视频
-    // 黑名单模式：过滤掉匹配关键词的视频
-    // 白名单模式：只保留匹配关键词的视频
+    // 关键词过滤：支持双列表模式（黑白名单同时生效）
+    // 白名单：如果设置了白名单，视频必须匹配其中之一才下载
+    // 黑名单：匹配黑名单的视频即使通过白名单也不下载
+    let blacklist_keywords = video_source.get_blacklist_keywords();
+    let whitelist_keywords = video_source.get_whitelist_keywords();
+    // 向后兼容：旧的单列表模式
     let keyword_filters = video_source.get_keyword_filters();
     let keyword_filter_mode = video_source.get_keyword_filter_mode();
-    let final_videos_info = if keyword_filters.is_some() {
-        use crate::utils::keyword_filter::should_filter_video_with_mode;
 
-        let is_whitelist = keyword_filter_mode
-            .as_ref()
-            .map(|m| m.to_lowercase() == "whitelist")
-            .unwrap_or(false);
-        let mode_desc = if is_whitelist { "白名单" } else { "黑名单" };
+    // 判断是否有任何过滤配置
+    let has_dual_list = blacklist_keywords.is_some() || whitelist_keywords.is_some();
+    let has_legacy = keyword_filters.is_some();
+
+    let final_videos_info = if has_dual_list || has_legacy {
+        use crate::utils::keyword_filter::{should_filter_video_dual_list, should_filter_video_with_mode};
 
         let before_count = final_videos_info.len();
         let filtered_videos: Vec<VideoInfo> = final_videos_info
             .into_iter()
             .filter(|info| {
                 let title = extract_title(info);
-                let should_filter = should_filter_video_with_mode(&title, &keyword_filters, &keyword_filter_mode);
+
+                // 优先使用新的双列表模式
+                let should_filter = if has_dual_list {
+                    should_filter_video_dual_list(&title, &blacklist_keywords, &whitelist_keywords)
+                } else {
+                    // 向后兼容：使用旧的单列表模式
+                    should_filter_video_with_mode(&title, &keyword_filters, &keyword_filter_mode)
+                };
+
                 if should_filter {
                     info!(
-                        "视频 '{}' 被{}过滤器过滤，跳过: {}",
+                        "视频 '{}' 被关键词过滤器过滤，跳过: {}",
                         title,
-                        mode_desc,
                         extract_bvid(info)
                     );
                 }

@@ -109,14 +109,24 @@ pub trait VideoSource {
     /// 获取视频源的显示名称
     fn source_name_display(&self) -> String;
 
-    /// 获取关键词过滤器配置（JSON数组字符串）
+    /// 获取关键词过滤器配置（JSON数组字符串）- 已废弃，使用双列表方式
     fn get_keyword_filters(&self) -> Option<String> {
         None // 默认实现：没有关键词过滤
     }
 
-    /// 获取关键词过滤模式（blacklist/whitelist）
+    /// 获取关键词过滤模式（blacklist/whitelist）- 已废弃，使用双列表方式
     fn get_keyword_filter_mode(&self) -> Option<String> {
         None // 默认实现：没有过滤模式（使用默认黑名单模式）
+    }
+
+    /// 获取黑名单关键词（JSON数组字符串）
+    fn get_blacklist_keywords(&self) -> Option<String> {
+        None // 默认实现：没有黑名单
+    }
+
+    /// 获取白名单关键词（JSON数组字符串）
+    fn get_whitelist_keywords(&self) -> Option<String> {
+        None // 默认实现：没有白名单
     }
 }
 
@@ -249,6 +259,8 @@ pub async fn bangumi_from<'a>(
             scan_deleted_videos: model.scan_deleted_videos,
             keyword_filters: model.keyword_filters,
             keyword_filter_mode: model.keyword_filter_mode,
+            blacklist_keywords: model.blacklist_keywords,
+            whitelist_keywords: model.whitelist_keywords,
         }
     } else {
         // 如果数据库中不存在，使用默认值并发出警告
@@ -274,6 +286,8 @@ pub async fn bangumi_from<'a>(
             scan_deleted_videos: false,
             keyword_filters: None,
             keyword_filter_mode: None,
+            blacklist_keywords: None,
+            whitelist_keywords: None,
         }
     };
 

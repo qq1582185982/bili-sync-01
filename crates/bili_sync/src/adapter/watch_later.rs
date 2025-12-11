@@ -90,6 +90,14 @@ impl VideoSource for watch_later::Model {
     fn get_keyword_filter_mode(&self) -> Option<String> {
         self.keyword_filter_mode.clone()
     }
+
+    fn get_blacklist_keywords(&self) -> Option<String> {
+        self.blacklist_keywords.clone()
+    }
+
+    fn get_whitelist_keywords(&self) -> Option<String> {
+        self.whitelist_keywords.clone()
+    }
 }
 
 // 稍后观看源的初始化现在通过Web API完成，不再需要这个函数
