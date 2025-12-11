@@ -32,6 +32,7 @@ mod m20250726_000001_unify_time_format;
 mod m20250807_000001_add_video_cid;
 mod m20250914_000001_fix_video_unique_index_for_bangumi;
 mod m20250921_000001_add_collection_cover;
+mod m20251210_000001_add_keyword_filters_field;
 
 pub struct Migrator;
 
@@ -71,6 +72,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250807_000001_add_video_cid::Migration),
             Box::new(m20250914_000001_fix_video_unique_index_for_bangumi::Migration),
             Box::new(m20250921_000001_add_collection_cover::Migration),
+            Box::new(m20251210_000001_add_keyword_filters_field::Migration),
         ]
     }
 }

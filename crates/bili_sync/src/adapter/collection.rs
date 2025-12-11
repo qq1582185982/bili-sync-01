@@ -92,6 +92,10 @@ impl VideoSource for collection::Model {
     fn source_name_display(&self) -> String {
         self.name.clone()
     }
+
+    fn get_keyword_filters(&self) -> Option<String> {
+        self.keyword_filters.clone()
+    }
 }
 
 // 修改初始化合集源的方法中的类型转换问题

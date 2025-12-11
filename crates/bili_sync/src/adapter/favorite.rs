@@ -83,6 +83,10 @@ impl VideoSource for favorite::Model {
     fn source_name_display(&self) -> String {
         self.name.clone()
     }
+
+    fn get_keyword_filters(&self) -> Option<String> {
+        self.keyword_filters.clone()
+    }
 }
 
 #[allow(dead_code)]
@@ -119,6 +123,7 @@ pub async fn init_favorite_sources(
                         latest_row_at: Set("1970-01-01 00:00:00".to_string()),
                         enabled: Set(true),
                         scan_deleted_videos: Set(false),
+                        keyword_filters: Set(None),
                     };
 
                     let result = favorite::Entity::insert(model)
@@ -143,6 +148,7 @@ pub async fn init_favorite_sources(
                         latest_row_at: Set("1970-01-01 00:00:00".to_string()),
                         enabled: Set(true),
                         scan_deleted_videos: Set(false),
+                        keyword_filters: Set(None),
                     };
 
                     let result = favorite::Entity::insert(model)

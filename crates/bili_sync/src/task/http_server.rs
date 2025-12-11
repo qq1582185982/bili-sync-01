@@ -69,6 +69,9 @@ use crate::api::handler::{
     update_notification_config,
     update_video_source_enabled,
     update_video_source_scan_deleted,
+    update_video_source_keyword_filters,
+    get_video_source_keyword_filters,
+    validate_regex_pattern,
     update_submission_selected_videos,
     update_video_status,
     validate_config,
@@ -158,6 +161,11 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
             "/api/video-sources/submission/{id}/selected-videos",
             put(update_submission_selected_videos),
         )
+        .route(
+            "/api/video-sources/{source_type}/{id}/keyword-filters",
+            put(update_video_source_keyword_filters).get(get_video_source_keyword_filters),
+        )
+        .route("/api/validate-regex", post(validate_regex_pattern))
         .route("/api/videos", get(get_videos))
         .route("/api/videos/{id}", get(get_video))
         .route("/api/videos/{id}", delete(delete_video))

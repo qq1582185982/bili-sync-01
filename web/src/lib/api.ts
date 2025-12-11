@@ -27,6 +27,9 @@ import type {
 	ResetVideoSourcePathRequest,
 	ResetVideoSourcePathResponse,
 	UpdateSubmissionSelectedVideosResponse,
+	UpdateKeywordFiltersResponse,
+	GetKeywordFiltersResponse,
+	ValidateRegexResponse,
 	UpdateCredentialRequest,
 	UpdateCredentialResponse,
 	InitialSetupCheckResponse,
@@ -371,6 +374,45 @@ class ApiClient {
 			`/video-sources/submission/${id}/selected-videos`,
 			{ selected_videos: selectedVideos }
 		);
+	}
+
+	/**
+	 * 获取视频源关键词过滤器
+	 * @param sourceType 视频源类型
+	 * @param id 视频源ID
+	 */
+	async getVideoSourceKeywordFilters(
+		sourceType: string,
+		id: number
+	): Promise<ApiResponse<GetKeywordFiltersResponse>> {
+		return this.get<GetKeywordFiltersResponse>(
+			`/video-sources/${sourceType}/${id}/keyword-filters`
+		);
+	}
+
+	/**
+	 * 更新视频源关键词过滤器
+	 * @param sourceType 视频源类型
+	 * @param id 视频源ID
+	 * @param keywordFilters 关键词过滤器列表
+	 */
+	async updateVideoSourceKeywordFilters(
+		sourceType: string,
+		id: number,
+		keywordFilters: string[]
+	): Promise<ApiResponse<UpdateKeywordFiltersResponse>> {
+		return this.put<UpdateKeywordFiltersResponse>(
+			`/video-sources/${sourceType}/${id}/keyword-filters`,
+			{ keyword_filters: keywordFilters }
+		);
+	}
+
+	/**
+	 * 验证正则表达式
+	 * @param pattern 正则表达式
+	 */
+	async validateRegex(pattern: string): Promise<ApiResponse<ValidateRegexResponse>> {
+		return this.post<ValidateRegexResponse>('/validate-regex', { pattern });
 	}
 
 	/**
@@ -845,6 +887,23 @@ export const api = {
 	 */
 	updateSubmissionSelectedVideos: (id: number, selectedVideos: string[]) =>
 		apiClient.updateSubmissionSelectedVideos(id, selectedVideos),
+
+	/**
+	 * 获取视频源关键词过滤器
+	 */
+	getVideoSourceKeywordFilters: (sourceType: string, id: number) =>
+		apiClient.getVideoSourceKeywordFilters(sourceType, id),
+
+	/**
+	 * 更新视频源关键词过滤器
+	 */
+	updateVideoSourceKeywordFilters: (sourceType: string, id: number, keywordFilters: string[]) =>
+		apiClient.updateVideoSourceKeywordFilters(sourceType, id, keywordFilters),
+
+	/**
+	 * 验证正则表达式
+	 */
+	validateRegex: (pattern: string) => apiClient.validateRegex(pattern),
 
 	/**
 	 * 检查是否需要初始设置

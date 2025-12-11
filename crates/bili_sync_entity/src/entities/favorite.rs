@@ -15,6 +15,7 @@ pub struct Model {
     pub latest_row_at: String,
     pub enabled: bool,
     pub scan_deleted_videos: bool,
+    pub keyword_filters: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

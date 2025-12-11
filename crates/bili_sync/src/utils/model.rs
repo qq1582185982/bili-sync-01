@@ -22,6 +22,18 @@ fn extract_bvid(video_info: &VideoInfo) -> String {
     }
 }
 
+/// 从 VideoInfo 中提取标题
+fn extract_title(video_info: &VideoInfo) -> String {
+    match video_info {
+        VideoInfo::Submission { title, .. } => title.clone(),
+        VideoInfo::Detail { title, .. } => title.clone(),
+        VideoInfo::Favorite { title, .. } => title.clone(),
+        VideoInfo::WatchLater { title, .. } => title.clone(),
+        VideoInfo::Collection { title, .. } => title.clone(),
+        VideoInfo::Bangumi { title, .. } => title.clone(),
+    }
+}
+
 /// 根据show_season_type和其他字段重新计算番剧的智能命名
 fn recalculate_bangumi_name(
     title: &str,
@@ -200,6 +212,41 @@ pub async fn create_videos(
     } else {
         // 增量模式或其他类型的视频源，使用原有逻辑
         videos_info
+    };
+
+    // 关键词过滤：过滤掉标题匹配关键词的视频
+    let keyword_filters = video_source.get_keyword_filters();
+    let final_videos_info = if keyword_filters.is_some() {
+        use crate::utils::keyword_filter::should_filter_video;
+
+        let before_count = final_videos_info.len();
+        let filtered_videos: Vec<VideoInfo> = final_videos_info
+            .into_iter()
+            .filter(|info| {
+                let title = extract_title(info);
+                let should_filter = should_filter_video(&title, &keyword_filters);
+                if should_filter {
+                    info!(
+                        "视频 '{}' 被关键词过滤器过滤，跳过: {}",
+                        title,
+                        extract_bvid(info)
+                    );
+                }
+                !should_filter
+            })
+            .collect();
+
+        let filtered_count = before_count - filtered_videos.len();
+        if filtered_count > 0 {
+            info!(
+                "关键词过滤完成：原视频 {} 个，过滤 {} 个，剩余 {} 个",
+                before_count, filtered_count, filtered_videos.len()
+            );
+        }
+
+        filtered_videos
+    } else {
+        final_videos_info
     };
 
     // 如果没有新视频需要处理，直接返回

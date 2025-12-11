@@ -40,6 +40,7 @@ export interface VideoSource {
 	season_id?: string; // 番剧season_id
 	media_id?: string; // 番剧media_id
 	selected_seasons?: string[];
+	keyword_filters?: string[]; // 关键词过滤器列表（支持正则表达式）
 }
 
 // 视频来源响应类型
@@ -618,6 +619,40 @@ export interface UpdateSubmissionSelectedVideosResponse {
 	source_id: number;
 	selected_count: number;
 	message: string;
+}
+
+// 更新关键词过滤器请求类型
+export interface UpdateKeywordFiltersRequest {
+	keyword_filters: string[];
+}
+
+// 更新关键词过滤器响应类型
+export interface UpdateKeywordFiltersResponse {
+	success: boolean;
+	source_id: number;
+	source_type: string;
+	keyword_filters_count: number;
+	message: string;
+}
+
+// 获取关键词过滤器响应类型
+export interface GetKeywordFiltersResponse {
+	success: boolean;
+	source_id: number;
+	source_type: string;
+	keyword_filters: string[];
+}
+
+// 验证正则表达式请求类型
+export interface ValidateRegexRequest {
+	pattern: string;
+}
+
+// 验证正则表达式响应类型
+export interface ValidateRegexResponse {
+	valid: boolean;
+	pattern: string;
+	error?: string;
 }
 
 // 更新凭证请求类型

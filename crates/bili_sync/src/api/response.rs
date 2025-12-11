@@ -176,6 +176,8 @@ pub struct VideoSource {
     pub media_id: Option<String>,  // 番剧media_id
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_seasons: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keyword_filters: Option<Vec<String>>,  // 关键词过滤器列表
 }
 
 #[derive(Serialize, ToSchema)]
@@ -756,4 +758,31 @@ pub struct TestRiskControlResponse {
     pub message: String,
     pub verification_url: Option<String>,
     pub instructions: Option<String>,
+}
+
+// 更新关键词过滤器响应
+#[derive(Serialize, ToSchema)]
+pub struct UpdateKeywordFiltersResponse {
+    pub success: bool,
+    pub source_id: i32,
+    pub source_type: String,
+    pub keyword_filters_count: usize,
+    pub message: String,
+}
+
+// 获取关键词过滤器响应
+#[derive(Serialize, ToSchema)]
+pub struct GetKeywordFiltersResponse {
+    pub success: bool,
+    pub source_id: i32,
+    pub source_type: String,
+    pub keyword_filters: Vec<String>,
+}
+
+// 验证正则表达式响应
+#[derive(Serialize, ToSchema)]
+pub struct ValidateRegexResponse {
+    pub valid: bool,
+    pub pattern: String,
+    pub error: Option<String>,
 }

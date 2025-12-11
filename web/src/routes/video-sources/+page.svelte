@@ -12,6 +12,7 @@
 	import DeleteVideoSourceDialog from '$lib/components/delete-video-source-dialog.svelte';
 	import ResetPathDialog from '$lib/components/reset-path-dialog.svelte';
 	import SubmissionSelectionDialog from '$lib/components/submission-selection-dialog.svelte';
+	import KeywordFilterDialog from '$lib/components/keyword-filter-dialog.svelte';
 
 	// 图标导入
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -22,6 +23,7 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import ListVideoIcon from '@lucide/svelte/icons/list-video';
+	import FilterIcon from '@lucide/svelte/icons/filter';
 	import { goto } from '$app/navigation';
 
 	let loading = false;
@@ -60,6 +62,14 @@
 		upperId: 0,
 		upperName: '',
 		selectedVideos: [] as string[]
+	};
+
+	// 关键词过滤对话框状态
+	let showKeywordFilterDialog = false;
+	let keywordFilterInfo = {
+		type: '',
+		id: 0,
+		name: ''
 	};
 
 	async function loadVideoSources() {
@@ -266,6 +276,27 @@
 		showSubmissionSelectionDialog = false;
 	}
 
+	// 打开关键词过滤对话框
+	function handleOpenKeywordFilter(sourceType: string, sourceId: number, sourceName: string) {
+		keywordFilterInfo = {
+			type: sourceType,
+			id: sourceId,
+			name: sourceName
+		};
+		showKeywordFilterDialog = true;
+	}
+
+	// 关键词保存成功
+	function handleKeywordFilterSave() {
+		toast.success('关键词过滤器已更新');
+		loadVideoSources();
+	}
+
+	// 取消关键词过滤
+	function handleKeywordFilterCancel() {
+		showKeywordFilterDialog = false;
+	}
+
 	// 切换折叠状态
 	function toggleCollapse(sectionKey: string) {
 		// 如果未设置，默认为折叠状态(true)，点击后变为展开状态(false)
@@ -404,6 +435,11 @@
 												{#if source.scan_deleted_videos}
 													<div class="mt-1 text-xs text-blue-600">扫描删除视频已启用</div>
 												{/if}
+												{#if source.keyword_filters && source.keyword_filters.length > 0}
+													<div class="mt-1 text-xs text-purple-600">
+														已配置 {source.keyword_filters.length} 个关键词过滤器
+													</div>
+												{/if}
 											</div>
 
 											<div class="flex items-center justify-end gap-1 sm:ml-4">
@@ -473,6 +509,26 @@
 													<RotateCcwIcon
 														class="h-4 w-4 {source.scan_deleted_videos
 															? 'text-blue-600'
+															: 'text-gray-400'}"
+													/>
+												</Button>
+
+												<!-- 关键词过滤 -->
+												<Button
+													size="sm"
+													variant="ghost"
+													onclick={() =>
+														handleOpenKeywordFilter(
+															sourceConfig.type,
+															source.id,
+															source.name
+														)}
+													title="关键词过滤"
+													class="h-8 w-8 p-0"
+												>
+													<FilterIcon
+														class="h-4 w-4 {source.keyword_filters && source.keyword_filters.length > 0
+															? 'text-purple-600'
 															: 'text-gray-400'}"
 													/>
 												</Button>
@@ -549,4 +605,14 @@
 	initialSelectedVideos={submissionSelectionInfo.selectedVideos}
 	on:confirm={handleConfirmSubmissionSelection}
 	on:cancel={handleCancelSubmissionSelection}
+/>
+
+<!-- 关键词过滤对话框 -->
+<KeywordFilterDialog
+	bind:isOpen={showKeywordFilterDialog}
+	sourceName={keywordFilterInfo.name}
+	sourceType={keywordFilterInfo.type}
+	sourceId={keywordFilterInfo.id}
+	on:save={handleKeywordFilterSave}
+	on:cancel={handleKeywordFilterCancel}
 />

@@ -192,6 +192,7 @@ pub async fn get_video_sources(
             collection::Column::ScanDeletedVideos,
             collection::Column::SId,
             collection::Column::MId,
+            collection::Column::KeywordFilters,
         ])
         .column_as(Expr::value(None::<i64>), "f_id")
         .column_as(Expr::value(None::<i64>), "upper_id")
@@ -205,6 +206,7 @@ pub async fn get_video_sources(
             bool,
             i64,
             i64,
+            Option<String>,
             Option<i64>,
             Option<i64>,
             Option<String>,
@@ -214,7 +216,10 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(
-            |(id, name, enabled, path, scan_deleted_videos, s_id, m_id, f_id, upper_id, season_id, media_id)| {
+            |(id, name, enabled, path, scan_deleted_videos, s_id, m_id, keyword_filters_json, f_id, upper_id, season_id, media_id)| {
+                let keyword_filters = keyword_filters_json.and_then(|json| {
+                    serde_json::from_str::<Vec<String>>(&json).ok()
+                });
                 VideoSource {
                     id,
                     name,
@@ -228,6 +233,7 @@ pub async fn get_video_sources(
                     season_id,
                     media_id,
                     selected_seasons: None,
+                    keyword_filters,
                 }
             },
         )
@@ -242,6 +248,7 @@ pub async fn get_video_sources(
             favorite::Column::Path,
             favorite::Column::ScanDeletedVideos,
             favorite::Column::FId,
+            favorite::Column::KeywordFilters,
         ])
         .column_as(Expr::value(None::<i64>), "s_id")
         .column_as(Expr::value(None::<i64>), "m_id")
@@ -255,6 +262,7 @@ pub async fn get_video_sources(
             String,
             bool,
             i64,
+            Option<String>,
             Option<i64>,
             Option<i64>,
             Option<i64>,
@@ -265,7 +273,10 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(
-            |(id, name, enabled, path, scan_deleted_videos, f_id, s_id, m_id, upper_id, season_id, media_id)| {
+            |(id, name, enabled, path, scan_deleted_videos, f_id, keyword_filters_json, s_id, m_id, upper_id, season_id, media_id)| {
+                let keyword_filters = keyword_filters_json.and_then(|json| {
+                    serde_json::from_str::<Vec<String>>(&json).ok()
+                });
                 VideoSource {
                     id,
                     name,
@@ -279,6 +290,7 @@ pub async fn get_video_sources(
                     season_id,
                     media_id,
                     selected_seasons: None,
+                    keyword_filters,
                 }
             },
         )
@@ -292,6 +304,7 @@ pub async fn get_video_sources(
             submission::Column::Path,
             submission::Column::ScanDeletedVideos,
             submission::Column::UpperId,
+            submission::Column::KeywordFilters,
         ])
         .column_as(submission::Column::UpperName, "name")
         .column_as(Expr::value(None::<i64>), "f_id")
@@ -305,6 +318,7 @@ pub async fn get_video_sources(
             String,
             bool,
             i64,
+            Option<String>,
             String,
             Option<i64>,
             Option<i64>,
@@ -316,7 +330,10 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(
-            |(id, enabled, path, scan_deleted_videos, upper_id, name, f_id, s_id, m_id, season_id, media_id)| {
+            |(id, enabled, path, scan_deleted_videos, upper_id, keyword_filters_json, name, f_id, s_id, m_id, season_id, media_id)| {
+                let keyword_filters = keyword_filters_json.and_then(|json| {
+                    serde_json::from_str::<Vec<String>>(&json).ok()
+                });
                 VideoSource {
                     id,
                     name,
@@ -330,6 +347,7 @@ pub async fn get_video_sources(
                     season_id,
                     media_id,
                     selected_seasons: None,
+                    keyword_filters,
                 }
             },
         )
@@ -342,6 +360,7 @@ pub async fn get_video_sources(
             watch_later::Column::Enabled,
             watch_later::Column::Path,
             watch_later::Column::ScanDeletedVideos,
+            watch_later::Column::KeywordFilters,
         ])
         .column_as(Expr::value("稍后再看"), "name")
         .column_as(Expr::value(None::<i64>), "f_id")
@@ -355,6 +374,7 @@ pub async fn get_video_sources(
             bool,
             String,
             bool,
+            Option<String>,
             String,
             Option<i64>,
             Option<i64>,
@@ -367,7 +387,10 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(
-            |(id, enabled, path, scan_deleted_videos, name, f_id, s_id, m_id, upper_id, season_id, media_id)| {
+            |(id, enabled, path, scan_deleted_videos, keyword_filters_json, name, f_id, s_id, m_id, upper_id, season_id, media_id)| {
+                let keyword_filters = keyword_filters_json.and_then(|json| {
+                    serde_json::from_str::<Vec<String>>(&json).ok()
+                });
                 VideoSource {
                     id,
                     name,
@@ -381,87 +404,50 @@ pub async fn get_video_sources(
                     season_id,
                     media_id,
                     selected_seasons: None,
+                    keyword_filters,
                 }
             },
         )
         .collect();
 
     // 确保bangumi_sources是一个数组，即使为空
-    let bangumi_sources = video_source::Entity::find()
+    // 由于tuple最多支持12个元素，使用全模型查询方式
+    let bangumi_sources: Vec<VideoSource> = video_source::Entity::find()
         .filter(video_source::Column::Type.eq(1))
-        .select_only()
-        .columns([
-            video_source::Column::Id,
-            video_source::Column::Name,
-            video_source::Column::Enabled,
-            video_source::Column::Path,
-            video_source::Column::ScanDeletedVideos,
-            video_source::Column::SeasonId,
-            video_source::Column::MediaId,
-            video_source::Column::SelectedSeasons,
-        ])
-        .column_as(Expr::value(None::<i64>), "f_id")
-        .column_as(Expr::value(None::<i64>), "s_id")
-        .column_as(Expr::value(None::<i64>), "m_id")
-        .column_as(Expr::value(None::<i64>), "upper_id")
-        .into_tuple::<(
-            i32,
-            String,
-            bool,
-            String,
-            bool,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<i64>,
-            Option<i64>,
-            Option<i64>,
-            Option<i64>,
-        )>()
         .all(db.as_ref())
         .await?
         .into_iter()
-        .map(
-            |(
-                id,
-                name,
-                enabled,
-                path,
-                scan_deleted_videos,
-                season_id,
-                media_id,
-                selected_seasons_json,
-                f_id,
-                s_id,
-                m_id,
-                upper_id,
-            )| {
-                let selected_seasons = selected_seasons_json.as_ref().and_then(|json| {
-                    match serde_json::from_str::<Vec<String>>(json) {
-                        Ok(seasons) if !seasons.is_empty() => Some(seasons),
-                        Ok(_) => None,
-                        Err(err) => {                    warn!("Failed to parse selected_seasons for bangumi source {}: {}", id, err);
-                            None
-                        }
+        .map(|model| {
+            let selected_seasons = model.selected_seasons.as_ref().and_then(|json| {
+                match serde_json::from_str::<Vec<String>>(json) {
+                    Ok(seasons) if !seasons.is_empty() => Some(seasons),
+                    Ok(_) => None,
+                    Err(err) => {
+                        warn!("Failed to parse selected_seasons for bangumi source {}: {}", model.id, err);
+                        None
                     }
-                });
-
-                VideoSource {
-                    id,
-                    name,
-                    enabled,
-                    path,
-                    scan_deleted_videos,
-                    f_id,
-                    s_id,
-                    m_id,
-                    upper_id,
-                    season_id,
-                    media_id,
-                    selected_seasons,
                 }
-            },
-        )
+            });
+            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
+                serde_json::from_str::<Vec<String>>(json).ok()
+            });
+
+            VideoSource {
+                id: model.id,
+                name: model.name,
+                enabled: model.enabled,
+                path: model.path,
+                scan_deleted_videos: model.scan_deleted_videos,
+                f_id: None,
+                s_id: None,
+                m_id: None,
+                upper_id: None,
+                season_id: model.season_id,
+                media_id: model.media_id,
+                selected_seasons,
+                keyword_filters,
+            }
+        })
         .collect();
 
     // 返回响应，确保每个分类都是一个数组
@@ -1793,6 +1779,7 @@ pub async fn add_video_source_internal(
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
                 cover: sea_orm::Set(cover_url),
+                keyword_filters: sea_orm::Set(None),
             };
 
             let insert_result = collection::Entity::insert(collection).exec(&txn).await?;
@@ -1835,6 +1822,7 @@ pub async fn add_video_source_internal(
                 latest_row_at: sea_orm::Set("1970-01-01 00:00:00".to_string()),
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
+                keyword_filters: sea_orm::Set(None),
             };
 
             let insert_result = favorite::Entity::insert(favorite).exec(&txn).await?;
@@ -1882,6 +1870,7 @@ pub async fn add_video_source_internal(
                         .selected_videos
                         .map(|videos| serde_json::to_string(&videos).unwrap_or_default()),
                 ),
+                keyword_filters: sea_orm::Set(None),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -2220,6 +2209,7 @@ pub async fn add_video_source_internal(
                 latest_row_at: sea_orm::Set(crate::utils::time_format::now_standard_string()),
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
+                keyword_filters: sea_orm::Set(None),
             };
 
             let insert_result = watch_later::Entity::insert(watch_later).exec(&txn).await?;
@@ -11126,4 +11116,284 @@ async fn handle_bangumi_merge_to_existing(
         source_type: "bangumi".to_string(),
         message: format!("已成功合并到现有番剧源「{}」，{}", target_source.name, merge_message),
     })
+}
+
+/// 更新视频源关键词过滤器
+#[utoipa::path(
+    put,
+    path = "/api/video-sources/{source_type}/{id}/keyword-filters",
+    params(
+        ("source_type" = String, Path, description = "视频源类型: collection, favorite, submission, watch_later, bangumi"),
+        ("id" = i32, Path, description = "视频源ID"),
+    ),
+    request_body = crate::api::request::UpdateKeywordFiltersRequest,
+    responses(
+        (status = 200, body = ApiResponse<crate::api::response::UpdateKeywordFiltersResponse>),
+    )
+)]
+pub async fn update_video_source_keyword_filters(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Path((source_type, id)): Path<(String, i32)>,
+    axum::Json(params): axum::Json<crate::api::request::UpdateKeywordFiltersRequest>,
+) -> Result<ApiResponse<crate::api::response::UpdateKeywordFiltersResponse>, ApiError> {
+    use crate::utils::keyword_filter::validate_regex;
+
+    // 先验证所有正则表达式
+    for pattern in &params.keyword_filters {
+        if let Err(e) = validate_regex(pattern) {
+            return Err(anyhow!("正则表达式验证失败: {} - {}", pattern, e).into());
+        }
+    }
+
+    let txn = db.begin().await?;
+
+    let keyword_filters_count = params.keyword_filters.len();
+
+    // 将关键词列表序列化为JSON字符串存储
+    let keyword_filters_json = if keyword_filters_count > 0 {
+        Some(serde_json::to_string(&params.keyword_filters).unwrap_or_default())
+    } else {
+        None
+    };
+
+    let result = match source_type.as_str() {
+        "collection" => {
+            let record = collection::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的合集"))?;
+
+            collection::Entity::update(collection::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateKeywordFiltersResponse {
+                success: true,
+                source_id: id,
+                source_type: "collection".to_string(),
+                keyword_filters_count,
+                message: format!("合集 {} 的关键词过滤器已更新，共 {} 个规则", record.name, keyword_filters_count),
+            }
+        }
+        "favorite" => {
+            let record = favorite::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的收藏夹"))?;
+
+            favorite::Entity::update(favorite::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateKeywordFiltersResponse {
+                success: true,
+                source_id: id,
+                source_type: "favorite".to_string(),
+                keyword_filters_count,
+                message: format!("收藏夹 {} 的关键词过滤器已更新，共 {} 个规则", record.name, keyword_filters_count),
+            }
+        }
+        "submission" => {
+            let record = submission::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
+
+            submission::Entity::update(submission::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateKeywordFiltersResponse {
+                success: true,
+                source_id: id,
+                source_type: "submission".to_string(),
+                keyword_filters_count,
+                message: format!(
+                    "UP主投稿 {} 的关键词过滤器已更新，共 {} 个规则",
+                    record.upper_name, keyword_filters_count
+                ),
+            }
+        }
+        "watch_later" => {
+            let _record = watch_later::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的稍后观看"))?;
+
+            watch_later::Entity::update(watch_later::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateKeywordFiltersResponse {
+                success: true,
+                source_id: id,
+                source_type: "watch_later".to_string(),
+                keyword_filters_count,
+                message: format!("稍后观看的关键词过滤器已更新，共 {} 个规则", keyword_filters_count),
+            }
+        }
+        "bangumi" => {
+            let record = video_source::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的番剧"))?;
+
+            video_source::Entity::update(video_source::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                keyword_filters: sea_orm::Set(keyword_filters_json),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateKeywordFiltersResponse {
+                success: true,
+                source_id: id,
+                source_type: "bangumi".to_string(),
+                keyword_filters_count,
+                message: format!("番剧 {} 的关键词过滤器已更新，共 {} 个规则", record.name, keyword_filters_count),
+            }
+        }
+        _ => return Err(anyhow!("不支持的视频源类型: {}", source_type).into()),
+    };
+
+    txn.commit().await?;
+
+    info!("{}", result.message);
+
+    Ok(ApiResponse::ok(result))
+}
+
+/// 获取视频源关键词过滤器
+#[utoipa::path(
+    get,
+    path = "/api/video-sources/{source_type}/{id}/keyword-filters",
+    params(
+        ("source_type" = String, Path, description = "视频源类型: collection, favorite, submission, watch_later, bangumi"),
+        ("id" = i32, Path, description = "视频源ID"),
+    ),
+    responses(
+        (status = 200, body = ApiResponse<crate::api::response::GetKeywordFiltersResponse>),
+    )
+)]
+pub async fn get_video_source_keyword_filters(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Path((source_type, id)): Path<(String, i32)>,
+) -> Result<ApiResponse<crate::api::response::GetKeywordFiltersResponse>, ApiError> {
+    let keyword_filters: Vec<String> = match source_type.as_str() {
+        "collection" => {
+            let record = collection::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的合集"))?;
+
+            record
+                .keyword_filters
+                .as_ref()
+                .and_then(|json_str| serde_json::from_str(json_str).ok())
+                .unwrap_or_default()
+        }
+        "favorite" => {
+            let record = favorite::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的收藏夹"))?;
+
+            record
+                .keyword_filters
+                .as_ref()
+                .and_then(|json_str| serde_json::from_str(json_str).ok())
+                .unwrap_or_default()
+        }
+        "submission" => {
+            let record = submission::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
+
+            record
+                .keyword_filters
+                .as_ref()
+                .and_then(|json_str| serde_json::from_str(json_str).ok())
+                .unwrap_or_default()
+        }
+        "watch_later" => {
+            let record = watch_later::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的稍后观看"))?;
+
+            record
+                .keyword_filters
+                .as_ref()
+                .and_then(|json_str| serde_json::from_str(json_str).ok())
+                .unwrap_or_default()
+        }
+        "bangumi" => {
+            let record = video_source::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的番剧"))?;
+
+            record
+                .keyword_filters
+                .as_ref()
+                .and_then(|json_str| serde_json::from_str(json_str).ok())
+                .unwrap_or_default()
+        }
+        _ => return Err(anyhow!("不支持的视频源类型: {}", source_type).into()),
+    };
+
+    Ok(ApiResponse::ok(crate::api::response::GetKeywordFiltersResponse {
+        success: true,
+        source_id: id,
+        source_type,
+        keyword_filters,
+    }))
+}
+
+/// 验证正则表达式
+#[utoipa::path(
+    post,
+    path = "/api/validate-regex",
+    request_body = crate::api::request::ValidateRegexRequest,
+    responses(
+        (status = 200, body = ApiResponse<crate::api::response::ValidateRegexResponse>),
+    )
+)]
+pub async fn validate_regex_pattern(
+    axum::Json(params): axum::Json<crate::api::request::ValidateRegexRequest>,
+) -> Result<ApiResponse<crate::api::response::ValidateRegexResponse>, ApiError> {
+    use crate::utils::keyword_filter::validate_regex;
+
+    let result = match validate_regex(&params.pattern) {
+        Ok(_) => crate::api::response::ValidateRegexResponse {
+            valid: true,
+            pattern: params.pattern,
+            error: None,
+        },
+        Err(e) => crate::api::response::ValidateRegexResponse {
+            valid: false,
+            pattern: params.pattern,
+            error: Some(e),
+        },
+    };
+
+    Ok(ApiResponse::ok(result))
 }

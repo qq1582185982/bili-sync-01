@@ -347,3 +347,17 @@ pub struct QRGenerateRequest {
 pub struct QRPollRequest {
     pub session_id: String,
 }
+
+// 更新关键词过滤器的请求结构体
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateKeywordFiltersRequest {
+    /// 关键词列表（支持正则表达式）
+    pub keyword_filters: Vec<String>,
+}
+
+// 验证正则表达式的请求结构体
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ValidateRegexRequest {
+    /// 要验证的正则表达式
+    pub pattern: String,
+}

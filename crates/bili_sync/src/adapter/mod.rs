@@ -108,6 +108,11 @@ pub trait VideoSource {
 
     /// 获取视频源的显示名称
     fn source_name_display(&self) -> String;
+
+    /// 获取关键词过滤器配置（JSON数组字符串）
+    fn get_keyword_filters(&self) -> Option<String> {
+        None // 默认实现：没有关键词过滤
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -237,6 +242,7 @@ pub async fn bangumi_from<'a>(
             page_name_template: model.page_name_template,
             selected_seasons,
             scan_deleted_videos: model.scan_deleted_videos,
+            keyword_filters: model.keyword_filters,
         }
     } else {
         // 如果数据库中不存在，使用默认值并发出警告
@@ -260,6 +266,7 @@ pub async fn bangumi_from<'a>(
             page_name_template: None,
             selected_seasons: None,
             scan_deleted_videos: false,
+            keyword_filters: None,
         }
     };
 
