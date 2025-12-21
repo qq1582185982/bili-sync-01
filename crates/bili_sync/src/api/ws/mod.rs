@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -12,10 +13,12 @@ use futures::{future, SinkExt, StreamExt};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sysinfo::{
-    get_current_pid, CpuRefreshKind, DiskRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System,
+    get_current_pid, CpuRefreshKind, DiskKind, DiskRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind,
+    RefreshKind, System,
 };
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::{IntervalStream, WatchStream};
+use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::api::response::SysInfo;
@@ -158,6 +161,7 @@ impl WebSocketHandler {
                 let disk_refresh_kind = disk_refresh_kind();
                 // 对于 linux/mac/windows 平台，该方法永远返回 Some(pid)，expect 基本是安全的
                 let self_pid = get_current_pid().expect("Unsupported platform");
+                let mut first_run = true; // 用于控制只在首次进入时输出磁盘信息
                 let mut stream =
                     IntervalStream::new(tokio::time::interval(Duration::from_secs(2))).filter_map(move |_| {
                         system.refresh_specifics(sys_refresh_kind);
@@ -166,14 +170,60 @@ impl WebSocketHandler {
                             Some(p) => p,
                             None => return futures::future::ready(None),
                         };
+                        // 筛选 SSD/HDD 类型的磁盘，并根据 mount_point 去重
+                        // 如果没有识别到 SSD/HDD 类型的磁盘，则使用所有磁盘
+
+                        // 只在首次进入时输出磁盘信息
+                        if first_run {
+                            first_run = false;
+                            debug!("=== 磁盘信息 ===");
+                            debug!("磁盘总数: {}", disks.list().len());
+                            for disk in disks.list() {
+                                debug!(
+                                    "磁盘: name={:?}, kind={:?}, mount_point={:?}, total={}, available={}",
+                                    disk.name(),
+                                    disk.kind(),
+                                    disk.mount_point(),
+                                    disk.total_space(),
+                                    disk.available_space()
+                                );
+                            }
+                            debug!("=== 磁盘信息结束 ===");
+                        }
+
+                        let mut seen_mount_points = HashSet::new();
+                        let (total_disk, available_disk) = {
+                            // 先尝试只统计 SSD/HDD 类型的磁盘
+                            let ssd_hdd_disks: Vec<_> = disks
+                                .iter()
+                                .filter(|d| matches!(d.kind(), DiskKind::SSD | DiskKind::HDD))
+                                .filter(|d| seen_mount_points.insert(d.mount_point().to_path_buf()))
+                                .collect();
+
+                            if !ssd_hdd_disks.is_empty() {
+                                // 有 SSD/HDD 磁盘，使用筛选后的结果
+                                ssd_hdd_disks.iter().fold((0u64, 0u64), |(total, available), d| {
+                                    (total + d.total_space(), available + d.available_space())
+                                })
+                            } else {
+                                // 没有识别到 SSD/HDD，回退到所有磁盘（根据 mount_point 去重）
+                                seen_mount_points.clear();
+                                disks
+                                    .iter()
+                                    .filter(|d| seen_mount_points.insert(d.mount_point().to_path_buf()))
+                                    .fold((0u64, 0u64), |(total, available), d| {
+                                        (total + d.total_space(), available + d.available_space())
+                                    })
+                            }
+                        };
                         futures::future::ready(Some(SysInfo {
                             total_memory: system.total_memory(),
                             used_memory: system.used_memory(),
                             process_memory: process.memory(),
                             used_cpu: system.global_cpu_usage(),
                             process_cpu: process.cpu_usage() / system.cpus().len() as f32,
-                            total_disk: disks.iter().map(|d| d.total_space()).sum(),
-                            available_disk: disks.iter().map(|d| d.available_space()).sum(),
+                            total_disk,
+                            available_disk,
                         }))
                     });
                 while let Some(sys_info) = stream.next().await {
