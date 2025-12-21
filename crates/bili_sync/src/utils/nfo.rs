@@ -42,7 +42,8 @@ pub struct Movie<'a> {
     pub tagline: Option<String>,     // 标语/副标题（从share_copy提取）
     pub set: Option<String>,         // 系列名称
     pub sorttitle: Option<String>,   // 排序标题
-    pub actors_info: Option<String>, // 演员信息字符串（从API获取）
+    pub actors_info: Option<String>, // 演员信息字符串（从API获取，番剧用）
+    pub staff_info: Option<&'a serde_json::Value>, // 联合投稿成员信息（JSON格式）
     pub cover_url: &'a str,          // 封面图片URL
     pub fanart_url: Option<&'a str>, // 背景图片URL
     pub upper_face_url: Option<&'a str>, // UP主头像URL（用于演员thumb）
@@ -73,7 +74,8 @@ pub struct TVShow<'a> {
     pub tagline: Option<String>,     // 标语/副标题（从share_copy提取）
     pub set: Option<String>,         // 系列名称
     pub sorttitle: Option<String>,   // 排序标题
-    pub actors_info: Option<String>, // 演员信息字符串（从API获取）
+    pub actors_info: Option<String>, // 演员信息字符串（从API获取，番剧用）
+    pub staff_info: Option<&'a serde_json::Value>, // 联合投稿成员信息（JSON格式）
     pub cover_url: &'a str,          // 封面图片URL
     pub fanart_url: Option<&'a str>, // 背景图片URL
     pub upper_face_url: Option<&'a str>, // UP主头像URL（用于演员thumb）
@@ -136,6 +138,7 @@ pub struct Season<'a> {
     pub set: Option<String>,         // 系列名称
     pub sorttitle: Option<String>,   // 排序标题
     pub actors_info: Option<String>, // 演员信息字符串
+    pub staff_info: Option<&'a serde_json::Value>, // 联合投稿成员信息（JSON格式）
     pub cover_url: &'a str,          // 封面图片URL
     pub fanart_url: Option<&'a str>, // 背景图片URL
     pub upper_face_url: Option<&'a str>, // UP主头像URL（用于演员thumb）
@@ -356,9 +359,9 @@ impl NFO<'_> {
                         .await?;
                 }
 
-                // 演员信息（优先使用真实演员信息，备选UP主）
+                // 演员信息（优先使用真实演员信息，其次联合投稿staff，最后UP主）
                 if config.include_actor_info {
-                    // 首先尝试使用真实演员信息
+                    // 首先尝试使用番剧演员信息
                     if let Some(ref actors_str) = movie.actors_info {
                         let actors = Self::parse_actors_string(actors_str);
                         for (index, (character, actor)) in actors.iter().enumerate() {
@@ -373,6 +376,41 @@ impl NFO<'_> {
                                         .create_element("role")
                                         .write_text_content_async(BytesText::new(character))
                                         .await?;
+                                    writer
+                                        .create_element("order")
+                                        .write_text_content_async(BytesText::new(&(index + 1).to_string()))
+                                        .await?;
+                                    Ok(writer)
+                                })
+                                .await?;
+                        }
+                    } else if let Some(ref staff_info) = movie.staff_info {
+                        // 使用联合投稿的staff信息（包含头像）
+                        let staff_list = Self::parse_staff_info(staff_info);
+                        for (index, (name, title, face)) in staff_list.iter().enumerate() {
+                            let name_clone = name.clone();
+                            let title_clone = title.clone();
+                            let face_clone = face.clone();
+                            writer
+                                .create_element("actor")
+                                .write_inner_content_async::<_, _, Error>(|writer| async move {
+                                    writer
+                                        .create_element("name")
+                                        .write_text_content_async(BytesText::new(&name_clone))
+                                        .await?;
+                                    writer
+                                        .create_element("role")
+                                        .write_text_content_async(BytesText::new(&title_clone))
+                                        .await?;
+                                    // 头像URL
+                                    if let Some(ref thumb) = face_clone {
+                                        if !thumb.is_empty() {
+                                            writer
+                                                .create_element("thumb")
+                                                .write_text_content_async(BytesText::new(thumb))
+                                                .await?;
+                                        }
+                                    }
                                     writer
                                         .create_element("order")
                                         .write_text_content_async(BytesText::new(&(index + 1).to_string()))
@@ -684,9 +722,9 @@ impl NFO<'_> {
                         .await?;
                 }
 
-                // 演员信息（优先使用真实演员信息，备选UP主）
+                // 演员信息（优先使用真实演员信息，其次联合投稿staff，最后UP主）
                 if config.include_actor_info {
-                    // 首先尝试使用真实演员信息
+                    // 首先尝试使用番剧演员信息
                     if let Some(ref actors_str) = tvshow.actors_info {
                         let actors = Self::parse_actors_string(actors_str);
                         for (index, (character, actor)) in actors.iter().enumerate() {
@@ -701,6 +739,41 @@ impl NFO<'_> {
                                         .create_element("role")
                                         .write_text_content_async(BytesText::new(character))
                                         .await?;
+                                    writer
+                                        .create_element("order")
+                                        .write_text_content_async(BytesText::new(&(index + 1).to_string()))
+                                        .await?;
+                                    Ok(writer)
+                                })
+                                .await?;
+                        }
+                    } else if let Some(ref staff_info) = tvshow.staff_info {
+                        // 使用联合投稿的staff信息（包含头像）
+                        let staff_list = Self::parse_staff_info(staff_info);
+                        for (index, (name, title, face)) in staff_list.iter().enumerate() {
+                            let name_clone = name.clone();
+                            let title_clone = title.clone();
+                            let face_clone = face.clone();
+                            writer
+                                .create_element("actor")
+                                .write_inner_content_async::<_, _, Error>(|writer| async move {
+                                    writer
+                                        .create_element("name")
+                                        .write_text_content_async(BytesText::new(&name_clone))
+                                        .await?;
+                                    writer
+                                        .create_element("role")
+                                        .write_text_content_async(BytesText::new(&title_clone))
+                                        .await?;
+                                    // 头像URL
+                                    if let Some(ref thumb) = face_clone {
+                                        if !thumb.is_empty() {
+                                            writer
+                                                .create_element("thumb")
+                                                .write_text_content_async(BytesText::new(thumb))
+                                                .await?;
+                                        }
+                                    }
                                     writer
                                         .create_element("order")
                                         .write_text_content_async(BytesText::new(&(index + 1).to_string()))
@@ -1221,9 +1294,9 @@ async fn write_upper_nfo(mut writer: Writer<&mut BufWriter<&mut Vec<u8>>>, upper
                         .await?;
                 }
 
-                // 演员信息（优先使用真实演员信息，备选UP主）
+                // 演员信息（优先使用真实演员信息，其次联合投稿staff，最后UP主）
                 if config.include_actor_info {
-                    // 首先尝试使用真实演员信息
+                    // 首先尝试使用番剧演员信息
                     if let Some(ref actors_str) = season.actors_info {
                         let actors = Self::parse_actors_string(actors_str);
                         for (index, (character, actor)) in actors.iter().enumerate() {
@@ -1238,6 +1311,41 @@ async fn write_upper_nfo(mut writer: Writer<&mut BufWriter<&mut Vec<u8>>>, upper
                                         .create_element("role")
                                         .write_text_content_async(BytesText::new(character))
                                         .await?;
+                                    writer
+                                        .create_element("order")
+                                        .write_text_content_async(BytesText::new(&(index + 1).to_string()))
+                                        .await?;
+                                    Ok(writer)
+                                })
+                                .await?;
+                        }
+                    } else if let Some(ref staff_info) = season.staff_info {
+                        // 使用联合投稿的staff信息（包含头像）
+                        let staff_list = Self::parse_staff_info(staff_info);
+                        for (index, (name, title, face)) in staff_list.iter().enumerate() {
+                            let name_clone = name.clone();
+                            let title_clone = title.clone();
+                            let face_clone = face.clone();
+                            writer
+                                .create_element("actor")
+                                .write_inner_content_async::<_, _, Error>(|writer| async move {
+                                    writer
+                                        .create_element("name")
+                                        .write_text_content_async(BytesText::new(&name_clone))
+                                        .await?;
+                                    writer
+                                        .create_element("role")
+                                        .write_text_content_async(BytesText::new(&title_clone))
+                                        .await?;
+                                    // 头像URL
+                                    if let Some(ref thumb) = face_clone {
+                                        if !thumb.is_empty() {
+                                            writer
+                                                .create_element("thumb")
+                                                .write_text_content_async(BytesText::new(thumb))
+                                                .await?;
+                                        }
+                                    }
                                     writer
                                         .create_element("order")
                                         .write_text_content_async(BytesText::new(&(index + 1).to_string()))
@@ -1544,6 +1652,26 @@ async fn write_upper_nfo(mut writer: Writer<&mut BufWriter<&mut Vec<u8>>>, upper
 
         actors
     }
+
+    /// 解析 staff_info JSON，返回 (名称, 职位, 头像URL) 的向量
+    /// staff_info 格式: [{"mid": 123, "title": "UP主", "name": "用户名", "face": "头像URL"}, ...]
+    fn parse_staff_info(staff_info: &serde_json::Value) -> Vec<(String, String, Option<String>)> {
+        let mut staff_list = Vec::new();
+
+        if let Some(arr) = staff_info.as_array() {
+            for item in arr {
+                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("参与者");
+                let face = item.get("face").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                if !name.is_empty() {
+                    staff_list.push((name.to_string(), title.to_string(), face));
+                }
+            }
+        }
+
+        staff_list
+    }
 }
 
 impl<'a> From<&'a video::Model> for Movie<'a> {
@@ -1629,6 +1757,7 @@ impl<'a> From<&'a video::Model> for Movie<'a> {
             set: set_name,
             sorttitle,
             actors_info: video.actors.clone(),
+            staff_info: video.staff_info.as_ref(),
             cover_url: &video.cover,
             fanart_url: None, // Movie暂不单独设置fanart URL
             upper_face_url: if !video.upper_face.is_empty() { Some(&video.upper_face) } else { None },
@@ -1720,6 +1849,7 @@ impl<'a> From<&'a video::Model> for TVShow<'a> {
             set: set_name,
             sorttitle,
             actors_info: video.actors.clone(),
+            staff_info: video.staff_info.as_ref(),
             cover_url: &video.cover,
             fanart_url: None, // 普通视频没有单独的fanart URL
             upper_face_url: if !video.upper_face.is_empty() { Some(&video.upper_face) } else { None },
@@ -1872,6 +2002,7 @@ impl<'a> TVShow<'a> {
             }, // 系列名称（清理季度信息）
             sorttitle: Some(season_info.title.clone()),
             actors_info: season_info.actors.clone(),
+            staff_info: video.staff_info.as_ref(), // 番剧一般使用actors_info，staff_info作为备选
             cover_url: season_info
                 .cover
                 .as_deref()
@@ -2052,6 +2183,7 @@ impl<'a> From<&'a video::Model> for Season<'a> {
             set: set_name,
             sorttitle,
             actors_info: video.actors.clone(),
+            staff_info: video.staff_info.as_ref(),
             cover_url: &video.cover,
             fanart_url: None, // 普通视频没有单独的fanart URL
             upper_face_url: if !video.upper_face.is_empty() { Some(&video.upper_face) } else { None },
@@ -2135,6 +2267,7 @@ impl<'a> Season<'a> {
             }, // 系列名称（清理季度信息）
             sorttitle: Some(season_info.title.clone()),
             actors_info: season_info.actors.clone(),
+            staff_info: video.staff_info.as_ref(), // 番剧一般使用actors_info，staff_info作为备选
             cover_url: season_info
                 .cover
                 .as_deref()
