@@ -37,7 +37,7 @@ jobs:
             archive: tar.gz
             archive_name: bili-sync-rs-Linux-aarch64-musl.tar.gz
           - target: x86_64-apple-darwin
-            os: macos-13  # 使用 Intel 架构的 macOS 13
+            os: macos-15  # 使用 Intel 架构的 macOS 15
             name: Darwin-x86_64
             extension: ""
             archive: tar.gz
