@@ -170,8 +170,9 @@ impl WebSocketHandler {
                             Some(p) => p,
                             None => return futures::future::ready(None),
                         };
-                        // 筛选 SSD/HDD 类型的磁盘，并根据 mount_point 去重
-                        // 如果没有识别到 SSD/HDD 类型的磁盘，则使用所有磁盘
+                        // 筛选 SSD/HDD 类型的磁盘，并去重
+                        // Linux: 按设备名称（name）去重，因为同一设备可能有多个挂载点
+                        // Windows: 按挂载点（mount_point）去重，因为设备名可能为空或重复
 
                         // 只在首次进入时输出磁盘信息
                         if first_run {
@@ -191,13 +192,23 @@ impl WebSocketHandler {
                             debug!("=== 磁盘信息结束 ===");
                         }
 
-                        let mut seen_mount_points = HashSet::new();
+                        // 判断是否使用 name 去重（Linux）还是 mount_point 去重（Windows）
+                        // 如果第一个磁盘的 name 不为空，则使用 name 去重
+                        let use_name_dedup = disks.list().first().is_some_and(|d| !d.name().is_empty());
+
+                        let mut seen_keys = HashSet::new();
                         let (total_disk, available_disk) = {
                             // 先尝试只统计 SSD/HDD 类型的磁盘
                             let ssd_hdd_disks: Vec<_> = disks
                                 .iter()
                                 .filter(|d| matches!(d.kind(), DiskKind::SSD | DiskKind::HDD))
-                                .filter(|d| seen_mount_points.insert(d.mount_point().to_path_buf()))
+                                .filter(|d| {
+                                    if use_name_dedup {
+                                        seen_keys.insert(d.name().to_os_string())
+                                    } else {
+                                        seen_keys.insert(d.mount_point().as_os_str().to_os_string())
+                                    }
+                                })
                                 .collect();
 
                             if !ssd_hdd_disks.is_empty() {
@@ -206,11 +217,17 @@ impl WebSocketHandler {
                                     (total + d.total_space(), available + d.available_space())
                                 })
                             } else {
-                                // 没有识别到 SSD/HDD，回退到所有磁盘（根据 mount_point 去重）
-                                seen_mount_points.clear();
+                                // 没有识别到 SSD/HDD，回退到所有磁盘（去重）
+                                seen_keys.clear();
                                 disks
                                     .iter()
-                                    .filter(|d| seen_mount_points.insert(d.mount_point().to_path_buf()))
+                                    .filter(|d| {
+                                        if use_name_dedup {
+                                            seen_keys.insert(d.name().to_os_string())
+                                        } else {
+                                            seen_keys.insert(d.mount_point().as_os_str().to_os_string())
+                                        }
+                                    })
                                     .fold((0u64, 0u64), |(total, available), d| {
                                         (total + d.total_space(), available + d.available_space())
                                     })
