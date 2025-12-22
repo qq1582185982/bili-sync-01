@@ -197,17 +197,21 @@ impl WebSocketHandler {
                         let use_name_dedup = disks.list().first().is_some_and(|d| !d.name().is_empty());
 
                         let mut seen_keys = HashSet::new();
+                        let mut seen_total_spaces = HashSet::new(); // 按 total_space 去重（避免 overlay 和 device mapper 重复）
                         let (total_disk, available_disk) = {
                             // 先尝试只统计 SSD/HDD 类型的磁盘
                             let ssd_hdd_disks: Vec<_> = disks
                                 .iter()
                                 .filter(|d| matches!(d.kind(), DiskKind::SSD | DiskKind::HDD))
                                 .filter(|d| {
-                                    if use_name_dedup {
+                                    let key_unique = if use_name_dedup {
                                         seen_keys.insert(d.name().to_os_string())
                                     } else {
                                         seen_keys.insert(d.mount_point().as_os_str().to_os_string())
-                                    }
+                                    };
+                                    // 额外按 total_space 去重（Docker 环境下 overlay 和 /dev/mapper 可能指向同一存储）
+                                    let space_unique = seen_total_spaces.insert(d.total_space());
+                                    key_unique && space_unique
                                 })
                                 .collect();
 
@@ -219,14 +223,18 @@ impl WebSocketHandler {
                             } else {
                                 // 没有识别到 SSD/HDD，回退到所有磁盘（去重）
                                 seen_keys.clear();
+                                seen_total_spaces.clear();
                                 disks
                                     .iter()
                                     .filter(|d| {
-                                        if use_name_dedup {
+                                        let key_unique = if use_name_dedup {
                                             seen_keys.insert(d.name().to_os_string())
                                         } else {
                                             seen_keys.insert(d.mount_point().as_os_str().to_os_string())
-                                        }
+                                        };
+                                        // 额外按 total_space 去重
+                                        let space_unique = seen_total_spaces.insert(d.total_space());
+                                        key_unique && space_unique
                                     })
                                     .fold((0u64, 0u64), |(total, available), d| {
                                         (total + d.total_space(), available + d.available_space())
