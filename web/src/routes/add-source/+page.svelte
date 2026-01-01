@@ -37,6 +37,11 @@
 	let downloadAllSeasons = false;
 	let loading = false;
 
+	// 下载选项
+	let audioOnly = false; // 仅下载音频
+	let downloadDanmaku = true; // 下载弹幕（默认开启）
+	let downloadSubtitle = true; // 下载字幕（默认开启）
+
 	// 添加手动输入标志
 	let isManualInput = false;
 
@@ -597,7 +602,11 @@
 				source_type: sourceType,
 				source_id: sourceId,
 				name,
-				path
+				path,
+				// 下载选项
+				audio_only: audioOnly,
+				download_danmaku: downloadDanmaku,
+				download_subtitle: downloadSubtitle
 			};
 
 			if (sourceType === 'collection') {
@@ -680,6 +689,10 @@
 				newWhitelistKeyword = '';
 				keywordCaseSensitive = true;
 				showKeywordSection = false;
+				// 重置下载选项
+				audioOnly = false;
+				downloadDanmaku = true;
+				downloadSubtitle = true;
 				// 跳转到视频源管理页面
 				goto('/video-sources');
 			} else {
@@ -2422,6 +2435,119 @@
 							{:else}
 								<p class="text-muted-foreground text-sm">请输入绝对路径</p>
 							{/if}
+						</div>
+
+						<!-- 下载选项 -->
+						<div class="space-y-3">
+							<Label class="text-sm font-medium">下载选项</Label>
+							<div
+								class="space-y-3 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800"
+							>
+								<!-- 仅下载音频 -->
+								<div
+									class="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-700"
+								>
+									<div class="flex items-center gap-2">
+										<svg
+											class="h-4 w-4 text-gray-600 dark:text-gray-400"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="2"
+												d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+											/>
+										</svg>
+										<div>
+											<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+												>仅下载音频</span
+											>
+											<p class="text-[10px] text-gray-500 dark:text-gray-400">
+												仅提取音频并转换为M4A格式，适合音乐类视频
+											</p>
+										</div>
+									</div>
+									<label class="relative inline-flex cursor-pointer items-center">
+										<input type="checkbox" bind:checked={audioOnly} class="peer sr-only" />
+										<div
+											class="peer h-5 w-9 rounded-full bg-gray-300 peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-500 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-600 dark:peer-checked:bg-blue-500"
+										></div>
+									</label>
+								</div>
+
+								<!-- 下载弹幕 -->
+								<div
+									class="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-700"
+								>
+									<div class="flex items-center gap-2">
+										<svg
+											class="h-4 w-4 text-gray-600 dark:text-gray-400"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="2"
+												d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+											/>
+										</svg>
+										<div>
+											<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+												>下载弹幕</span
+											>
+											<p class="text-[10px] text-gray-500 dark:text-gray-400">
+												下载弹幕文件（ASS格式）
+											</p>
+										</div>
+									</div>
+									<label class="relative inline-flex cursor-pointer items-center">
+										<input type="checkbox" bind:checked={downloadDanmaku} class="peer sr-only" />
+										<div
+											class="peer h-5 w-9 rounded-full bg-gray-300 peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-500 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-600 dark:peer-checked:bg-blue-500"
+										></div>
+									</label>
+								</div>
+
+								<!-- 下载字幕 -->
+								<div
+									class="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-700"
+								>
+									<div class="flex items-center gap-2">
+										<svg
+											class="h-4 w-4 text-gray-600 dark:text-gray-400"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="2"
+												d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+											/>
+										</svg>
+										<div>
+											<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+												>下载字幕</span
+											>
+											<p class="text-[10px] text-gray-500 dark:text-gray-400">
+												下载CC字幕文件（SRT格式）
+											</p>
+										</div>
+									</div>
+									<label class="relative inline-flex cursor-pointer items-center">
+										<input type="checkbox" bind:checked={downloadSubtitle} class="peer sr-only" />
+										<div
+											class="peer h-5 w-9 rounded-full bg-gray-300 peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-500 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-600 dark:peer-checked:bg-blue-500"
+										></div>
+									</label>
+								</div>
+							</div>
 						</div>
 
 						<!-- 关键词过滤器（可折叠，双列表模式） -->

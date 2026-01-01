@@ -133,6 +133,21 @@ pub trait VideoSource {
     fn get_keyword_case_sensitive(&self) -> bool {
         true // 默认实现：区分大小写
     }
+
+    /// 获取是否仅下载音频（默认为 false）
+    fn audio_only(&self) -> bool {
+        false // 默认实现：下载视频
+    }
+
+    /// 获取是否下载弹幕（默认为 true）
+    fn download_danmaku(&self) -> bool {
+        true // 默认实现：下载弹幕
+    }
+
+    /// 获取是否下载字幕（默认为 true）
+    fn download_subtitle(&self) -> bool {
+        true // 默认实现：下载字幕
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -267,6 +282,9 @@ pub async fn bangumi_from<'a>(
             blacklist_keywords: model.blacklist_keywords,
             whitelist_keywords: model.whitelist_keywords,
             keyword_case_sensitive: model.keyword_case_sensitive,
+            audio_only: model.audio_only,
+            download_danmaku: model.download_danmaku,
+            download_subtitle: model.download_subtitle,
         }
     } else {
         // 如果数据库中不存在，使用默认值并发出警告
@@ -295,6 +313,9 @@ pub async fn bangumi_from<'a>(
             blacklist_keywords: None,
             whitelist_keywords: None,
             keyword_case_sensitive: true,
+            audio_only: false,
+            download_danmaku: true,
+            download_subtitle: true,
         }
     };
 

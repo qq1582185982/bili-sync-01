@@ -215,6 +215,9 @@ pub async fn get_video_sources(
                 case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
+                audio_only: model.audio_only,
+                download_danmaku: model.download_danmaku,
+                download_subtitle: model.download_subtitle,
             }
         })
         .collect();
@@ -251,6 +254,9 @@ pub async fn get_video_sources(
                 case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
+                audio_only: model.audio_only,
+                download_danmaku: model.download_danmaku,
+                download_subtitle: model.download_subtitle,
             }
         })
         .collect();
@@ -287,6 +293,9 @@ pub async fn get_video_sources(
                 case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
+                audio_only: model.audio_only,
+                download_danmaku: model.download_danmaku,
+                download_subtitle: model.download_subtitle,
             }
         })
         .collect();
@@ -323,6 +332,9 @@ pub async fn get_video_sources(
                 case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
+                audio_only: model.audio_only,
+                download_danmaku: model.download_danmaku,
+                download_subtitle: model.download_subtitle,
             }
         })
         .collect();
@@ -373,6 +385,9 @@ pub async fn get_video_sources(
                 case_sensitive: model.keyword_case_sensitive,
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
+                audio_only: model.audio_only,
+                download_danmaku: model.download_danmaku,
+                download_subtitle: model.download_subtitle,
             }
         })
         .collect();
@@ -1721,6 +1736,9 @@ pub async fn add_video_source_internal(
                 blacklist_keywords: sea_orm::Set(None),
                 whitelist_keywords: sea_orm::Set(None),
                 keyword_case_sensitive: sea_orm::Set(true),
+                audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
+                download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
+                download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
             };
 
             let insert_result = collection::Entity::insert(collection).exec(&txn).await?;
@@ -1779,6 +1797,9 @@ pub async fn add_video_source_internal(
                 blacklist_keywords: sea_orm::Set(None),
                 whitelist_keywords: sea_orm::Set(None),
                 keyword_case_sensitive: sea_orm::Set(true),
+                audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
+                download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
+                download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
             };
 
             let insert_result = favorite::Entity::insert(favorite).exec(&txn).await?;
@@ -1842,6 +1863,9 @@ pub async fn add_video_source_internal(
                 blacklist_keywords: sea_orm::Set(None),
                 whitelist_keywords: sea_orm::Set(None),
                 keyword_case_sensitive: sea_orm::Set(true),
+                audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
+                download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
+                download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -2140,6 +2164,9 @@ pub async fn add_video_source_internal(
                     selected_seasons: sea_orm::Set(selected_seasons_json),
                     keyword_filters: sea_orm::Set(keyword_filters_json),
                     keyword_filter_mode: sea_orm::Set(keyword_filter_mode),
+                    audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
+                    download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
+                    download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
                     ..Default::default()
                 };
 
@@ -2207,6 +2234,9 @@ pub async fn add_video_source_internal(
                 blacklist_keywords: sea_orm::Set(None),
                 whitelist_keywords: sea_orm::Set(None),
                 keyword_case_sensitive: sea_orm::Set(true),
+                audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
+                download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
+                download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
             };
 
             let insert_result = watch_later::Entity::insert(watch_later).exec(&txn).await?;

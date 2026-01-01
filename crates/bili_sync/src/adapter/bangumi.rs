@@ -35,6 +35,9 @@ pub struct BangumiSource {
     pub blacklist_keywords: Option<String>,
     pub whitelist_keywords: Option<String>,
     pub keyword_case_sensitive: bool,
+    pub audio_only: bool,
+    pub download_danmaku: bool,
+    pub download_subtitle: bool,
 }
 
 impl BangumiSource {
@@ -508,5 +511,17 @@ impl VideoSource for BangumiSource {
 
     fn get_keyword_case_sensitive(&self) -> bool {
         self.keyword_case_sensitive
+    }
+
+    fn audio_only(&self) -> bool {
+        self.audio_only
+    }
+
+    fn download_danmaku(&self) -> bool {
+        self.download_danmaku
+    }
+
+    fn download_subtitle(&self) -> bool {
+        self.download_subtitle
     }
 }

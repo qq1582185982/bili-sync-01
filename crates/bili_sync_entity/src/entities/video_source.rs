@@ -38,6 +38,9 @@ pub struct Model {
     pub blacklist_keywords: Option<String>,
     pub whitelist_keywords: Option<String>,
     pub keyword_case_sensitive: bool,
+    pub audio_only: bool,
+    pub download_danmaku: bool,
+    pub download_subtitle: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

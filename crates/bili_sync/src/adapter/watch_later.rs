@@ -102,6 +102,18 @@ impl VideoSource for watch_later::Model {
     fn get_keyword_case_sensitive(&self) -> bool {
         self.keyword_case_sensitive
     }
+
+    fn audio_only(&self) -> bool {
+        self.audio_only
+    }
+
+    fn download_danmaku(&self) -> bool {
+        self.download_danmaku
+    }
+
+    fn download_subtitle(&self) -> bool {
+        self.download_subtitle
+    }
 }
 
 // 稍后观看源的初始化现在通过Web API完成，不再需要这个函数

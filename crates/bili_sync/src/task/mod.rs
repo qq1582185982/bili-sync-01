@@ -992,6 +992,9 @@ impl AddTaskQueue {
                 merge_to_source_id: None, // 任务队列中暂时不支持合并功能
                 keyword_filters: None, // 任务队列中暂时不支持关键词过滤器
                 keyword_filter_mode: None, // 任务队列中暂时不支持过滤模式
+                audio_only: None,      // 任务队列中使用默认值
+                download_danmaku: None, // 任务队列中使用默认值
+                download_subtitle: None, // 任务队列中使用默认值
             };
 
             match add_video_source_internal(db.clone(), request).await {

@@ -2744,8 +2744,20 @@ pub async fn download_page(
         permit = semaphore.acquire() => permit.context("acquire semaphore failed")?,
     };
     let mut status = PageStatus::from(page_model.download_status);
-    let separate_status = status.should_run();
+    let mut separate_status = status.should_run();
     let is_single_page = video_model.single_page.context("single_page is null")?;
+
+    // 根据视频源设置调整弹幕和字幕下载开关
+    // separate_status[3] = 弹幕, separate_status[4] = 字幕
+    if !video_source.download_danmaku() {
+        separate_status[3] = false;
+    }
+    if !video_source.download_subtitle() {
+        separate_status[4] = false;
+    }
+
+    // 获取是否仅下载音频的设置
+    let audio_only = video_source.audio_only();
 
     // 检查是否为番剧
     let is_bangumi = match video_model.source_type {
@@ -2841,10 +2853,13 @@ pub async fn download_page(
             .map_err(|e| anyhow::anyhow!("模板渲染失败: {}", e))?
     };
 
+    // 根据audio_only设置选择文件扩展名
+    let media_ext = if audio_only { "m4a" } else { "mp4" };
+
     let (poster_path, video_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
         (
             base_path.join(format!("{}-thumb.jpg", &base_name)),
-            base_path.join(format!("{}.mp4", &base_name)),
+            base_path.join(format!("{}.{}", &base_name, media_ext)),
             base_path.join(format!("{}.nfo", &base_name)),
             base_path.join(format!("{}.zh-CN.default.ass", &base_name)),
             Some(base_path.join(format!("{}-fanart.jpg", &base_name))),
@@ -2854,7 +2869,7 @@ pub async fn download_page(
         // 番剧直接使用基础路径，不创建子文件夹结构
         (
             base_path.join(format!("{}-thumb.jpg", &base_name)),
-            base_path.join(format!("{}.mp4", &base_name)),
+            base_path.join(format!("{}.{}", &base_name, media_ext)),
             base_path.join(format!("{}.nfo", &base_name)),
             base_path.join(format!("{}.zh-CN.default.ass", &base_name)),
             None,
@@ -2864,7 +2879,7 @@ pub async fn download_page(
         // 非番剧的多P视频直接使用基础路径，不创建子文件夹
         (
             base_path.join(format!("{}-thumb.jpg", &base_name)),
-            base_path.join(format!("{}.mp4", &base_name)),
+            base_path.join(format!("{}.{}", &base_name, media_ext)),
             base_path.join(format!("{}.nfo", &base_name)),
             base_path.join(format!("{}.zh-CN.default.ass", &base_name)),
             // 多P视频的每个分页都应该有自己的fanart
@@ -2904,6 +2919,7 @@ pub async fn download_page(
             downloader,
             &page_info,
             &video_path,
+            audio_only,
             token.clone(),
         ),
         generate_page_nfo(separate_status[2], video_model, &page_model, nfo_path, connection),
@@ -3144,6 +3160,7 @@ pub async fn fetch_page_video(
     downloader: &UnifiedDownloader,
     page_info: &PageInfo,
     page_path: &Path,
+    audio_only: bool,
     token: CancellationToken,
 ) -> Result<ExecutionStatus> {
     if !should_run {
@@ -3285,107 +3302,132 @@ pub async fn fetch_page_video(
     }
     debug!("=== 流选择结束 ===");
 
-    let total_bytes = match best_stream_result {
-        BestStream::Mixed(mix_stream) => {
-            let urls = mix_stream.urls();
-            download_stream(downloader, &urls, page_path).await?
-        }
-        BestStream::VideoAudio {
-            video: video_stream,
-            audio: None,
-        } => {
-            let urls = video_stream.urls();
-            download_stream(downloader, &urls, page_path).await?
-        }
-        BestStream::VideoAudio {
-            video: video_stream,
-            audio: Some(audio_stream),
-        } => {
-            let (tmp_video_path, tmp_audio_path) = (
-                page_path.with_extension("tmp_video"),
-                page_path.with_extension("tmp_audio"),
-            );
-
-            let video_urls = video_stream.urls();
-            let video_size = download_stream(downloader, &video_urls, &tmp_video_path)
-                .await
-                .map_err(|e| {
-                    // 使用错误分类器进行统一处理
-                    let classified_error = crate::error::ErrorClassifier::classify_error(&e);
-                    match classified_error.error_type {
-                        crate::error::ErrorType::UserCancelled => {
-                            info!("视频流下载因用户暂停而终止");
-                        }
-                        _ => {
-                            error!("视频流下载失败: {:#}", e);
-                        }
-                    }
-                    e
-                })?;
-
-            let audio_urls = audio_stream.urls();
-            let audio_size = download_stream(downloader, &audio_urls, &tmp_audio_path)
-                .await
-                .map_err(|e| {
-                    // 使用错误分类器进行统一处理
-                    let classified_error = crate::error::ErrorClassifier::classify_error(&e);
-                    match classified_error.error_type {
-                        crate::error::ErrorType::UserCancelled => {
-                            info!("音频流下载因用户暂停而终止");
-                        }
-                        _ => {
-                            error!("音频流下载失败: {:#}", e);
-                        }
-                    }
-                    // 异步删除临时视频文件
-                    let video_path_clone = tmp_video_path.clone();
-                    tokio::spawn(async move {
-                        let _ = fs::remove_file(&video_path_clone).await;
-                    });
-                    e
-                })?;
-
-            // 增强的音视频合并，带损坏文件检测和重试机制
-            let res = downloader.merge(&tmp_video_path, &tmp_audio_path, page_path).await;
-
-            // 合并失败时的智能处理
-            if let Err(e) = res {
-                error!("音视频合并失败: {:#}", e);
-
-                // 检查是否是文件损坏导致的失败
-                let error_msg = e.to_string();
-                if error_msg.contains("Invalid data found when processing input")
-                    || error_msg.contains("ffmpeg error")
-                    || error_msg.contains("文件损坏")
-                {
-                    warn!("检测到文件损坏，清理临时文件并标记为重试: {}", error_msg);
-
-                    // 立即清理损坏的临时文件
-                    let _ = fs::remove_file(&tmp_video_path).await;
-                    let _ = fs::remove_file(&tmp_audio_path).await;
-
-                    // 返回特殊错误，让上层重试下载
-                    return Err(anyhow::anyhow!(
-                        "视频文件损坏，已清理临时文件，请重试下载: {}",
-                        error_msg
-                    ));
-                } else {
-                    // 其他类型的合并错误，清理临时文件后直接返回
-                    let _ = fs::remove_file(&tmp_video_path).await;
-                    let _ = fs::remove_file(&tmp_audio_path).await;
-                    return Err(e);
-                }
+    // 音频模式：只下载音频流
+    let total_bytes = if audio_only {
+        debug!("音频模式：仅下载音频流，输出 M4A 格式");
+        match best_stream_result {
+            BestStream::Mixed(mix_stream) => {
+                // 混合流无法提取纯音频，警告并使用混合流
+                warn!("混合流不支持纯音频提取，将下载完整内容");
+                let urls = mix_stream.urls();
+                download_stream(downloader, &urls, page_path).await?
             }
+            BestStream::VideoAudio { audio: Some(audio_stream), .. } => {
+                // 直接下载音频流
+                let audio_urls = audio_stream.urls();
+                download_stream(downloader, &audio_urls, page_path).await?
+            }
+            BestStream::VideoAudio { audio: None, video: video_stream } => {
+                // 没有独立音频流，警告并使用视频流（可能包含音频）
+                warn!("未找到独立音频流，将下载视频流");
+                let urls = video_stream.urls();
+                download_stream(downloader, &urls, page_path).await?
+            }
+        }
+    } else {
+        // 正常模式：下载视频+音频
+        match best_stream_result {
+            BestStream::Mixed(mix_stream) => {
+                let urls = mix_stream.urls();
+                download_stream(downloader, &urls, page_path).await?
+            }
+            BestStream::VideoAudio {
+                video: video_stream,
+                audio: None,
+            } => {
+                let urls = video_stream.urls();
+                download_stream(downloader, &urls, page_path).await?
+            }
+            BestStream::VideoAudio {
+                video: video_stream,
+                audio: Some(audio_stream),
+            } => {
+                let (tmp_video_path, tmp_audio_path) = (
+                    page_path.with_extension("tmp_video"),
+                    page_path.with_extension("tmp_audio"),
+                );
 
-            // 合并成功，清理临时文件
-            let _ = fs::remove_file(tmp_video_path).await;
-            let _ = fs::remove_file(tmp_audio_path).await;
+                let video_urls = video_stream.urls();
+                let video_size = download_stream(downloader, &video_urls, &tmp_video_path)
+                    .await
+                    .map_err(|e| {
+                        // 使用错误分类器进行统一处理
+                        let classified_error = crate::error::ErrorClassifier::classify_error(&e);
+                        match classified_error.error_type {
+                            crate::error::ErrorType::UserCancelled => {
+                                info!("视频流下载因用户暂停而终止");
+                            }
+                            _ => {
+                                error!("视频流下载失败: {:#}", e);
+                            }
+                        }
+                        e
+                    })?;
 
-            // 获取合并后文件大小，如果失败则使用视频和音频大小之和
-            tokio::fs::metadata(page_path)
-                .await
-                .map(|metadata| metadata.len())
-                .unwrap_or(video_size + audio_size)
+                let audio_urls = audio_stream.urls();
+                let audio_size = download_stream(downloader, &audio_urls, &tmp_audio_path)
+                    .await
+                    .map_err(|e| {
+                        // 使用错误分类器进行统一处理
+                        let classified_error = crate::error::ErrorClassifier::classify_error(&e);
+                        match classified_error.error_type {
+                            crate::error::ErrorType::UserCancelled => {
+                                info!("音频流下载因用户暂停而终止");
+                            }
+                            _ => {
+                                error!("音频流下载失败: {:#}", e);
+                            }
+                        }
+                        // 异步删除临时视频文件
+                        let video_path_clone = tmp_video_path.clone();
+                        tokio::spawn(async move {
+                            let _ = fs::remove_file(&video_path_clone).await;
+                        });
+                        e
+                    })?;
+
+                // 增强的音视频合并，带损坏文件检测和重试机制
+                let res = downloader.merge(&tmp_video_path, &tmp_audio_path, page_path).await;
+
+                // 合并失败时的智能处理
+                if let Err(e) = res {
+                    error!("音视频合并失败: {:#}", e);
+
+                    // 检查是否是文件损坏导致的失败
+                    let error_msg = e.to_string();
+                    if error_msg.contains("Invalid data found when processing input")
+                        || error_msg.contains("ffmpeg error")
+                        || error_msg.contains("文件损坏")
+                    {
+                        warn!("检测到文件损坏，清理临时文件并标记为重试: {}", error_msg);
+
+                        // 立即清理损坏的临时文件
+                        let _ = fs::remove_file(&tmp_video_path).await;
+                        let _ = fs::remove_file(&tmp_audio_path).await;
+
+                        // 返回特殊错误，让上层重试下载
+                        return Err(anyhow::anyhow!(
+                            "视频文件损坏，已清理临时文件，请重试下载: {}",
+                            error_msg
+                        ));
+                    } else {
+                        // 其他类型的合并错误，清理临时文件后直接返回
+                        let _ = fs::remove_file(&tmp_video_path).await;
+                        let _ = fs::remove_file(&tmp_audio_path).await;
+                        return Err(e);
+                    }
+                }
+
+                // 合并成功，清理临时文件
+                let _ = fs::remove_file(tmp_video_path).await;
+                let _ = fs::remove_file(tmp_audio_path).await;
+
+                // 获取合并后文件大小，如果失败则使用视频和音频大小之和
+                tokio::fs::metadata(page_path)
+                    .await
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(video_size + audio_size)
+            }
         }
     };
 
@@ -3403,8 +3445,10 @@ pub async fn fetch_page_video(
             (speed_bps, "B/s")
         };
 
+        let download_type = if audio_only { "音频" } else { "视频" };
         info!(
-            "视频下载完成，总大小: {:.2} MB，耗时: {:.2} 秒，平均速度: {:.2} {}",
+            "{}下载完成，总大小: {:.2} MB，耗时: {:.2} 秒，平均速度: {:.2} {}",
+            download_type,
             total_bytes as f64 / 1_048_576.0,
             elapsed_secs,
             speed,

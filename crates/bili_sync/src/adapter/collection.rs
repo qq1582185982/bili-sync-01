@@ -112,6 +112,18 @@ impl VideoSource for collection::Model {
     fn get_keyword_case_sensitive(&self) -> bool {
         self.keyword_case_sensitive
     }
+
+    fn audio_only(&self) -> bool {
+        self.audio_only
+    }
+
+    fn download_danmaku(&self) -> bool {
+        self.download_danmaku
+    }
+
+    fn download_subtitle(&self) -> bool {
+        self.download_subtitle
+    }
 }
 
 // 修改初始化合集源的方法中的类型转换问题

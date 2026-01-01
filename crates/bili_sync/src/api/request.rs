@@ -57,6 +57,12 @@ pub struct AddVideoSourceRequest {
     pub keyword_filters: Option<Vec<String>>,
     // 关键词过滤模式: "blacklist"（黑名单-排除匹配）或 "whitelist"（白名单-只下载匹配）
     pub keyword_filter_mode: Option<String>,
+    // 是否仅下载音频（输出为m4a文件）
+    pub audio_only: Option<bool>,
+    // 是否下载弹幕文件（ASS）
+    pub download_danmaku: Option<bool>,
+    // 是否下载字幕文件（SRT）
+    pub download_subtitle: Option<bool>,
 }
 
 // 删除视频源的请求结构体

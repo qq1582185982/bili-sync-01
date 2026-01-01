@@ -50,6 +50,10 @@ export interface VideoSource {
 	// 向后兼容的旧字段
 	keyword_filters?: string[]; // 【已废弃】关键词过滤器列表（支持正则表达式）
 	keyword_filter_mode?: KeywordFilterMode; // 【已废弃】关键词过滤模式
+	// 下载选项
+	audio_only: boolean; // 仅下载音频（输出m4a格式）
+	download_danmaku: boolean; // 是否下载弹幕
+	download_subtitle: boolean; // 是否下载字幕
 }
 
 // 视频来源响应类型
@@ -178,6 +182,10 @@ export interface AddVideoSourceRequest {
 	merge_to_source_id?: number;
 	keyword_filters?: string[]; // 关键词过滤器列表（支持正则表达式）
 	keyword_filter_mode?: KeywordFilterMode; // 关键词过滤模式: "blacklist"（排除匹配）或 "whitelist"（只下载匹配）
+	// 下载选项
+	audio_only?: boolean; // 仅下载音频（输出m4a格式）
+	download_danmaku?: boolean; // 是否下载弹幕（默认true）
+	download_subtitle?: boolean; // 是否下载字幕（默认true）
 }
 
 // 添加视频源响应类型

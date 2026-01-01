@@ -36,6 +36,8 @@ mod m20251210_000001_add_keyword_filters_field;
 mod m20251211_000001_add_keyword_filter_mode_field;
 mod m20251211_000002_split_keyword_filters;
 mod m20251211_000003_add_keyword_case_sensitive;
+mod m20260101_000001_add_audio_only_field;
+mod m20260101_000002_add_download_toggles;
 
 pub struct Migrator;
 
@@ -79,6 +81,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20251211_000001_add_keyword_filter_mode_field::Migration),
             Box::new(m20251211_000002_split_keyword_filters::Migration),
             Box::new(m20251211_000003_add_keyword_case_sensitive::Migration),
+            Box::new(m20260101_000001_add_audio_only_field::Migration),
+            Box::new(m20260101_000002_add_download_toggles::Migration),
         ]
     }
 }

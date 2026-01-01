@@ -103,6 +103,18 @@ impl VideoSource for favorite::Model {
     fn get_keyword_case_sensitive(&self) -> bool {
         self.keyword_case_sensitive
     }
+
+    fn audio_only(&self) -> bool {
+        self.audio_only
+    }
+
+    fn download_danmaku(&self) -> bool {
+        self.download_danmaku
+    }
+
+    fn download_subtitle(&self) -> bool {
+        self.download_subtitle
+    }
 }
 
 #[allow(dead_code)]
@@ -144,6 +156,9 @@ pub async fn init_favorite_sources(
                         blacklist_keywords: Set(None),
                         whitelist_keywords: Set(None),
                         keyword_case_sensitive: Set(true),
+                        audio_only: Set(false),
+                        download_danmaku: Set(true),
+                        download_subtitle: Set(true),
                     };
 
                     let result = favorite::Entity::insert(model)
@@ -173,6 +188,9 @@ pub async fn init_favorite_sources(
                         blacklist_keywords: Set(None),
                         whitelist_keywords: Set(None),
                         keyword_case_sensitive: Set(true),
+                        audio_only: Set(false),
+                        download_danmaku: Set(true),
+                        download_subtitle: Set(true),
                     };
 
                     let result = favorite::Entity::insert(model)

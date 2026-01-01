@@ -187,6 +187,10 @@ pub struct VideoSource {
     pub keyword_filters: Option<Vec<String>>,  // 【已废弃】关键词过滤器列表
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keyword_filter_mode: Option<String>,   // 【已废弃】关键词过滤模式
+    // 音频和下载选项
+    pub audio_only: bool,           // 是否仅下载音频（输出m4a）
+    pub download_danmaku: bool,     // 是否下载弹幕文件
+    pub download_subtitle: bool,    // 是否下载字幕文件
 }
 
 #[derive(Serialize, ToSchema)]
