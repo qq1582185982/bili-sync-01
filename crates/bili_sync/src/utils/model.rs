@@ -776,12 +776,20 @@ pub async fn create_videos(
     Ok(())
 }
 
-/// 尝试创建 Page Model，如果发生冲突则忽略
+/// 尝试创建 Page Model，基于 cid 判断是否已存在
+///
+/// 处理逻辑：
+/// - 已存在的分P（按 cid 判断）：跳过，保留本地文件
+/// - 新的分P（新 cid）：分配不冲突的 pid 后插入
+/// - UP主删除/重排分P：不影响已下载的内容
+/// - 单P变多P：自动更新 single_page 字段并重置下载状态
 pub async fn create_pages(
     mut pages_info: Vec<PageInfo>,
     video_model: &bili_sync_entity::video::Model,
     connection: &DatabaseTransaction,
 ) -> Result<()> {
+    use sea_orm::{Set, Unchanged};
+
     // 对于单P视频，统一使用视频标题作为页面名称
     if pages_info.len() == 1 && pages_info[0].page == 1 && pages_info[0].name != video_model.name {
         debug!(
@@ -791,18 +799,122 @@ pub async fn create_pages(
         pages_info[0].name = video_model.name.clone();
     }
 
-    let page_models = pages_info
+    // 查询该视频已存在的分P信息
+    let existing_pages: Vec<page::Model> = page::Entity::find()
+        .filter(page::Column::VideoId.eq(video_model.id))
+        .all(connection)
+        .await?;
+
+    // 如果没有已存在的分P，直接插入所有分P（首次下载）
+    if existing_pages.is_empty() {
+        let page_models = pages_info
+            .into_iter()
+            .map(|p| p.into_active_model(video_model))
+            .collect::<Vec<page::ActiveModel>>();
+        for page_chunk in page_models.chunks(50) {
+            page::Entity::insert_many(page_chunk.to_vec())
+                .on_conflict(
+                    OnConflict::columns([page::Column::VideoId, page::Column::Pid])
+                        .do_nothing()
+                        .to_owned(),
+                )
+                .do_nothing()
+                .exec(connection)
+                .await?;
+        }
+        return Ok(());
+    }
+
+    // 收集已存在的 cid 和最大 pid
+    let existing_cids: HashSet<i64> = existing_pages.iter().map(|p| p.cid).collect();
+    let max_existing_pid: i32 = existing_pages.iter().map(|p| p.pid).max().unwrap_or(0);
+
+    // 过滤出新的分P（cid 不存在的）
+    let mut new_pages: Vec<PageInfo> = pages_info
+        .into_iter()
+        .filter(|p| !existing_cids.contains(&p.cid))
+        .collect();
+
+    if new_pages.is_empty() {
+        debug!(
+            "视频 {} ({}) 没有新增分P，跳过",
+            video_model.bvid, video_model.id
+        );
+        return Ok(());
+    }
+
+    // 为新分P分配不冲突的 pid（从 max_pid + 1 开始）
+    for (i, page) in new_pages.iter_mut().enumerate() {
+        let old_pid = page.page;
+        page.page = max_existing_pid + 1 + i as i32;
+        debug!(
+            "视频 {} 新增分P: cid={}, B站pid={} -> 本地pid={}",
+            video_model.bvid, page.cid, old_pid, page.page
+        );
+    }
+
+    // 检测单P变多P的情况：原来是单P（single_page=true 且只有1个已存在分P），现在有新增分P
+    let total_pages_after = existing_pages.len() + new_pages.len();
+    if video_model.single_page == Some(true) && existing_pages.len() == 1 && total_pages_after > 1 {
+        info!(
+            "视频 {} ({}) 从单P变为多P（{}个分P），更新 single_page 字段并重置下载状态",
+            video_model.bvid, video_model.id, total_pages_after
+        );
+
+        // 更新视频的 single_page 字段为 false，并重置下载状态以触发重新处理
+        let update_video = video::ActiveModel {
+            id: Unchanged(video_model.id),
+            single_page: Set(Some(false)),
+            download_status: Set(0), // 重置下载状态，让视频重新进入下载流程
+            path: Set("".to_string()), // 清空路径，因为目录结构会变化
+            ..Default::default()
+        };
+        update_video.save(connection).await?;
+
+        // 同时重置原P1的下载状态，让它重新下载到新的多P目录结构中
+        let original_page = &existing_pages[0];
+        let old_path = original_page.path.clone();
+        info!(
+            "重置原P1的下载状态: page_id={}, cid={}, 原路径={:?}",
+            original_page.id, original_page.cid, old_path
+        );
+        let update_page = page::ActiveModel {
+            id: Unchanged(original_page.id),
+            download_status: Set(0), // 重置下载状态
+            path: Set(None), // 清空路径
+            ..Default::default()
+        };
+        update_page.save(connection).await?;
+
+        // 发送通知提醒用户清理原文件（异步执行，不阻塞主流程）
+        let video_name = video_model.name.clone();
+        let bvid = video_model.bvid.clone();
+        tokio::spawn(async move {
+            use crate::utils::notification::send_single_to_multi_page_notification;
+            if let Err(e) = send_single_to_multi_page_notification(
+                &video_name,
+                &bvid,
+                total_pages_after,
+                old_path.as_deref(),
+            ).await {
+                tracing::warn!("发送单P变多P通知失败: {}", e);
+            }
+        });
+    } else {
+        info!(
+            "视频 {} ({}) 检测到 {} 个新增分P，准备下载",
+            video_model.bvid, video_model.id, new_pages.len()
+        );
+    }
+
+    // 插入新分P
+    let page_models = new_pages
         .into_iter()
         .map(|p| p.into_active_model(video_model))
         .collect::<Vec<page::ActiveModel>>();
+
     for page_chunk in page_models.chunks(50) {
         page::Entity::insert_many(page_chunk.to_vec())
-            .on_conflict(
-                OnConflict::columns([page::Column::VideoId, page::Column::Pid])
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .do_nothing()
             .exec(connection)
             .await?;
     }

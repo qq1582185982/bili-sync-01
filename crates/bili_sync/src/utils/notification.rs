@@ -585,6 +585,73 @@ impl NotificationClient {
 
         Ok(())
     }
+
+    /// 发送单P变多P通知
+    pub async fn send_single_to_multi_page(
+        &self,
+        video_name: &str,
+        bvid: &str,
+        total_pages: usize,
+        old_path: Option<&str>,
+    ) -> Result<()> {
+        let active_channel = self.config.active_channel.as_str();
+
+        if active_channel == "none" {
+            debug!("未选择通知渠道，跳过单P变多P通知");
+            return Ok(());
+        }
+
+        let title = "Bili Sync 视频结构变更提醒";
+        let path_info = old_path
+            .map(|p| format!("\n\n**原文件路径**: `{}`\n\n请手动清理原单P文件。", p))
+            .unwrap_or_default();
+
+        let content = format!(
+            "检测到视频从单P变为多P，已自动重置下载状态。\n\n\
+            **视频**: {}\n\
+            **BVID**: [{}](https://www.bilibili.com/video/{})\n\
+            **新分P数**: {}{}",
+            Self::sanitize_for_serverchan(video_name),
+            bvid,
+            bvid,
+            total_pages,
+            path_info
+        );
+
+        match active_channel {
+            "serverchan" => {
+                let Some(ref key) = self.config.serverchan_key else {
+                    warn!("Server酱渠道已激活但未配置密钥，跳过单P变多P通知");
+                    return Ok(());
+                };
+
+                match self.send_to_serverchan(key, title, &content).await {
+                    Ok(_) => {
+                        info!("单P变多P通知推送成功 (Server酱)");
+                    }
+                    Err(e) => {
+                        warn!("单P变多P通知推送失败 (Server酱): {}", e);
+                    }
+                }
+            }
+            "wecom" => {
+                let wecom_content = self.format_wecom_content(&content);
+                match self.send_to_wecom(title, &wecom_content).await {
+                    Ok(_) => {
+                        info!("单P变多P通知推送成功 (企业微信)");
+                    }
+                    Err(e) => {
+                        warn!("单P变多P通知推送失败 (企业微信): {}", e);
+                    }
+                }
+            }
+            _ => {
+                warn!("未知的通知渠道: {}", active_channel);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 // 便捷函数
@@ -613,6 +680,18 @@ pub async fn send_risk_control_notification(mode: &str) -> Result<()> {
     let config = crate::config::reload_config().notification;
     let client = NotificationClient::new(config);
     client.send_risk_control(mode).await
+}
+
+/// 发送单P变多P通知的便捷函数
+pub async fn send_single_to_multi_page_notification(
+    video_name: &str,
+    bvid: &str,
+    total_pages: usize,
+    old_path: Option<&str>,
+) -> Result<()> {
+    let config = crate::config::reload_config().notification;
+    let client = NotificationClient::new(config);
+    client.send_single_to_multi_page(video_name, bvid, total_pages, old_path).await
 }
 
 #[cfg(test)]
