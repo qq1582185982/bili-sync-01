@@ -652,6 +652,73 @@ impl NotificationClient {
 
         Ok(())
     }
+
+    /// 发送错误通知
+    pub async fn send_error(
+        &self,
+        error_type: &str,
+        error_message: &str,
+        context: Option<&str>,
+    ) -> Result<()> {
+        let active_channel = self.config.active_channel.as_str();
+
+        if active_channel == "none" {
+            debug!("未选择通知渠道，跳过错误通知");
+            return Ok(());
+        }
+
+        let title = format!("Bili Sync 错误提醒 - {}", error_type);
+        let context_info = context
+            .map(|c| format!("\n\n**上下文**: {}", c))
+            .unwrap_or_default();
+
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        let content = format!(
+            "程序运行时发生错误，请及时检查。\n\n\
+            **错误类型**: {}\n\
+            **错误信息**: {}\n\
+            **发生时间**: {}{}",
+            error_type,
+            Self::sanitize_for_serverchan(error_message),
+            timestamp,
+            context_info
+        );
+
+        match active_channel {
+            "serverchan" => {
+                let Some(ref key) = self.config.serverchan_key else {
+                    warn!("Server酱渠道已激活但未配置密钥，跳过错误通知");
+                    return Ok(());
+                };
+
+                match self.send_to_serverchan(key, &title, &content).await {
+                    Ok(_) => {
+                        info!("错误通知推送成功 (Server酱)");
+                    }
+                    Err(e) => {
+                        warn!("错误通知推送失败 (Server酱): {}", e);
+                    }
+                }
+            }
+            "wecom" => {
+                let wecom_content = self.format_wecom_content(&content);
+                match self.send_to_wecom(&title, &wecom_content).await {
+                    Ok(_) => {
+                        info!("错误通知推送成功 (企业微信)");
+                    }
+                    Err(e) => {
+                        warn!("错误通知推送失败 (企业微信): {}", e);
+                    }
+                }
+            }
+            _ => {
+                warn!("未知的通知渠道: {}", active_channel);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 // 便捷函数
@@ -692,6 +759,17 @@ pub async fn send_single_to_multi_page_notification(
     let config = crate::config::reload_config().notification;
     let client = NotificationClient::new(config);
     client.send_single_to_multi_page(video_name, bvid, total_pages, old_path).await
+}
+
+/// 发送错误通知的便捷函数
+pub async fn send_error_notification(
+    error_type: &str,
+    error_message: &str,
+    context: Option<&str>,
+) -> Result<()> {
+    let config = crate::config::reload_config().notification;
+    let client = NotificationClient::new(config);
+    client.send_error(error_type, error_message, context).await
 }
 
 #[cfg(test)]

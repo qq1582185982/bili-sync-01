@@ -294,6 +294,21 @@ impl DeleteTaskQueue {
                         task.source_type, task.source_id, e
                     );
 
+                    // 发送删除任务失败通知（异步执行，不阻塞主流程）
+                    let source_type = task.source_type.clone();
+                    let source_id = task.source_id;
+                    let error_msg = format!("{:#?}", e);
+                    tokio::spawn(async move {
+                        use crate::utils::notification::send_error_notification;
+                        if let Err(notify_err) = send_error_notification(
+                            "删除任务失败",
+                            &error_msg,
+                            Some(&format!("类型: {}\nID: {}", source_type, source_id)),
+                        ).await {
+                            tracing::warn!("发送删除任务失败通知失败: {}", notify_err);
+                        }
+                    });
+
                     // 标记数据库任务为失败
                     if let Err(e) = self.mark_task_failed(&task, &db).await {
                         error!("更新任务失败状态失败: {:#}", e);
@@ -511,6 +526,20 @@ impl VideoDeleteTaskQueue {
                         }
                     } else {
                         error!("视频删除任务执行失败: 视频ID={}, 错误: {:#?}", task.video_id, e);
+
+                        // 发送视频删除失败通知（异步执行，不阻塞主流程）
+                        let video_id = task.video_id;
+                        let error_msg = format!("{:#?}", e);
+                        tokio::spawn(async move {
+                            use crate::utils::notification::send_error_notification;
+                            if let Err(notify_err) = send_error_notification(
+                                "视频删除失败",
+                                &error_msg,
+                                Some(&format!("视频ID: {}", video_id)),
+                            ).await {
+                                tracing::warn!("发送视频删除失败通知失败: {}", notify_err);
+                            }
+                        });
 
                         // 标记数据库任务为失败
                         if let Err(e) = self.mark_task_failed(&task, &db).await {

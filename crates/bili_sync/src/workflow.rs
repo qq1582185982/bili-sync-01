@@ -806,6 +806,21 @@ pub async fn fetch_video_details(
                                 video_active_model.save(connection).await?;
 
                                 // 触发异步同步到内存DB
+                            } else {
+                                // 非404错误发送通知（404是视频被删除的正常情况）
+                                let video_name = video_model.name.clone();
+                                let bvid = video_model.bvid.clone();
+                                let error_msg = format!("{:#}", e);
+                                tokio::spawn(async move {
+                                    use crate::utils::notification::send_error_notification;
+                                    if let Err(notify_err) = send_error_notification(
+                                        "API请求失败",
+                                        &format!("获取视频详细信息失败"),
+                                        Some(&format!("视频: {}\nBVID: {}\n错误: {}", video_name, bvid, error_msg)),
+                                    ).await {
+                                        tracing::warn!("发送API错误通知失败: {}", notify_err);
+                                    }
+                                });
                             }
                         }
                         Ok((tags, mut view_info)) => {
@@ -1116,8 +1131,30 @@ pub async fn download_unprocessed_videos(
                     continue;
                 }
                 // 任务成功完成，更新数据库
-                if let Err(db_err) = update_videos_model(vec![model], connection).await {
+                if let Err(db_err) = update_videos_model(vec![model.clone()], connection).await {
                     error!("更新数据库失败: {:#}", db_err);
+
+                    // 发送数据库错误通知（异步执行，不阻塞主流程）
+                    use sea_orm::ActiveValue;
+                    let video_name = match &model.name {
+                        ActiveValue::Set(v) | ActiveValue::Unchanged(v) => v.clone(),
+                        _ => "未知".to_string(),
+                    };
+                    let video_bvid = match &model.bvid {
+                        ActiveValue::Set(v) | ActiveValue::Unchanged(v) => v.clone(),
+                        _ => "未知".to_string(),
+                    };
+                    let error_msg = format!("{:#}", db_err);
+                    tokio::spawn(async move {
+                        use crate::utils::notification::send_error_notification;
+                        if let Err(e) = send_error_notification(
+                            "数据库错误",
+                            &error_msg,
+                            Some(&format!("视频: {}\nBVID: {}", video_name, video_bvid)),
+                        ).await {
+                            tracing::warn!("发送数据库错误通知失败: {}", e);
+                        }
+                    });
                 }
             }
             Err(e) => {
@@ -1249,8 +1286,30 @@ pub async fn retry_failed_videos_once(
                     continue;
                 }
                 retry_success_count += 1;
-                if let Err(db_err) = update_videos_model(vec![model], connection).await {
+                if let Err(db_err) = update_videos_model(vec![model.clone()], connection).await {
                     error!("重试后更新数据库失败: {:#}", db_err);
+
+                    // 发送数据库错误通知（异步执行，不阻塞主流程）
+                    use sea_orm::ActiveValue;
+                    let video_name = match &model.name {
+                        ActiveValue::Set(v) | ActiveValue::Unchanged(v) => v.clone(),
+                        _ => "未知".to_string(),
+                    };
+                    let video_bvid = match &model.bvid {
+                        ActiveValue::Set(v) | ActiveValue::Unchanged(v) => v.clone(),
+                        _ => "未知".to_string(),
+                    };
+                    let error_msg = format!("{:#}", db_err);
+                    tokio::spawn(async move {
+                        use crate::utils::notification::send_error_notification;
+                        if let Err(e) = send_error_notification(
+                            "数据库错误",
+                            &error_msg,
+                            Some(&format!("视频: {}\nBVID: {}\n（重试后更新失败）", video_name, video_bvid)),
+                        ).await {
+                            tracing::warn!("发送数据库错误通知失败: {}", e);
+                        }
+                    });
                 }
             }
             Err(e) => {
@@ -2747,6 +2806,21 @@ pub async fn dispatch_download_page(args: DownloadPageArgs<'_>, token: Cancellat
         } else {
             "请检查网络连接、文件系统权限或重试下载。".to_string()
         };
+
+        // 发送错误通知（异步执行，不阻塞主流程）
+        let video_name = args.video_model.name.clone();
+        let bvid = args.video_model.bvid.clone();
+        let details_clone = details.clone();
+        tokio::spawn(async move {
+            use crate::utils::notification::send_error_notification;
+            if let Err(e) = send_error_notification(
+                "下载失败",
+                &format!("视频「{}」分页下载失败，状态码: {}", video_name, target_status),
+                Some(&format!("BVID: {}\n{}", bvid, details_clone)),
+            ).await {
+                tracing::warn!("发送下载失败通知失败: {}", e);
+            }
+        });
 
         // 返回ProcessPageError，携带详细信息
         let process_error = ProcessPageError::new(args.video_model.name.clone(), target_status).with_details(details);
