@@ -12,6 +12,7 @@ mod downloader;
 mod error;
 mod hardware;
 mod http;
+mod ingest_log;
 mod initialization;
 mod task;
 mod unified_downloader;

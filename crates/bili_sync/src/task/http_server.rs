@@ -39,6 +39,7 @@ use crate::api::handler::{
     get_submission_videos,
     get_subscribed_collections,
     get_task_control_status,
+    get_latest_ingests,
     get_user_collections,
     get_user_favorites,
     get_user_favorites_by_uid,
@@ -59,6 +60,7 @@ use crate::api::handler::{
     reset_video,
     reset_video_source_path,
     resume_scanning_endpoint,
+    refresh_scanning_endpoint,
     search_bilibili,
     setup_auth_token,
     test_notification_handler,
@@ -238,6 +240,8 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
         .route("/api/task-control/status", get(get_task_control_status))
         .route("/api/task-control/pause", post(pause_scanning_endpoint))
         .route("/api/task-control/resume", post(resume_scanning_endpoint))
+        .route("/api/task-control/refresh", post(refresh_scanning_endpoint))
+        .route("/api/ingest/latest", get(get_latest_ingests))
         // 推送通知API
         .route("/api/notification/test", post(test_notification_handler))
         .route("/api/config/notification", get(get_notification_config))

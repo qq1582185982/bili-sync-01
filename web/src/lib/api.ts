@@ -44,7 +44,8 @@ import type {
 	TaskStatus,
 	BangumiSeasonsResponse,
 	VideoBvidResponse,
-	KeywordFilterMode
+	KeywordFilterMode,
+	LatestIngestResponse
 } from './types';
 import { ErrorType } from './types';
 import { wsManager } from './ws';
@@ -618,6 +619,13 @@ class ApiClient {
 	}
 
 	/**
+	 * 立即刷新任务（触发新一轮扫描，无需等待下一次定时触发）
+	 */
+	async refreshScanning(): Promise<ApiResponse<TaskControlResponse>> {
+		return this.post<TaskControlResponse>('/task-control/refresh');
+	}
+
+	/**
 	 * 获取视频播放信息（在线播放用）
 	 * @param videoId 视频ID或分页ID
 	 */
@@ -670,6 +678,13 @@ class ApiClient {
 	 */
 	async getDashboard(): Promise<ApiResponse<DashBoardResponse>> {
 		return this.get<DashBoardResponse>('/dashboard');
+	}
+
+	/**
+	 * 获取首页最新入库列表
+	 */
+	async getLatestIngests(limit: number = 10): Promise<ApiResponse<LatestIngestResponse>> {
+		return this.get<LatestIngestResponse>('/ingest/latest', { limit });
 	}
 
 	/**
@@ -1003,6 +1018,11 @@ export const api = {
 	resumeScanning: () => apiClient.resumeScanning(),
 
 	/**
+	 * 立即刷新任务（触发新一轮扫描，无需等待下一次定时触发）
+	 */
+	refreshScanning: () => apiClient.refreshScanning(),
+
+	/**
 	 * 获取视频播放信息（在线播放用）
 	 */
 	getVideoPlayInfo: (videoId: string | number) => apiClient.getVideoPlayInfo(videoId),
@@ -1026,6 +1046,11 @@ export const api = {
 	 * 获取仪表盘数据
 	 */
 	getDashboard: () => apiClient.getDashboard(),
+
+	/**
+	 * 获取首页最新入库列表
+	 */
+	getLatestIngests: (limit: number = 10) => apiClient.getLatestIngests(limit),
 
 	/**
 	 * 获取推送通知状态

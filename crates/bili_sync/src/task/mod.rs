@@ -1627,6 +1627,11 @@ impl TaskController {
         info!("定时扫描任务已恢复，将立即开始新一轮扫描");
     }
 
+    /// 触发立即扫描（不等待定时器）
+    pub fn trigger_scan_now(&self) {
+        self.just_resumed.store(true, Ordering::SeqCst);
+    }
+
     /// 检查是否暂停
     pub fn is_paused(&self) -> bool {
         self.is_paused.load(Ordering::SeqCst)

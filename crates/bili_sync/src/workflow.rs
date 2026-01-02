@@ -2535,6 +2535,12 @@ pub async fn download_video_pages(
             return Err(e);
         }
     }
+    // 保存入库日志需要的值（因为 final_video_model 会被 .into() 消耗）
+    let ingest_video_id = final_video_model.id;
+    let ingest_video_name = final_video_model.name.clone();
+    let ingest_upper_name = final_video_model.upper_name.clone();
+    let ingest_deleted = final_video_model.deleted;
+
     let mut video_active_model: video::ActiveModel = final_video_model.into();
     video_active_model.download_status = Set(status.into());
 
@@ -2571,6 +2577,30 @@ pub async fn download_video_pages(
         debug!("季度文件夹名: {}", season_folder);
     }
     debug!("=== 路径计算结束 ===");
+
+    // 只在任务完成时记录"最新入库"事件（用于首页展示）
+    // get_completed() 检查最高位标记，表示所有子任务都已完成（成功或达到最大重试次数）
+    if status.get_completed() {
+        use crate::ingest_log::IngestStatus;
+        let bits: [u32; 5] = status.into();
+        let all_ok = bits.iter().all(|&x| x == crate::utils::status::STATUS_OK);
+        let ingest_status = if ingest_deleted != 0 {
+            IngestStatus::Deleted
+        } else if all_ok {
+            IngestStatus::Success
+        } else {
+            IngestStatus::Failed
+        };
+        crate::ingest_log::INGEST_LOG
+            .finish_video(
+                ingest_video_id,
+                ingest_video_name,
+                ingest_upper_name,
+                path_to_save.clone(),
+                ingest_status,
+            )
+            .await;
+    }
 
     video_active_model.path = Set(path_to_save);
     Ok(video_active_model)
@@ -3114,18 +3144,31 @@ pub async fn fetch_page_poster(
 }
 
 /// 下载单个流文件并返回文件大小（使用UnifiedDownloader智能选择下载方式）
-async fn download_stream(downloader: &UnifiedDownloader, urls: &[&str], path: &Path) -> Result<u64> {
+///
+/// 同时会把本次下载的 bytes 与耗时写入内存「入库事件」统计，用于首页展示平均下载速度。
+async fn download_stream(
+    downloader: &UnifiedDownloader,
+    video_id: i32,
+    urls: &[&str],
+    path: &Path,
+) -> Result<u64> {
     // 直接使用UnifiedDownloader，它会智能选择aria2或原生下载器
     // aria2本身就支持多线程，原生下载器作为备选方案使用单线程
+    let start = std::time::Instant::now();
     let download_result = downloader.fetch_with_fallback(urls, path).await;
 
     match download_result {
         Ok(_) => {
             // 获取文件大小
-            Ok(tokio::fs::metadata(path)
+            let size = tokio::fs::metadata(path)
                 .await
                 .map(|metadata| metadata.len())
-                .unwrap_or(0))
+                .unwrap_or(0);
+            let elapsed = start.elapsed();
+            crate::ingest_log::INGEST_LOG
+                .add_download_sample(video_id, size, elapsed)
+                .await;
+            Ok(size)
         }
         Err(e) => {
             let error_msg = e.to_string();
@@ -3310,18 +3353,18 @@ pub async fn fetch_page_video(
                 // 混合流无法提取纯音频，警告并使用混合流
                 warn!("混合流不支持纯音频提取，将下载完整内容");
                 let urls = mix_stream.urls();
-                download_stream(downloader, &urls, page_path).await?
+                download_stream(downloader, video_model.id, &urls, page_path).await?
             }
             BestStream::VideoAudio { audio: Some(audio_stream), .. } => {
                 // 直接下载音频流
                 let audio_urls = audio_stream.urls();
-                download_stream(downloader, &audio_urls, page_path).await?
+                download_stream(downloader, video_model.id, &audio_urls, page_path).await?
             }
             BestStream::VideoAudio { audio: None, video: video_stream } => {
                 // 没有独立音频流，警告并使用视频流（可能包含音频）
                 warn!("未找到独立音频流，将下载视频流");
                 let urls = video_stream.urls();
-                download_stream(downloader, &urls, page_path).await?
+                download_stream(downloader, video_model.id, &urls, page_path).await?
             }
         }
     } else {
@@ -3329,14 +3372,14 @@ pub async fn fetch_page_video(
         match best_stream_result {
             BestStream::Mixed(mix_stream) => {
                 let urls = mix_stream.urls();
-                download_stream(downloader, &urls, page_path).await?
+                download_stream(downloader, video_model.id, &urls, page_path).await?
             }
             BestStream::VideoAudio {
                 video: video_stream,
                 audio: None,
             } => {
                 let urls = video_stream.urls();
-                download_stream(downloader, &urls, page_path).await?
+                download_stream(downloader, video_model.id, &urls, page_path).await?
             }
             BestStream::VideoAudio {
                 video: video_stream,
@@ -3348,7 +3391,7 @@ pub async fn fetch_page_video(
                 );
 
                 let video_urls = video_stream.urls();
-                let video_size = download_stream(downloader, &video_urls, &tmp_video_path)
+                let video_size = download_stream(downloader, video_model.id, &video_urls, &tmp_video_path)
                     .await
                     .map_err(|e| {
                         // 使用错误分类器进行统一处理
@@ -3365,7 +3408,7 @@ pub async fn fetch_page_video(
                     })?;
 
                 let audio_urls = audio_stream.urls();
-                let audio_size = download_stream(downloader, &audio_urls, &tmp_audio_path)
+                let audio_size = download_stream(downloader, video_model.id, &audio_urls, &tmp_audio_path)
                     .await
                     .map_err(|e| {
                         // 使用错误分类器进行统一处理

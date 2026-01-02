@@ -8763,6 +8763,129 @@ pub async fn get_task_control_status() -> Result<ApiResponse<crate::api::respons
     }))
 }
 
+/// 立即刷新任务（触发立即扫描/下载，无需等待下一次定时触发）
+#[utoipa::path(
+    post,
+    path = "/api/task-control/refresh",
+    responses(
+        (status = 200, description = "刷新成功", body = crate::api::response::TaskControlResponse),
+        (status = 500, description = "内部错误")
+    )
+)]
+pub async fn refresh_scanning_endpoint() -> Result<ApiResponse<crate::api::response::TaskControlResponse>, ApiError> {
+    // 若暂停中，则先恢复；无论是否暂停，都触发一次立即扫描
+    if crate::task::TASK_CONTROLLER.is_paused() {
+        crate::task::resume_scanning();
+    } else {
+        crate::task::TASK_CONTROLLER.trigger_scan_now();
+    }
+
+    Ok(ApiResponse::ok(crate::api::response::TaskControlResponse {
+        success: true,
+        message: "已触发任务刷新，将立即开始新一轮扫描".to_string(),
+        is_paused: false,
+    }))
+}
+
+#[derive(Deserialize, utoipa::ToSchema, Default)]
+pub struct LatestIngestQuery {
+    /// 返回条数，默认 10，最大 100
+    pub limit: Option<usize>,
+}
+
+/// 获取首页「最新入库」列表
+#[utoipa::path(
+    get,
+    path = "/api/ingest/latest",
+    params(
+        ("limit" = Option<usize>, Query, description = "返回条数，默认 10，最大 100")
+    ),
+    responses(
+        (status = 200, description = "获取成功", body = crate::api::response::LatestIngestResponse),
+        (status = 500, description = "内部错误")
+    )
+)]
+pub async fn get_latest_ingests(
+    Query(query): Query<LatestIngestQuery>,
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+) -> Result<ApiResponse<crate::api::response::LatestIngestResponse>, ApiError> {
+    let limit = query.limit.unwrap_or(10).clamp(1, 100);
+
+    // 1) 先取内存事件（带速度）
+    let mut items = crate::ingest_log::INGEST_LOG.list_latest(limit).await;
+
+    // 2) 不足时再用 DB 补齐（速度可能为空，但保证首页总能显示）
+    if items.len() < limit {
+        let need = limit - items.len();
+        let mut existing_ids = std::collections::HashSet::new();
+        for it in &items {
+            existing_ids.insert(it.video_id);
+        }
+
+        // 只查询已完成的视频（download_status >= STATUS_COMPLETED，即最高位为1）
+        let fallback = video::Entity::find()
+            .filter(video::Column::DownloadStatus.gte(crate::utils::status::STATUS_COMPLETED))
+            .order_by_desc(video::Column::CreatedAt)
+            .limit(need as u64)
+            .all(db.as_ref())
+            .await
+            .map_err(|e| ApiError::from(InnerApiError::from(e)))?;
+
+        for v in fallback {
+            if existing_ids.contains(&v.id) {
+                continue;
+            }
+            // 通过 deleted 字段和 status bits 判断状态
+            use crate::ingest_log::IngestStatus;
+            let status = if v.deleted != 0 {
+                IngestStatus::Deleted
+            } else {
+                let st = VideoStatus::from(v.download_status);
+                let bits: [u32; 5] = st.into();
+                if bits.iter().all(|&b| b == crate::utils::status::STATUS_OK) {
+                    IngestStatus::Success
+                } else {
+                    IngestStatus::Failed
+                }
+            };
+
+            items.push(crate::ingest_log::IngestEvent {
+                video_id: v.id,
+                video_name: v.name.clone(),
+                upper_name: v.upper_name.clone(),
+                path: v.path.clone(),
+                ingested_at: v.created_at.clone(),
+                download_speed_bps: None,
+                status,
+            });
+        }
+    }
+
+    // 3) 转响应结构
+    let resp_items = items
+        .into_iter()
+        .map(|e| {
+            use crate::ingest_log::IngestStatus;
+            let status_str = match e.status {
+                IngestStatus::Success => "success",
+                IngestStatus::Failed => "failed",
+                IngestStatus::Deleted => "deleted",
+            };
+            crate::api::response::LatestIngestItemResponse {
+                video_id: e.video_id,
+                video_name: e.video_name,
+                upper_name: e.upper_name,
+                path: e.path,
+                ingested_at: e.ingested_at,
+                download_speed_bps: e.download_speed_bps,
+                status: status_str.to_string(),
+            }
+        })
+        .collect();
+
+    Ok(ApiResponse::ok(crate::api::response::LatestIngestResponse { items: resp_items }))
+}
+
 /// 获取视频的BVID信息（用于构建B站链接）
 #[utoipa::path(
     get,

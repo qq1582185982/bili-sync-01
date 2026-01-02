@@ -17,7 +17,8 @@
 		SysInfo,
 		ApiError,
 		TaskStatus,
-		TaskControlStatusResponse
+		TaskControlStatusResponse,
+		LatestIngestItem
 	} from '$lib/types';
 	import AuthLogin from '$lib/components/auth-login.svelte';
 	import InitialSetup from '$lib/components/initial-setup.svelte';
@@ -39,6 +40,9 @@
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+	import XCircleIcon from '@lucide/svelte/icons/x-circle';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
 	// 认证状态
 	let isAuthenticated = false;
@@ -49,8 +53,11 @@
 	let sysInfo: SysInfo | null = null;
 	let taskStatus: TaskStatus | null = null;
 	let taskControlStatus: TaskControlStatusResponse | null = null;
+	let latestIngests: LatestIngestItem[] = [];
 	let loading = false;
 	let loadingTaskControl = false;
+	let loadingLatestIngests = false;
+	let loadingTaskRefresh = false;
 	let unsubscribeSysInfo: (() => void) | null = null;
 	let unsubscribeTasks: (() => void) | null = null;
 
@@ -64,6 +71,31 @@
 
 	function formatCpu(cpu: number): string {
 		return `${cpu.toFixed(1)}%`;
+	}
+
+	function formatSpeed(bps: number | null): string {
+		if (!bps || bps <= 0) return '-';
+		const mbps = bps / 1024 / 1024;
+		if (mbps >= 1) return `${mbps.toFixed(2)} MB/s`;
+		const kbps = bps / 1024;
+		return `${kbps.toFixed(0)} KB/s`;
+	}
+
+	// 格式化时间为 HH:MM:SS AM/PM 格式
+	function formatTime(timeStr: string | null | undefined): string {
+		if (!timeStr) return '-';
+		try {
+			const date = new Date(timeStr);
+			if (isNaN(date.getTime())) return timeStr;
+			return date.toLocaleString('en-US', {
+				hour: '2-digit',
+				minute: '2-digit',
+				second: '2-digit',
+				hour12: true
+			});
+		} catch {
+			return timeStr;
+		}
 	}
 
 	// 处理登录成功
@@ -151,6 +183,21 @@
 		}
 	}
 
+	async function loadLatestIngests() {
+		loadingLatestIngests = true;
+		try {
+			const response = await api.getLatestIngests(10);
+			latestIngests = response.data.items || [];
+		} catch (error) {
+			console.error('加载最新入库失败:', error);
+			toast.error('加载最新入库失败', {
+				description: (error as ApiError).message
+			});
+		} finally {
+			loadingLatestIngests = false;
+		}
+	}
+
 	// 加载任务控制状态
 	async function loadTaskControlStatus() {
 		try {
@@ -203,12 +250,38 @@
 		}
 	}
 
+	// 任务刷新（触发立即扫描/下载，不等待下一次定时触发）
+	async function refreshTasks() {
+		if (loadingTaskRefresh) return;
+
+		loadingTaskRefresh = true;
+		try {
+			const response = await api.refreshScanning();
+			if (response.data.success) {
+				toast.success(response.data.message);
+				await loadTaskControlStatus();
+				// 刷新后同步刷新首页数据
+				await loadDashboard();
+				await loadLatestIngests();
+			} else {
+				toast.error('任务刷新失败');
+			}
+		} catch (error) {
+			console.error('任务刷新失败:', error);
+			toast.error('任务刷新失败');
+		} finally {
+			loadingTaskRefresh = false;
+		}
+	}
+
 	async function loadInitialData() {
 		try {
 			// 加载任务控制状态
 			await loadTaskControlStatus();
 			// 加载仪表盘数据
 			await loadDashboard();
+			// 加载最新入库
+			await loadLatestIngests();
 		} catch (error) {
 			console.error('加载数据失败:', error);
 			toast.error('加载数据失败');
@@ -359,9 +432,63 @@
 					</CardHeader>
 					<CardContent>
 						{#if dashboardData}
-							<div class="space-y-4">
-								<!-- 视频源统计 -->
-								<div class="grid grid-cols-2 gap-4 md:grid-cols-3">
+						<div class="space-y-4">
+							<!-- 监听状态 -->
+							<div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+								<div class="flex items-center gap-2">
+									{#if taskControlStatus && taskControlStatus.is_paused}
+										<Badge variant="destructive">已停止</Badge>
+									{:else if dashboardData.monitoring_status.is_scanning}
+										<Badge>扫描中</Badge>
+									{:else}
+										<Badge variant="outline">等待中</Badge>
+									{/if}
+								</div>
+								<div class="flex items-center gap-2">
+									<div class="text-muted-foreground text-sm">下次扫描</div>
+									<div class="text-sm font-medium">
+										{formatTime(dashboardData.monitoring_status.next_scan_time)}
+									</div>
+									<Button
+										size="sm"
+										variant="outline"
+										onclick={() => {
+											loadDashboard();
+											loadLatestIngests();
+										}}
+										class="h-8"
+										title="刷新首页数据"
+									>
+										<RefreshCwIcon class="mr-2 h-4 w-4" />
+										刷新
+									</Button>
+								</div>
+							</div>
+
+							<!-- 扫描摘要 -->
+							<div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+								<div class="flex items-center justify-between">
+									<span class="text-sm">监听源</span>
+									<Badge variant="outline">
+										{dashboardData.monitoring_status.active_sources} / {dashboardData.monitoring_status.total_sources}
+									</Badge>
+								</div>
+								<div class="flex items-center justify-between">
+									<span class="text-sm">上次扫描</span>
+									<span class="text-muted-foreground text-sm">
+										{formatTime(dashboardData.monitoring_status.last_scan_time)}
+									</span>
+								</div>
+								<div class="flex items-center justify-between">
+									<span class="text-sm">未启用</span>
+									<span class="text-muted-foreground text-sm">
+										{dashboardData.monitoring_status.inactive_sources}
+									</span>
+								</div>
+							</div>
+
+							<!-- 具体监听项统计 -->
+							<div class="grid grid-cols-2 gap-4 md:grid-cols-3">
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-2">
 											<HeartIcon class="text-muted-foreground h-4 w-4" />
@@ -468,6 +595,89 @@
 								暂无视频统计数据
 							</div>
 						{/if}
+
+						<!-- 最新入库列表 -->
+						<div class="mt-6 space-y-3">
+							<div class="flex items-center justify-between">
+								<span class="text-sm font-medium">最新入库</span>
+								<Button
+									size="sm"
+									variant="outline"
+									onclick={() => loadLatestIngests()}
+									disabled={loadingLatestIngests}
+									class="h-8"
+									title="刷新最新入库"
+								>
+									{#if loadingLatestIngests}
+										<SettingsIcon class="mr-2 h-4 w-4 animate-spin" />
+										加载中...
+									{:else}
+										<RefreshCwIcon class="mr-2 h-4 w-4" />
+										刷新
+									{/if}
+								</Button>
+							</div>
+
+							<div class="overflow-x-auto rounded-md border">
+								<table class="w-full text-sm">
+									<thead class="bg-muted/50">
+										<tr>
+											<th class="px-3 py-2 text-left font-medium">视频</th>
+											<th class="px-3 py-2 text-left font-medium">作者</th>
+											<th class="px-3 py-2 text-left font-medium">位置</th>
+											<th class="px-3 py-2 text-left font-medium">入库时间</th>
+											<th class="px-3 py-2 text-left font-medium">速度</th>
+											<th class="px-3 py-2 text-left font-medium">结果</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#if latestIngests.length === 0}
+											<tr>
+												<td class="text-muted-foreground px-3 py-6" colspan="6">暂无入库记录</td>
+											</tr>
+										{:else}
+											{#each latestIngests as item (item.video_id)}
+												<tr class="border-t">
+													<td class="px-3 py-2">
+														<div class="max-w-[260px] truncate" title={item.video_name}>
+															{item.video_name}
+														</div>
+													</td>
+													<td class="px-3 py-2">
+														<div class="max-w-[160px] truncate" title={item.upper_name}>
+															{item.upper_name}
+														</div>
+													</td>
+													<td class="px-3 py-2">
+														<div class="max-w-[320px] truncate" title={item.path}>{item.path}</div>
+													</td>
+													<td class="px-3 py-2 whitespace-nowrap">{item.ingested_at}</td>
+													<td class="px-3 py-2 whitespace-nowrap">{formatSpeed(item.download_speed_bps)}</td>
+													<td class="px-3 py-2">
+														{#if item.status === 'success'}
+															<div class="flex items-center gap-1 text-emerald-600">
+																<CheckCircleIcon class="h-4 w-4" />
+																成功
+															</div>
+														{:else if item.status === 'deleted'}
+															<div class="flex items-center gap-1 text-amber-600">
+																<Trash2Icon class="h-4 w-4" />
+																已删除
+															</div>
+														{:else}
+															<div class="flex items-center gap-1 text-rose-600">
+																<XCircleIcon class="h-4 w-4" />
+																失败
+															</div>
+														{/if}
+													</td>
+												</tr>
+											{/each}
+										{/if}
+									</tbody>
+								</table>
+							</div>
+						</div>
 					</CardContent>
 				</Card>
 				<Card class="max-w-full md:col-span-1">
@@ -482,9 +692,13 @@
 									<div class="mb-4 space-y-2">
 										<div class="flex items-center justify-between text-sm">
 											<span>当前任务状态</span>
-											<Badge variant={taskStatus.is_running ? 'default' : 'outline'}>
-												{taskStatus.is_running ? '运行中' : '未运行'}
-											</Badge>
+											{#if taskControlStatus && taskControlStatus.is_paused}
+												<Badge variant="destructive">已停止</Badge>
+											{:else if taskStatus.is_running}
+												<Badge>扫描中</Badge>
+											{:else}
+												<Badge variant="outline">等待中</Badge>
+											{/if}
 										</div>
 									</div>
 									<div class="flex items-center justify-between">
@@ -539,19 +753,20 @@
 
 								<!-- 任务控制按钮 -->
 								{#if taskControlStatus}
-									<Button
-										size="sm"
-										variant={taskControlStatus.is_paused ? 'default' : 'destructive'}
-										onclick={taskControlStatus.is_paused ? resumeAllTasks : pauseAllTasks}
-										disabled={loadingTaskControl}
-										class="w-full"
-										title={taskControlStatus.is_paused
-											? '恢复所有下载和扫描任务'
-											: '停止所有下载和扫描任务'}
-									>
-										{#if loadingTaskControl}
-											<SettingsIcon class="mr-2 h-4 w-4 animate-spin" />
-											处理中...
+									<div class="grid grid-cols-2 gap-2">
+										<Button
+											size="sm"
+											variant={taskControlStatus.is_paused ? 'default' : 'destructive'}
+											onclick={taskControlStatus.is_paused ? resumeAllTasks : pauseAllTasks}
+											disabled={loadingTaskControl}
+											class="w-full"
+											title={taskControlStatus.is_paused
+												? '恢复所有下载和扫描任务'
+												: '停止所有下载和扫描任务'}
+										>
+											{#if loadingTaskControl}
+												<SettingsIcon class="mr-2 h-4 w-4 animate-spin" />
+												处理中...
 										{:else if taskControlStatus.is_paused}
 											<PlayIcon class="mr-2 h-4 w-4" />
 											恢复任务
@@ -559,7 +774,25 @@
 											<PauseIcon class="mr-2 h-4 w-4" />
 											停止任务
 										{/if}
-									</Button>
+										</Button>
+
+										<Button
+											size="sm"
+											variant="outline"
+											onclick={refreshTasks}
+											disabled={loadingTaskRefresh}
+											class="w-full"
+											title="立即刷新任务（触发新一轮扫描/下载）"
+										>
+											{#if loadingTaskRefresh}
+												<SettingsIcon class="mr-2 h-4 w-4 animate-spin" />
+												刷新中...
+											{:else}
+												<RefreshCwIcon class="mr-2 h-4 w-4" />
+												任务刷新
+											{/if}
+										</Button>
+									</div>
 								{/if}
 							</div>
 						{:else}

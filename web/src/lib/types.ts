@@ -853,3 +853,18 @@ export interface TaskStatus {
 	last_finish?: string;
 	next_run?: string;
 }
+
+// 首页最新入库
+export interface LatestIngestItem {
+	video_id: number;
+	video_name: string;
+	upper_name: string;
+	path: string;
+	ingested_at: string;
+	download_speed_bps: number | null;
+	status: 'success' | 'failed' | 'deleted';
+}
+
+export interface LatestIngestResponse {
+	items: LatestIngestItem[];
+}

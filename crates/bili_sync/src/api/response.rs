@@ -816,3 +816,24 @@ pub struct ValidateRegexResponse {
     pub pattern: String,
     pub error: Option<String>,
 }
+
+// 最新入库项响应
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct LatestIngestItemResponse {
+    pub video_id: i32,
+    pub video_name: String,
+    pub upper_name: String,
+    pub path: String,
+    /// 入库/完成时间（北京时间，标准格式）
+    pub ingested_at: String,
+    /// 平均下载速度（Bytes/s），仅统计媒体流下载阶段
+    pub download_speed_bps: Option<u64>,
+    /// 状态：success, failed, deleted
+    pub status: String,
+}
+
+// 最新入库列表响应
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct LatestIngestResponse {
+    pub items: Vec<LatestIngestItemResponse>,
+}
