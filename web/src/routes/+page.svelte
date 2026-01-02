@@ -5,6 +5,7 @@
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Chart from '$lib/components/ui/chart/index.js';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import MyChartTooltip from '$lib/components/custom/my-chart-tooltip.svelte';
 	import { curveNatural } from 'd3-shape';
 	import { BarChart, AreaChart } from 'layerchart';
@@ -58,6 +59,7 @@
 	let loadingTaskControl = false;
 	let loadingLatestIngests = false;
 	let loadingTaskRefresh = false;
+	let showIngestSheet = false;
 	let unsubscribeSysInfo: (() => void) | null = null;
 	let unsubscribeTasks: (() => void) | null = null;
 
@@ -596,87 +598,22 @@
 							</div>
 						{/if}
 
-						<!-- 最新入库列表 -->
-						<div class="mt-6 space-y-3">
-							<div class="flex items-center justify-between">
-								<span class="text-sm font-medium">最新入库</span>
-								<Button
-									size="sm"
-									variant="outline"
-									onclick={() => loadLatestIngests()}
-									disabled={loadingLatestIngests}
-									class="h-8"
-									title="刷新最新入库"
-								>
-									{#if loadingLatestIngests}
-										<SettingsIcon class="mr-2 h-4 w-4 animate-spin" />
-										加载中...
-									{:else}
-										<RefreshCwIcon class="mr-2 h-4 w-4" />
-										刷新
-									{/if}
-								</Button>
-							</div>
-
-							<div class="overflow-x-auto rounded-md border">
-								<table class="w-full text-sm">
-									<thead class="bg-muted/50">
-										<tr>
-											<th class="px-3 py-2 text-left font-medium">视频</th>
-											<th class="px-3 py-2 text-left font-medium">作者</th>
-											<th class="px-3 py-2 text-left font-medium">位置</th>
-											<th class="px-3 py-2 text-left font-medium">入库时间</th>
-											<th class="px-3 py-2 text-left font-medium">速度</th>
-											<th class="px-3 py-2 text-left font-medium">结果</th>
-										</tr>
-									</thead>
-									<tbody>
-										{#if latestIngests.length === 0}
-											<tr>
-												<td class="text-muted-foreground px-3 py-6" colspan="6">暂无入库记录</td>
-											</tr>
-										{:else}
-											{#each latestIngests as item (item.video_id)}
-												<tr class="border-t">
-													<td class="px-3 py-2">
-														<div class="max-w-[260px] truncate" title={item.video_name}>
-															{item.video_name}
-														</div>
-													</td>
-													<td class="px-3 py-2">
-														<div class="max-w-[160px] truncate" title={item.upper_name}>
-															{item.upper_name}
-														</div>
-													</td>
-													<td class="px-3 py-2">
-														<div class="max-w-[320px] truncate" title={item.path}>{item.path}</div>
-													</td>
-													<td class="px-3 py-2 whitespace-nowrap">{item.ingested_at}</td>
-													<td class="px-3 py-2 whitespace-nowrap">{formatSpeed(item.download_speed_bps)}</td>
-													<td class="px-3 py-2">
-														{#if item.status === 'success'}
-															<div class="flex items-center gap-1 text-emerald-600">
-																<CheckCircleIcon class="h-4 w-4" />
-																成功
-															</div>
-														{:else if item.status === 'deleted'}
-															<div class="flex items-center gap-1 text-amber-600">
-																<Trash2Icon class="h-4 w-4" />
-																已删除
-															</div>
-														{:else}
-															<div class="flex items-center gap-1 text-rose-600">
-																<XCircleIcon class="h-4 w-4" />
-																失败
-															</div>
-														{/if}
-													</td>
-												</tr>
-											{/each}
-										{/if}
-									</tbody>
-								</table>
-							</div>
+						<!-- 最新入库按钮 -->
+						<div class="mt-6 flex items-center justify-between">
+							<span class="text-sm font-medium">最新入库</span>
+							<Button
+								size="sm"
+								variant="outline"
+								onclick={() => {
+									loadLatestIngests();
+									showIngestSheet = true;
+								}}
+								class="h-8"
+								title="查看最新入库记录"
+							>
+								<VideoIcon class="mr-2 h-4 w-4" />
+								查看详情
+							</Button>
 						</div>
 					</CardContent>
 				</Card>
@@ -961,4 +898,96 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- 最新入库 Dialog 弹窗 -->
+	<Dialog.Root bind:open={showIngestSheet}>
+		<Dialog.Content class="sm:max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+			<Dialog.Header>
+				<Dialog.Title>最新入库</Dialog.Title>
+				<Dialog.Description>显示最近入库的视频记录</Dialog.Description>
+			</Dialog.Header>
+			<div class="mt-4 flex-1 overflow-hidden flex flex-col">
+				<div class="flex items-center justify-end mb-4">
+					<Button
+						size="sm"
+						variant="outline"
+						onclick={() => loadLatestIngests()}
+						disabled={loadingLatestIngests}
+						class="h-8"
+						title="刷新最新入库"
+					>
+						{#if loadingLatestIngests}
+							<SettingsIcon class="mr-2 h-4 w-4 animate-spin" />
+							加载中...
+						{:else}
+							<RefreshCwIcon class="mr-2 h-4 w-4" />
+							刷新
+						{/if}
+					</Button>
+				</div>
+
+				<div class="flex-1 overflow-auto rounded-md border">
+					<table class="w-full text-sm">
+						<thead class="bg-muted/50 sticky top-0">
+							<tr>
+								<th class="px-3 py-2 text-left font-medium">视频</th>
+								<th class="px-3 py-2 text-left font-medium">作者</th>
+								<th class="px-3 py-2 text-left font-medium">位置</th>
+								<th class="px-3 py-2 text-left font-medium">入库时间</th>
+								<th class="px-3 py-2 text-left font-medium">速度</th>
+								<th class="px-3 py-2 text-left font-medium">结果</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#if latestIngests.length === 0}
+								<tr>
+									<td class="text-muted-foreground px-3 py-6 text-center" colspan="6">暂无入库记录</td>
+								</tr>
+							{:else}
+								{#each latestIngests as item (item.video_id)}
+									<tr class="border-t">
+										<td class="px-3 py-2">
+											<div class="max-w-[200px] truncate" title={item.video_name}>
+												{item.video_name}
+											</div>
+										</td>
+										<td class="px-3 py-2">
+											<div class="max-w-[100px] truncate" title={item.upper_name}>
+												{item.upper_name}
+											</div>
+										</td>
+										<td class="px-3 py-2">
+											<div class="max-w-[280px] truncate" title={item.path}>
+												{item.path}
+											</div>
+										</td>
+										<td class="px-3 py-2 whitespace-nowrap">{item.ingested_at}</td>
+										<td class="px-3 py-2 whitespace-nowrap">{formatSpeed(item.download_speed_bps)}</td>
+										<td class="px-3 py-2">
+											{#if item.status === 'success'}
+												<div class="flex items-center gap-1 text-emerald-600">
+													<CheckCircleIcon class="h-4 w-4" />
+													成功
+												</div>
+											{:else if item.status === 'deleted'}
+												<div class="flex items-center gap-1 text-amber-600">
+													<Trash2Icon class="h-4 w-4" />
+													已删除
+												</div>
+											{:else}
+												<div class="flex items-center gap-1 text-rose-600">
+													<XCircleIcon class="h-4 w-4" />
+													失败
+												</div>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							{/if}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</Dialog.Content>
+	</Dialog.Root>
 {/if}
