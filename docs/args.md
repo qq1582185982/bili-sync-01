@@ -5,7 +5,7 @@
 ```shell
 bili-sync/target/debug main* ⇡
 ❯ ./bili-sync-rs --help
-由 Rust & Tokio 驱动的哔哩哔哩同步工具
+由 Rust & Tokio 驱动的哔哩哔哩同步工具（升级优化版）
 
 Usage: bili-sync-rs [OPTIONS]
 

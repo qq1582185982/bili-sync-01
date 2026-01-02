@@ -15,7 +15,7 @@ docker run -d \
 
 ### 方式二：下载二进制文件
 
-1. 从 [GitHub Releases](https://github.com/qq1582185982/bili-sync-01/releases) 下载对应平台的二进制文件
+1. 从 [GitHub Releases](https://github.com/NeeYoonc/bili-sync-up/releases) 下载对应平台的二进制文件
 2. 解压并运行：
    ```bash
    ./bili-sync-rs
@@ -24,8 +24,8 @@ docker run -d \
 ### 方式三：从源码编译
 
 ```bash
-git clone https://github.com/qq1582185982/bili-sync-01.git
-cd bili-sync-01
+git clone https://github.com/NeeYoonc/bili-sync-up.git
+cd bili-sync-up
 cargo build --release
 ./target/release/bili-sync-rs
 ```

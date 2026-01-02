@@ -49,4 +49,4 @@ bili-sync 是一个用 Rust 编写的高性能 B站视频同步下载工具，�
 - **最新版本**：v2.7.5
 - **开发语言**：Rust (后端) + SvelteKit (前端)
 - **开源协议**：MIT License
-- **项目地址**：[GitHub](https://github.com/qq1582185982/bili-sync-01)
+- **项目地址**：[GitHub](https://github.com/NeeYoonc/bili-sync-up)

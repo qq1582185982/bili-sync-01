@@ -3,11 +3,11 @@
 layout: home
 
 title: bili-sync
-titleTemplate: 由 Rust & Tokio 驱动的哔哩哔哩同步工具
+titleTemplate: 由 Rust & Tokio 驱动的哔哩哔哩同步工具（升级优化版）
 
 hero:
-  name: "bili-sync-01"
-  text: "由 Rust & Tokio 驱动的哔哩哔哩同步工具"
+  name: "bili-sync-up"
+  text: "由 Rust & Tokio 驱动的哔哩哔哩同步工具（升级优化版）"
   actions:
     - theme: brand
       text: 什么是 bili-sync？
@@ -17,7 +17,7 @@ hero:
       link: /quick-start
     - theme: alt
       text: GitHub
-      link: https://github.com/qq1582185982/bili-sync-01
+      link: https://github.com/NeeYoonc/bili-sync-up
   image:
     src: /logo.webp
     alt: bili-sync

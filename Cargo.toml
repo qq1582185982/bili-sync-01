@@ -7,7 +7,7 @@ resolver = "2"
 version = "2.7.8"
 authors = ["amtoaer <amtoaer@gmail.com>", "qq1582185982"]
 license = "MIT"
-description = "由 Rust & Tokio 驱动的哔哩哔哩同步工具"
+description = "由 Rust & Tokio 驱动的哔哩哔哩同步工具（升级优化版）"
 edition = "2021"
 publish = false
 

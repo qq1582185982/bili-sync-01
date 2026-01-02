@@ -1,15 +1,15 @@
 # bili-sync
 
-![bili-sync](https://socialify.git.ci/qq1582185982/bili-sync-01/image?description=1&font=KoHo&issues=1&language=1&logo=https%3A%2F%2Fs2.loli.net%2F2023%2F12%2F02%2F9EwT2yInOu1d3zm.png&name=1&owner=1&pattern=Signal&pulls=1&stargazers=1&theme=Light)
+![bili-sync](https://socialify.git.ci/NeeYoonc/bili-sync-up/image?description=1&font=KoHo&issues=1&language=1&logo=https%3A%2F%2Fs2.loli.net%2F2023%2F12%2F02%2F9EwT2yInOu1d3zm.png&name=1&owner=1&pattern=Signal&pulls=1&stargazers=1&theme=Light)
 
-[![GitHub Release](https://img.shields.io/github/v/release/qq1582185982/bili-sync-01)](https://github.com/qq1582185982/bili-sync-01/releases/latest)
-[![Test](https://github.com/qq1582185982/bili-sync-01/actions/workflows/test.yml/badge.svg)](https://github.com/qq1582185982/bili-sync-01/actions/workflows/test.yml)
-[![Release](https://github.com/qq1582185982/bili-sync-01/actions/workflows/release.yml/badge.svg)](https://github.com/qq1582185982/bili-sync-01/actions/workflows/release.yml)
-[![Downloads](https://img.shields.io/github/downloads/qq1582185982/bili-sync-01/total)](https://github.com/qq1582185982/bili-sync-01/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/NeeYoonc/bili-sync-up)](https://github.com/NeeYoonc/bili-sync-up/releases/latest)
+[![Test](https://github.com/NeeYoonc/bili-sync-up/actions/workflows/test.yml/badge.svg)](https://github.com/NeeYoonc/bili-sync-up/actions/workflows/test.yml)
+[![Release](https://github.com/NeeYoonc/bili-sync-up/actions/workflows/release.yml/badge.svg)](https://github.com/NeeYoonc/bili-sync-up/actions/workflows/release.yml)
+[![Downloads](https://img.shields.io/github/downloads/NeeYoonc/bili-sync-up/total)](https://github.com/NeeYoonc/bili-sync-up/releases)
 
 专为 NAS 用户打造的哔哩哔哩同步工具，基于 Rust & Tokio 构建。
 
-📚 [在线文档](https://qq1582185982.github.io/bili-sync-01/) | 🚀 [快速开始](#快速开始) | 📝 [更新日志](./docs/changelog.md) | 💬 [QQ群交流](https://qm.qq.com/q/144RN3oaLM)
+📚 [在线文档](https://NeeYoonc.github.io/bili-sync-up/) | 🚀 [快速开始](#快速开始) | 📝 [更新日志](./docs/changelog.md) | 💬 [QQ群交流](https://qm.qq.com/q/144RN3oaLM)
 
 ## ✨ 核心特性
 
@@ -40,7 +40,7 @@ docker run -d \
   --name bili-sync \
   -p 12345:12345 \
   -v ./data:/data \
-  qq1582185982/bili-sync-01:latest
+  qq1582185982/bili-sync:latest
 ```
 
 ### docker-compose
@@ -87,14 +87,14 @@ services:
 
 ### 二进制文件
 
-从 [Releases](https://github.com/qq1582185982/bili-sync-01/releases) 下载对应平台的可执行文件。
+从 [Releases](https://github.com/NeeYoonc/bili-sync-up/releases) 下载对应平台的可执行文件。
 
 ### 开发环境
 
 ```bash
 # 克隆项目
-git clone https://github.com/qq1582185982/bili-sync-01
-cd bili-sync-01
+git clone https://github.com/NeeYoonc/bili-sync-up
+cd bili-sync-up
 
 # 安装依赖并启动
 ./make.bat setup

@@ -631,4 +631,4 @@
 - 优化任务队列性能
 
 ## 更早版本
-详见 [GitHub Releases](https://github.com/qq1582185982/bili-sync-01/releases)
+详见 [GitHub Releases](https://github.com/NeeYoonc/bili-sync-up/releases)
