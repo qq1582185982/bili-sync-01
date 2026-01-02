@@ -24,6 +24,9 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import ListVideoIcon from '@lucide/svelte/icons/list-video';
 	import FilterIcon from '@lucide/svelte/icons/filter';
+	import MusicIcon from '@lucide/svelte/icons/music';
+	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
+	import SubtitlesIcon from '@lucide/svelte/icons/subtitles';
 	import { goto } from '$app/navigation';
 
 	let loading = false;
@@ -155,6 +158,84 @@
 		} catch (error: unknown) {
 			console.error('设置更新失败:', error);
 			toast.error('设置更新失败', { description: error.message });
+		}
+	}
+
+	// 切换仅下载音频设置
+	async function handleToggleAudioOnly(
+		sourceType: string,
+		sourceId: number,
+		currentAudioOnly: boolean
+	) {
+		try {
+			const newAudioOnly = !currentAudioOnly;
+			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+				audio_only: newAudioOnly
+			});
+
+			if (result.data.success) {
+				toast.success('设置更新成功', {
+					description: newAudioOnly ? '已启用仅下载音频模式' : '已禁用仅下载音频模式'
+				});
+				await loadVideoSources();
+			} else {
+				toast.error('设置更新失败', { description: result.data.message });
+			}
+		} catch (error: unknown) {
+			console.error('设置更新失败:', error);
+			toast.error('设置更新失败', { description: (error as Error).message });
+		}
+	}
+
+	// 切换下载弹幕设置
+	async function handleToggleDownloadDanmaku(
+		sourceType: string,
+		sourceId: number,
+		currentDownloadDanmaku: boolean
+	) {
+		try {
+			const newDownloadDanmaku = !currentDownloadDanmaku;
+			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+				download_danmaku: newDownloadDanmaku
+			});
+
+			if (result.data.success) {
+				toast.success('设置更新成功', {
+					description: newDownloadDanmaku ? '已启用弹幕下载' : '已禁用弹幕下载'
+				});
+				await loadVideoSources();
+			} else {
+				toast.error('设置更新失败', { description: result.data.message });
+			}
+		} catch (error: unknown) {
+			console.error('设置更新失败:', error);
+			toast.error('设置更新失败', { description: (error as Error).message });
+		}
+	}
+
+	// 切换下载字幕设置
+	async function handleToggleDownloadSubtitle(
+		sourceType: string,
+		sourceId: number,
+		currentDownloadSubtitle: boolean
+	) {
+		try {
+			const newDownloadSubtitle = !currentDownloadSubtitle;
+			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+				download_subtitle: newDownloadSubtitle
+			});
+
+			if (result.data.success) {
+				toast.success('设置更新成功', {
+					description: newDownloadSubtitle ? '已启用字幕下载' : '已禁用字幕下载'
+				});
+				await loadVideoSources();
+			} else {
+				toast.error('设置更新失败', { description: result.data.message });
+			}
+		} catch (error: unknown) {
+			console.error('设置更新失败:', error);
+			toast.error('设置更新失败', { description: (error as Error).message });
 		}
 	}
 
@@ -442,6 +523,18 @@
 														已配置 {source.keyword_filters.length} 个关键词过滤器
 													</div>
 												{/if}
+												<!-- 下载选项状态显示 -->
+												<div class="mt-1 flex flex-wrap gap-2 text-xs">
+													{#if source.audio_only}
+														<span class="text-amber-600">仅音频模式</span>
+													{/if}
+													{#if source.download_danmaku === false}
+														<span class="text-gray-500">弹幕下载已禁用</span>
+													{/if}
+													{#if source.download_subtitle === false}
+														<span class="text-gray-500">字幕下载已禁用</span>
+													{/if}
+												</div>
 											</div>
 
 											<div class="flex items-center justify-end gap-1 sm:ml-4">
@@ -528,6 +621,66 @@
 														class="h-4 w-4 {source.keyword_filters &&
 														source.keyword_filters.length > 0
 															? 'text-purple-600'
+															: 'text-gray-400'}"
+													/>
+												</Button>
+
+												<!-- 仅下载音频 -->
+												<Button
+													size="sm"
+													variant="ghost"
+													onclick={() =>
+														handleToggleAudioOnly(
+															sourceConfig.type,
+															source.id,
+															source.audio_only ?? false
+														)}
+													title={source.audio_only ? '禁用仅音频模式' : '启用仅音频模式'}
+													class="h-8 w-8 p-0"
+												>
+													<MusicIcon
+														class="h-4 w-4 {source.audio_only
+															? 'text-amber-600'
+															: 'text-gray-400'}"
+													/>
+												</Button>
+
+												<!-- 下载弹幕 -->
+												<Button
+													size="sm"
+													variant="ghost"
+													onclick={() =>
+														handleToggleDownloadDanmaku(
+															sourceConfig.type,
+															source.id,
+															source.download_danmaku ?? true
+														)}
+													title={source.download_danmaku !== false ? '禁用弹幕下载' : '启用弹幕下载'}
+													class="h-8 w-8 p-0"
+												>
+													<MessageSquareTextIcon
+														class="h-4 w-4 {source.download_danmaku !== false
+															? 'text-green-600'
+															: 'text-gray-400'}"
+													/>
+												</Button>
+
+												<!-- 下载字幕 -->
+												<Button
+													size="sm"
+													variant="ghost"
+													onclick={() =>
+														handleToggleDownloadSubtitle(
+															sourceConfig.type,
+															source.id,
+															source.download_subtitle ?? true
+														)}
+													title={source.download_subtitle !== false ? '禁用字幕下载' : '启用字幕下载'}
+													class="h-8 w-8 p-0"
+												>
+													<SubtitlesIcon
+														class="h-4 w-4 {source.download_subtitle !== false
+															? 'text-green-600'
 															: 'text-gray-400'}"
 													/>
 												</Button>

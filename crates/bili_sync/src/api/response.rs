@@ -120,6 +120,17 @@ pub struct UpdateVideoSourceScanDeletedResponse {
 }
 
 #[derive(Serialize, ToSchema)]
+pub struct UpdateVideoSourceDownloadOptionsResponse {
+    pub success: bool,
+    pub source_id: i32,
+    pub source_type: String,
+    pub audio_only: bool,
+    pub download_danmaku: bool,
+    pub download_subtitle: bool,
+    pub message: String,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct UpdateSubmissionSelectedVideosResponse {
     pub success: bool,
     pub source_id: i32,

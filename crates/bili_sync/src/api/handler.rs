@@ -3718,6 +3718,196 @@ pub async fn update_video_source_scan_deleted_internal(
     Ok(result)
 }
 
+/// 更新视频源下载选项
+#[utoipa::path(
+    put,
+    path = "/api/video-sources/{source_type}/{id}/download-options",
+    params(
+        ("source_type" = String, Path, description = "视频源类型"),
+        ("id" = i32, Path, description = "视频源ID"),
+    ),
+    request_body = crate::api::request::UpdateVideoSourceDownloadOptionsRequest,
+    responses(
+        (status = 200, body = ApiResponse<crate::api::response::UpdateVideoSourceDownloadOptionsResponse>),
+    )
+)]
+pub async fn update_video_source_download_options(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Path((source_type, id)): Path<(String, i32)>,
+    axum::Json(params): axum::Json<crate::api::request::UpdateVideoSourceDownloadOptionsRequest>,
+) -> Result<ApiResponse<crate::api::response::UpdateVideoSourceDownloadOptionsResponse>, ApiError> {
+    update_video_source_download_options_internal(db, source_type, id, params)
+        .await
+        .map(ApiResponse::ok)
+}
+
+/// 内部更新视频源下载选项函数
+pub async fn update_video_source_download_options_internal(
+    db: Arc<DatabaseConnection>,
+    source_type: String,
+    id: i32,
+    params: crate::api::request::UpdateVideoSourceDownloadOptionsRequest,
+) -> Result<crate::api::response::UpdateVideoSourceDownloadOptionsResponse, ApiError> {
+    let txn = db.begin().await?;
+
+    let result = match source_type.as_str() {
+        "collection" => {
+            let collection = collection::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的合集"))?;
+
+            let audio_only = params.audio_only.unwrap_or(collection.audio_only);
+            let download_danmaku = params.download_danmaku.unwrap_or(collection.download_danmaku);
+            let download_subtitle = params.download_subtitle.unwrap_or(collection.download_subtitle);
+
+            collection::Entity::update(collection::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                audio_only: sea_orm::Set(audio_only),
+                download_danmaku: sea_orm::Set(download_danmaku),
+                download_subtitle: sea_orm::Set(download_subtitle),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateVideoSourceDownloadOptionsResponse {
+                success: true,
+                source_id: id,
+                source_type: "collection".to_string(),
+                audio_only,
+                download_danmaku,
+                download_subtitle,
+                message: format!("合集 {} 的下载选项已更新", collection.name),
+            }
+        }
+        "favorite" => {
+            let favorite = favorite::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的收藏夹"))?;
+
+            let audio_only = params.audio_only.unwrap_or(favorite.audio_only);
+            let download_danmaku = params.download_danmaku.unwrap_or(favorite.download_danmaku);
+            let download_subtitle = params.download_subtitle.unwrap_or(favorite.download_subtitle);
+
+            favorite::Entity::update(favorite::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                audio_only: sea_orm::Set(audio_only),
+                download_danmaku: sea_orm::Set(download_danmaku),
+                download_subtitle: sea_orm::Set(download_subtitle),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateVideoSourceDownloadOptionsResponse {
+                success: true,
+                source_id: id,
+                source_type: "favorite".to_string(),
+                audio_only,
+                download_danmaku,
+                download_subtitle,
+                message: format!("收藏夹 {} 的下载选项已更新", favorite.name),
+            }
+        }
+        "submission" => {
+            let submission = submission::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
+
+            let audio_only = params.audio_only.unwrap_or(submission.audio_only);
+            let download_danmaku = params.download_danmaku.unwrap_or(submission.download_danmaku);
+            let download_subtitle = params.download_subtitle.unwrap_or(submission.download_subtitle);
+
+            submission::Entity::update(submission::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                audio_only: sea_orm::Set(audio_only),
+                download_danmaku: sea_orm::Set(download_danmaku),
+                download_subtitle: sea_orm::Set(download_subtitle),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateVideoSourceDownloadOptionsResponse {
+                success: true,
+                source_id: id,
+                source_type: "submission".to_string(),
+                audio_only,
+                download_danmaku,
+                download_subtitle,
+                message: format!("UP主投稿 {} 的下载选项已更新", submission.upper_name),
+            }
+        }
+        "watch_later" => {
+            let watch_later = watch_later::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的稍后观看"))?;
+
+            let audio_only = params.audio_only.unwrap_or(watch_later.audio_only);
+            let download_danmaku = params.download_danmaku.unwrap_or(watch_later.download_danmaku);
+            let download_subtitle = params.download_subtitle.unwrap_or(watch_later.download_subtitle);
+
+            watch_later::Entity::update(watch_later::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                audio_only: sea_orm::Set(audio_only),
+                download_danmaku: sea_orm::Set(download_danmaku),
+                download_subtitle: sea_orm::Set(download_subtitle),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateVideoSourceDownloadOptionsResponse {
+                success: true,
+                source_id: id,
+                source_type: "watch_later".to_string(),
+                audio_only,
+                download_danmaku,
+                download_subtitle,
+                message: "稍后观看的下载选项已更新".to_string(),
+            }
+        }
+        "bangumi" => {
+            let video_source = video_source::Entity::find_by_id(id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的番剧"))?;
+
+            let audio_only = params.audio_only.unwrap_or(video_source.audio_only);
+            let download_danmaku = params.download_danmaku.unwrap_or(video_source.download_danmaku);
+            let download_subtitle = params.download_subtitle.unwrap_or(video_source.download_subtitle);
+
+            video_source::Entity::update(video_source::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(id),
+                audio_only: sea_orm::Set(audio_only),
+                download_danmaku: sea_orm::Set(download_danmaku),
+                download_subtitle: sea_orm::Set(download_subtitle),
+                ..Default::default()
+            })
+            .exec(&txn)
+            .await?;
+
+            crate::api::response::UpdateVideoSourceDownloadOptionsResponse {
+                success: true,
+                source_id: id,
+                source_type: "bangumi".to_string(),
+                audio_only,
+                download_danmaku,
+                download_subtitle,
+                message: format!("番剧 {} 的下载选项已更新", video_source.name),
+            }
+        }
+        _ => return Err(anyhow!("不支持的视频源类型: {}", source_type).into()),
+    };
+
+    txn.commit().await?;
+    Ok(result)
+}
+
 /// 更新投稿源选中视频列表
 #[utoipa::path(
     put,

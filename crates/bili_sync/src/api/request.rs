@@ -83,6 +83,17 @@ pub struct UpdateVideoSourceScanDeletedRequest {
     pub scan_deleted_videos: bool,
 }
 
+// 更新视频源下载选项的请求结构体
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateVideoSourceDownloadOptionsRequest {
+    /// 是否仅下载音频（输出为m4a文件）
+    pub audio_only: Option<bool>,
+    /// 是否下载弹幕文件（ASS）
+    pub download_danmaku: Option<bool>,
+    /// 是否下载字幕文件（SRT）
+    pub download_subtitle: Option<bool>,
+}
+
 // 更新投稿源选中视频列表的请求结构体
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateSubmissionSelectedVideosRequest {

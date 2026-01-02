@@ -346,6 +346,40 @@ class ApiClient {
 	}
 
 	/**
+	 * 更新视频源下载选项
+	 * @param sourceType 视频源类型
+	 * @param id 视频源ID
+	 * @param options 下载选项
+	 */
+	async updateVideoSourceDownloadOptions(
+		sourceType: string,
+		id: number,
+		options: {
+			audio_only?: boolean;
+			download_danmaku?: boolean;
+			download_subtitle?: boolean;
+		}
+	): Promise<ApiResponse<{
+		success: boolean;
+		source_id: number;
+		source_type: string;
+		audio_only: boolean;
+		download_danmaku: boolean;
+		download_subtitle: boolean;
+		message: string;
+	}>> {
+		return this.put<{
+			success: boolean;
+			source_id: number;
+			source_type: string;
+			audio_only: boolean;
+			download_danmaku: boolean;
+			download_subtitle: boolean;
+			message: string;
+		}>(`/video-sources/${sourceType}/${id}/download-options`, options);
+	}
+
+	/**
 	 * 重设视频源路径
 	 * @param sourceType 视频源类型
 	 * @param id 视频源ID
@@ -883,6 +917,19 @@ export const api = {
 	 */
 	updateVideoSourceScanDeleted: (sourceType: string, id: number, scanDeleted: boolean) =>
 		apiClient.updateVideoSourceScanDeleted(sourceType, id, scanDeleted),
+
+	/**
+	 * 更新视频源下载选项
+	 */
+	updateVideoSourceDownloadOptions: (
+		sourceType: string,
+		id: number,
+		options: {
+			audio_only?: boolean;
+			download_danmaku?: boolean;
+			download_subtitle?: boolean;
+		}
+	) => apiClient.updateVideoSourceDownloadOptions(sourceType, id, options),
 
 	/**
 	 * 重设视频源路径
