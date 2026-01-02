@@ -1,6 +1,6 @@
 # bili-sync
 
-![bili-sync](https://socialify.git.ci/NeeYoonc/bili-sync-up/image?description=1&font=KoHo&issues=1&language=1&logo=https%3A%2F%2Fs2.loli.net%2F2023%2F12%2F02%2F9EwT2yInOu1d3zm.png&name=1&owner=1&pattern=Signal&pulls=1&stargazers=1&theme=Light)
+![bili-sync](https://socialify.git.ci/NeeYoonc/bili-sync-up/image?custom_description=%E7%94%B1%20Rust%20%26%20Tokio%20%E9%A9%B1%E5%8A%A8%E7%9A%84%E5%93%94%E5%93%A9%E5%93%94%E5%93%A9%E5%90%8C%E6%AD%A5%E5%B7%A5%E5%85%B7%EF%BC%88%E5%8D%87%E7%BA%A7%E4%BC%98%E5%8C%96%E7%89%88%EF%BC%89&description=1&font=KoHo&issues=1&language=1&logo=https%3A%2F%2Fs2.loli.net%2F2023%2F12%2F02%2F9EwT2yInOu1d3zm.png&name=1&owner=1&pattern=Signal&pulls=1&stargazers=1&theme=Light)
 
 [![GitHub Release](https://img.shields.io/github/v/release/NeeYoonc/bili-sync-up)](https://github.com/NeeYoonc/bili-sync-up/releases/latest)
 [![Test](https://github.com/NeeYoonc/bili-sync-up/actions/workflows/test.yml/badge.svg)](https://github.com/NeeYoonc/bili-sync-up/actions/workflows/test.yml)
@@ -108,14 +108,8 @@ cd bili-sync-up
 <details>
 <summary>点击展开截图</summary>
 
-### 管理界面
-![概览](./docs/assets/overview.webp)
-
-### 视频详情
-![详情](./docs/assets/detail.webp)
-
-### 文件结构
-![文件](./docs/assets/dir.webp)
+### 主页界面
+![概览](./docs/assets/主页.jpg)
 
 </details>
 
