@@ -43,18 +43,6 @@ impl VideoSource for submission::Model {
     }
 
     fn should_take(&self, release_datetime: &chrono::DateTime<Utc>, latest_row_at_string: &str) -> bool {
-        // 对于选择性下载，我们需要获取所有视频信息，然后在 create_videos 中进行过滤
-        // 所以这里保持原有的时间判断逻辑，但总是获取视频信息以便后续处理
-
-        // 如果有选择的视频列表，我们需要获取所有历史投稿以便检查
-        if self.selected_videos.is_some() {
-            debug!(
-                "UP主「{}」选择性下载模式：获取所有视频信息以便检查选择列表",
-                self.upper_name
-            );
-            return true;
-        }
-
         // 检查是否存在断点恢复情况
         let upper_id_str = self.upper_id.to_string();
         let has_checkpoint = {
@@ -66,10 +54,30 @@ impl VideoSource for submission::Model {
             return true;
         }
 
-        // 检查是否启用增量获取
+        // 如果有选择的视频列表，检查是否是首次扫描
+        if self.selected_videos.is_some() {
+            // 检查 latest_row_at 是否为初始值（首次扫描）
+            let is_first_scan = latest_row_at_string == "1970-01-01 00:00:00"
+                || latest_row_at_string.is_empty();
+
+            if is_first_scan {
+                // 首次扫描：需要获取所有视频以找到选定的视频
+                debug!(
+                    "UP主「{}」选择性下载首次扫描：获取所有视频信息以便匹配选择列表",
+                    self.upper_name
+                );
+                return true;
+            }
+            // 非首次扫描：使用增量逻辑，只获取新视频
+            debug!(
+                "UP主「{}」选择性下载增量扫描：只获取新发布的视频",
+                self.upper_name
+            );
+        }
+
+        // 增量扫描逻辑：只获取比上次扫描时间更新的视频
         let current_config = crate::config::reload_config();
-        if current_config.submission_risk_control.enable_incremental_fetch {
-            // 增量模式：只获取比上次扫描时间更新的视频
+        if current_config.submission_risk_control.enable_incremental_fetch || self.selected_videos.is_some() {
             // 将UTC时间转换为北京时间字符串，然后直接比较字符串
             let beijing_tz = crate::utils::time_format::beijing_timezone();
             let release_beijing = release_datetime.with_timezone(&beijing_tz);
@@ -110,6 +118,15 @@ impl VideoSource for submission::Model {
 
         if has_checkpoint {
             info!("开始断点恢复「{}」投稿扫描..", self.upper_name);
+        } else if self.selected_videos.is_some() {
+            // 选择性下载模式
+            let is_first_scan = self.latest_row_at == "1970-01-01 00:00:00"
+                || self.latest_row_at.is_empty();
+            if is_first_scan {
+                info!("开始全量扫描「{}」投稿（首次选择性下载，需匹配选择列表）..", self.upper_name);
+            } else {
+                info!("开始增量扫描「{}」投稿（选择性下载，仅获取新视频）..", self.upper_name);
+            }
         } else {
             let current_config = crate::config::reload_config();
             if current_config.submission_risk_control.enable_incremental_fetch {
