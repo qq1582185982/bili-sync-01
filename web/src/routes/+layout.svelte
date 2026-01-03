@@ -149,7 +149,7 @@
 								size="sm"
 								variant="outline"
 								onclick={() =>
-									window.open('https://qq1582185982.github.io/bili-sync-01/', '_blank')}
+									window.open('https://NeeYoonc.github.io/bili-sync-up/', '_blank')}
 								icon={BookOpen}
 								text="文档"
 								title="查看文档"

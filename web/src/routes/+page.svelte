@@ -100,6 +100,29 @@
 		}
 	}
 
+	// 从路径提取番剧名称（备用方案，当 series_name 不可用时）
+	function extractSeriesNameFromPath(path: string): string {
+		if (!path) return '番剧';
+		// 处理 Windows 和 Unix 路径分隔符
+		const parts = path.replace(/\\/g, '/').split('/');
+		// 返回最后一个非空的文件夹名
+		for (let i = parts.length - 1; i >= 0; i--) {
+			const part = parts[i].trim();
+			if (part && !part.includes('.')) {
+				return part;
+			}
+		}
+		return '番剧';
+	}
+
+	// 获取显示用的系列名称（优先使用 series_name，否则从路径提取）
+	function getDisplaySeriesName(item: LatestIngestItem): string {
+		if (item.series_name) {
+			return item.series_name;
+		}
+		return extractSeriesNameFromPath(item.path);
+	}
+
 	// 处理登录成功
 	function handleLoginSuccess() {
 		isAuthenticated = true;
@@ -901,92 +924,76 @@
 
 	<!-- 最新入库 Dialog 弹窗 -->
 	<Dialog.Root bind:open={showIngestSheet}>
-		<Dialog.Content class="sm:max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+		<Dialog.Content class="sm:max-w-2xl">
 			<Dialog.Header>
-				<Dialog.Title>最新入库</Dialog.Title>
-				<Dialog.Description>显示最近入库的视频记录</Dialog.Description>
-			</Dialog.Header>
-			<div class="mt-4 flex-1 overflow-hidden flex flex-col">
-				<div class="flex items-center justify-end mb-4">
+				<Dialog.Title class="flex items-center justify-between pr-8">
+					<span>最新入库</span>
 					<Button
 						size="sm"
-						variant="outline"
+						variant="ghost"
 						onclick={() => loadLatestIngests()}
 						disabled={loadingLatestIngests}
-						class="h-8"
-						title="刷新最新入库"
+						class="h-7 px-2"
+						title="刷新"
 					>
 						{#if loadingLatestIngests}
-							<SettingsIcon class="mr-2 h-4 w-4 animate-spin" />
-							加载中...
+							<SettingsIcon class="h-4 w-4 animate-spin" />
 						{:else}
-							<RefreshCwIcon class="mr-2 h-4 w-4" />
-							刷新
+							<RefreshCwIcon class="h-4 w-4" />
 						{/if}
 					</Button>
-				</div>
-
-				<div class="flex-1 overflow-auto rounded-md border">
-					<table class="w-full text-sm">
-						<thead class="bg-muted/50 sticky top-0">
-							<tr>
-								<th class="px-3 py-2 text-left font-medium">视频</th>
-								<th class="px-3 py-2 text-left font-medium">作者</th>
-								<th class="px-3 py-2 text-left font-medium">位置</th>
-								<th class="px-3 py-2 text-left font-medium">入库时间</th>
-								<th class="px-3 py-2 text-left font-medium">速度</th>
-								<th class="px-3 py-2 text-left font-medium">结果</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#if latestIngests.length === 0}
-								<tr>
-									<td class="text-muted-foreground px-3 py-6 text-center" colspan="6">暂无入库记录</td>
-								</tr>
-							{:else}
-								{#each latestIngests as item (item.video_id)}
-									<tr class="border-t">
-										<td class="px-3 py-2">
-											<div class="max-w-[200px] truncate" title={item.video_name}>
-												{item.video_name}
-											</div>
-										</td>
-										<td class="px-3 py-2">
-											<div class="max-w-[100px] truncate" title={item.upper_name}>
-												{item.upper_name}
-											</div>
-										</td>
-										<td class="px-3 py-2">
-											<div class="max-w-[280px] truncate" title={item.path}>
-												{item.path}
-											</div>
-										</td>
-										<td class="px-3 py-2 whitespace-nowrap">{item.ingested_at}</td>
-										<td class="px-3 py-2 whitespace-nowrap">{formatSpeed(item.download_speed_bps)}</td>
-										<td class="px-3 py-2">
-											{#if item.status === 'success'}
-												<div class="flex items-center gap-1 text-emerald-600">
-													<CheckCircleIcon class="h-4 w-4" />
-													成功
-												</div>
-											{:else if item.status === 'deleted'}
-												<div class="flex items-center gap-1 text-amber-600">
-													<Trash2Icon class="h-4 w-4" />
-													已删除
-												</div>
-											{:else}
-												<div class="flex items-center gap-1 text-rose-600">
-													<XCircleIcon class="h-4 w-4" />
-													失败
-												</div>
-											{/if}
-										</td>
-									</tr>
-								{/each}
-							{/if}
-						</tbody>
-					</table>
-				</div>
+				</Dialog.Title>
+			</Dialog.Header>
+			<div class="mt-2 space-y-2 max-h-[60vh] overflow-auto">
+				{#if latestIngests.length === 0}
+					<div class="text-muted-foreground py-8 text-center text-sm">暂无入库记录</div>
+				{:else}
+					{#each latestIngests as item (item.video_id)}
+						<div class="rounded-lg border p-3 hover:bg-muted/30 transition-colors">
+							<div class="flex items-start justify-between gap-3">
+								<div class="flex-1 min-w-0">
+									<div class="font-medium truncate" title={item.video_name}>
+										{item.video_name}
+									</div>
+									<div class="text-muted-foreground text-xs mt-1 flex items-center gap-2 flex-wrap">
+										{#if item.upper_name && item.upper_name.trim() !== ''}
+											<span>{item.upper_name}</span>
+										{:else}
+											<span class="text-primary/70">{getDisplaySeriesName(item)}</span>
+										{/if}
+										<span>·</span>
+										<span>{item.ingested_at}</span>
+										{#if item.download_speed_bps && item.download_speed_bps > 0}
+											<span>·</span>
+											<span>{formatSpeed(item.download_speed_bps)}</span>
+										{/if}
+									</div>
+									<div class="text-muted-foreground text-xs mt-1 truncate" title={item.path}>
+										📁 {item.path}
+									</div>
+								</div>
+								<div class="shrink-0">
+									{#if item.status === 'success'}
+										<div class="flex items-center gap-1 text-emerald-600 text-xs">
+											<CheckCircleIcon class="h-4 w-4" />
+											<span class="hidden sm:inline">成功</span>
+										</div>
+									{:else if item.status === 'deleted'}
+										<div class="flex items-center gap-1 text-amber-600 text-xs">
+											<Trash2Icon class="h-4 w-4" />
+											<span class="hidden sm:inline">已删除</span>
+										</div>
+									{:else}
+										<div class="flex items-center gap-1 text-rose-600 text-xs">
+											<XCircleIcon class="h-4 w-4" />
+											<span class="hidden sm:inline">失败</span>
+										</div>
+									{/if}
+								</div>
+							</div>
+						</div>
+					{/each}
+				{/if}
 			</div>
 		</Dialog.Content>
 	</Dialog.Root>

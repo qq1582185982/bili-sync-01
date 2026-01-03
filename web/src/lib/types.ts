@@ -863,6 +863,7 @@ export interface LatestIngestItem {
 	ingested_at: string;
 	download_speed_bps: number | null;
 	status: 'success' | 'failed' | 'deleted';
+	series_name: string | null; // 番剧系列名称（从share_copy的《》中提取）
 }
 
 export interface LatestIngestResponse {

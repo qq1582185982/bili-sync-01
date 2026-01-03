@@ -79,7 +79,7 @@
 
 			<iframe
 				bind:this={iframeElement}
-				src="https://qq1582185982.github.io/bili-sync-01/changelog.html"
+				src="https://NeeYoonc.github.io/bili-sync-up/changelog.html"
 				title="更新日志"
 				class="h-full w-full rounded-lg border-0"
 				class:opacity-0={loading || error}
