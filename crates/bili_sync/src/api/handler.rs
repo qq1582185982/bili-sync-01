@@ -8849,6 +8849,18 @@ pub async fn get_latest_ingests(
                 }
             };
 
+            // 从 share_copy 提取番剧系列名称（《剧名》格式）
+            let series_name = v.share_copy.as_ref().and_then(|s| {
+                if let Some(start) = s.find('《') {
+                    if let Some(end) = s.find('》') {
+                        if end > start {
+                            return Some(s[start + 3..end].to_string()); // UTF-8 《 is 3 bytes
+                        }
+                    }
+                }
+                None
+            });
+
             items.push(crate::ingest_log::IngestEvent {
                 video_id: v.id,
                 video_name: v.name.clone(),
@@ -8857,6 +8869,7 @@ pub async fn get_latest_ingests(
                 ingested_at: v.created_at.clone(),
                 download_speed_bps: None,
                 status,
+                series_name,
             });
         }
     }
@@ -8879,6 +8892,7 @@ pub async fn get_latest_ingests(
                 ingested_at: e.ingested_at,
                 download_speed_bps: e.download_speed_bps,
                 status: status_str.to_string(),
+                series_name: e.series_name,
             }
         })
         .collect();

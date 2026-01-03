@@ -830,6 +830,8 @@ pub struct LatestIngestItemResponse {
     pub download_speed_bps: Option<u64>,
     /// 状态：success, failed, deleted
     pub status: String,
+    /// 番剧系列名称（从share_copy的《》中提取）
+    pub series_name: Option<String>,
 }
 
 // 最新入库列表响应

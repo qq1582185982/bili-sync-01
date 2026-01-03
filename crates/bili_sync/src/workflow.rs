@@ -2599,6 +2599,18 @@ pub async fn download_video_pages(
     let ingest_video_name = final_video_model.name.clone();
     let ingest_upper_name = final_video_model.upper_name.clone();
     let ingest_deleted = final_video_model.deleted;
+    // 从 share_copy 提取番剧系列名称（《剧名》格式）
+    let ingest_series_name = final_video_model.share_copy.as_ref().and_then(|s| {
+        // 匹配《》中的内容
+        if let Some(start) = s.find('《') {
+            if let Some(end) = s.find('》') {
+                if end > start {
+                    return Some(s[start + 3..end].to_string()); // UTF-8 《 is 3 bytes
+                }
+            }
+        }
+        None
+    });
 
     let mut video_active_model: video::ActiveModel = final_video_model.into();
     video_active_model.download_status = Set(status.into());
@@ -2657,6 +2669,7 @@ pub async fn download_video_pages(
                 ingest_upper_name,
                 path_to_save.clone(),
                 ingest_status,
+                ingest_series_name,
             )
             .await;
     }

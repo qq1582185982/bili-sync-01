@@ -35,6 +35,8 @@ pub struct IngestEvent {
     pub ingested_at: String,
     pub download_speed_bps: Option<u64>,
     pub status: IngestStatus,
+    /// 番剧系列名称（从share_copy的《》中提取）
+    pub series_name: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -94,6 +96,7 @@ impl IngestLog {
         upper_name: String,
         path: String,
         status: IngestStatus,
+        series_name: Option<String>,
     ) {
         let download_speed_bps = {
             let mut map = self.accumulators.lock().await;
@@ -109,6 +112,7 @@ impl IngestLog {
             ingested_at: now_standard_string(),
             download_speed_bps,
             status,
+            series_name,
         });
 
         while q.len() > self.max_len {
