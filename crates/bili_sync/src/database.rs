@@ -1,6 +1,8 @@
 use anyhow::Result;
 use bili_sync_migration::{Migrator, MigratorTrait};
-use sea_orm::{ConnectOptions, Database, DatabaseConnection};
+use sea_orm::{DatabaseConnection, SqlxSqliteConnector};
+use sea_orm::sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous, SqlitePoolOptions};
+use sea_orm::sqlx::{self, Executor};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use tracing::debug;
@@ -9,51 +11,70 @@ use crate::config::CONFIG_DIR;
 
 static GLOBAL_DB: OnceCell<Arc<DatabaseConnection>> = OnceCell::const_new();
 
-fn database_url() -> String {
+fn database_path() -> std::path::PathBuf {
     // 确保配置目录存在
     if !CONFIG_DIR.exists() {
         std::fs::create_dir_all(&*CONFIG_DIR).expect("创建配置目录失败");
     }
-    format!("sqlite://{}?mode=rwc", CONFIG_DIR.join("data.sqlite").to_string_lossy())
+    CONFIG_DIR.join("data.sqlite")
+}
+
+/// 创建 SQLite 连接选项（带所有优化配置）
+fn create_sqlite_options() -> SqliteConnectOptions {
+    SqliteConnectOptions::new()
+        .filename(database_path())
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(std::time::Duration::from_secs(90))  // 与上游一致
+        .optimize_on_close(true, None)  // 连接关闭时自动优化查询统计
+        .pragma("cache_size", "-65536")
+        .pragma("temp_store", "MEMORY")
+        .pragma("mmap_size", "1073741824")
+        .pragma("wal_autocheckpoint", "1000")
 }
 
 async fn database_connection() -> Result<DatabaseConnection> {
-    let mut option = ConnectOptions::new(database_url());
-    option
-        .max_connections(20) // 降低最大连接数，避免过多连接
-        .min_connections(2) // 最小连接数
-        .acquire_timeout(std::time::Duration::from_secs(30)) // 缩短超时时间
-        .idle_timeout(std::time::Duration::from_secs(300)) // 空闲连接超时5分钟
-        .max_lifetime(std::time::Duration::from_secs(3600)) // 连接最大生命周期1小时
-        .sqlx_logging(false); // 禁用sqlx查询日志，避免过多的日志输出
+    // 创建连接池，使用 after_connect 回调确保每个连接都执行额外的PRAGMA
+    let pool = SqlitePoolOptions::new()
+        .max_connections(50)  // 与上游一致
+        .min_connections(5)   // 与上游一致
+        .acquire_timeout(std::time::Duration::from_secs(90))  // 与上游一致
+        .idle_timeout(std::time::Duration::from_secs(600))
+        .max_lifetime(std::time::Duration::from_secs(3600))
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                // 每个新连接都执行这些PRAGMA，确保设置生效
+                conn.execute("PRAGMA busy_timeout = 90000;").await?;
+                conn.execute("PRAGMA journal_mode = WAL;").await?;
+                conn.execute("PRAGMA synchronous = NORMAL;").await?;
+                conn.execute("PRAGMA optimize;").await?;
 
-    let connection = Database::connect(option).await?;
+                // 用 INFO 级别验证设置是否生效
+                let row: (i64,) = sqlx::query_as("PRAGMA busy_timeout;")
+                    .fetch_one(&mut *conn)
+                    .await?;
+                tracing::info!("新数据库连接已创建，busy_timeout = {}ms", row.0);
 
-    // 确保 WAL 模式已启用并应用额外的性能优化
-    use sea_orm::ConnectionTrait;
-    connection.execute_unprepared("PRAGMA journal_mode = WAL;").await?;
-    connection.execute_unprepared("PRAGMA synchronous = NORMAL;").await?;
-
-    // 增强内存映射配置以替代内存数据库
-    connection.execute_unprepared("PRAGMA cache_size = -65536;").await?; // 64MB缓存（负值表示KB）
-    connection.execute_unprepared("PRAGMA temp_store = MEMORY;").await?;
-    connection.execute_unprepared("PRAGMA mmap_size = 1073741824;").await?; // 1GB内存映射
-    connection.execute_unprepared("PRAGMA page_size = 4096;").await?; // 4KB页面大小
-
-    // WAL和并发优化
-    connection
-        .execute_unprepared("PRAGMA wal_autocheckpoint = 1000;")
+                Ok(())
+            })
+        })
+        .connect_with(create_sqlite_options())
         .await?;
-    connection
-        .execute_unprepared("PRAGMA wal_checkpoint(TRUNCATE);")
-        .await?; // 初始化时清理WAL
-    connection.execute_unprepared("PRAGMA busy_timeout = 30000;").await?; // 30秒忙等超时
 
-    // 查询优化
-    connection.execute_unprepared("PRAGMA optimize;").await?; // 启用查询优化器
-    connection.execute_unprepared("PRAGMA analysis_limit = 1000;").await?; // 分析限制
+    // 立即验证连接池中的连接配置
+    {
+        let mut conn = pool.acquire().await?;
+        let row: (i64,) = sqlx::query_as("PRAGMA busy_timeout;")
+            .fetch_one(&mut *conn)
+            .await?;
+        tracing::info!("验证连接池 busy_timeout = {}ms", row.0);
+    }
 
-    debug!("SQLite WAL 模式已启用，内存映射优化参数已应用（1GB mmap，64MB缓存）");
+    // 转换为 SeaORM 的 DatabaseConnection
+    let connection = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
+
+    debug!("SQLite 连接池已创建，20个连接，每个都应用了 WAL模式、60秒busy_timeout、64MB缓存、1GB mmap");
 
     Ok(connection)
 }
@@ -67,12 +88,23 @@ async fn migrate_database() -> Result<()> {
         debug!("检测到现有数据库文件，将在必要时应用迁移");
     }
 
-    // 注意此处使用内部构造的 DatabaseConnection，而不是通过 database_connection() 获取
-    // 这是因为使用多个连接的 Connection 会导致奇怪的迁移顺序问题，而使用默认的连接选项不会
-    let connection = Database::connect(database_url()).await?;
+    // 为迁移创建单连接池（避免多连接导致的迁移顺序问题）
+    // 同样应用 busy_timeout 等优化配置
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(create_sqlite_options())
+        .await?;
+
+    let connection = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
 
     // 确保所有迁移都应用
-    Ok(Migrator::up(&connection, None).await?)
+    Migrator::up(&connection, None).await?;
+
+    // 显式关闭连接池，确保释放所有数据库锁
+    pool.close().await;
+    debug!("迁移完成，已关闭迁移连接池");
+
+    Ok(())
 }
 
 /// 预热数据库，将关键数据加载到内存映射中
@@ -142,4 +174,31 @@ pub async fn setup_database() -> DatabaseConnection {
 /// 获取全局数据库连接
 pub fn get_global_db() -> Option<Arc<DatabaseConnection>> {
     GLOBAL_DB.get().cloned()
+}
+
+/// 开始一个事务并立即获取写锁
+/// 通过更新锁定表来强制获取写锁，避免 SQLITE_BUSY_SNAPSHOT 问题
+pub async fn begin_write_transaction(
+    connection: &sea_orm::DatabaseConnection,
+) -> anyhow::Result<sea_orm::DatabaseTransaction> {
+    use sea_orm::{ConnectionTrait, TransactionTrait};
+
+    // 确保锁定表存在
+    let _ = connection.execute_unprepared(
+        "CREATE TABLE IF NOT EXISTS _write_lock (id INTEGER PRIMARY KEY, ts INTEGER)"
+    ).await;
+    let _ = connection.execute_unprepared(
+        "INSERT OR IGNORE INTO _write_lock (id, ts) VALUES (1, 0)"
+    ).await;
+
+    // 开始事务
+    let txn = connection.begin().await?;
+
+    // 立即更新锁定表，强制获取写锁
+    // 如果其他事务持有锁，这里会等待 busy_timeout
+    txn.execute_unprepared(
+        "UPDATE _write_lock SET ts = strftime('%s', 'now') WHERE id = 1"
+    ).await?;
+
+    Ok(txn)
 }

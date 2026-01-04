@@ -2,6 +2,7 @@
 
 pub mod prelude;
 
+pub mod ai_conversation_history;
 pub mod collection;
 pub mod config_item;
 pub mod favorite;

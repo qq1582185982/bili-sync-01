@@ -1,13 +1,14 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use reqwest::Client;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
+
+use bili_sync_entity::ai_conversation_history;
 
 /// 对话消息（用于存储历史）
 #[derive(Clone, Debug)]
@@ -16,51 +17,106 @@ struct ConversationMessage {
     content: String,
 }
 
-// 每个视频源的对话历史缓存
-// Key: 视频源唯一标识（如 "collection_123"）
-// Value: 对话历史消息列表
-lazy_static::lazy_static! {
-    static ref CONVERSATION_HISTORY_CACHE: Mutex<HashMap<String, Vec<ConversationMessage>>> = Mutex::new(HashMap::new());
+/// 清除指定视频源的对话历史（数据库持久化版本）
+pub async fn clear_naming_cache(source_key: &str) -> Result<()> {
+    let db = crate::database::get_global_db()
+        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+
+    let result = ai_conversation_history::Entity::delete_many()
+        .filter(ai_conversation_history::Column::SourceKey.eq(source_key))
+        .exec(db.as_ref())
+        .await?;
+
+    info!("已清除视频源 {} 的AI对话历史，删除 {} 条记录", source_key, result.rows_affected);
+    Ok(())
 }
 
-/// 清除指定视频源的对话历史缓存
-pub fn clear_naming_cache(source_key: &str) {
-    if let Ok(mut cache) = CONVERSATION_HISTORY_CACHE.lock() {
-        cache.remove(source_key);
-        info!("已清除视频源 {} 的AI对话历史", source_key);
-    }
+/// 清除所有对话历史（数据库持久化版本）
+pub async fn clear_all_naming_cache() -> Result<()> {
+    let db = crate::database::get_global_db()
+        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+
+    let result = ai_conversation_history::Entity::delete_many()
+        .exec(db.as_ref())
+        .await?;
+
+    info!("已清除所有AI对话历史，删除 {} 条记录", result.rows_affected);
+    Ok(())
 }
 
-/// 清除所有对话历史缓存
-pub fn clear_all_naming_cache() {
-    if let Ok(mut cache) = CONVERSATION_HISTORY_CACHE.lock() {
-        cache.clear();
-        info!("已清除所有AI对话历史缓存");
-    }
-}
+/// 添加对话消息到历史（数据库持久化版本）
+async fn add_conversation_message(db: &DatabaseConnection, source_key: &str, role: &str, content: &str) -> Result<()> {
+    // 获取当前最大的order_index
+    let max_order = ai_conversation_history::Entity::find()
+        .filter(ai_conversation_history::Column::SourceKey.eq(source_key))
+        .order_by_desc(ai_conversation_history::Column::OrderIndex)
+        .one(db)
+        .await?
+        .map(|m| m.order_index)
+        .unwrap_or(-1);
 
-/// 添加对话消息到历史
-fn add_conversation_message(source_key: &str, role: &str, content: &str) {
-    if let Ok(mut cache) = CONVERSATION_HISTORY_CACHE.lock() {
-        let history = cache.entry(source_key.to_string()).or_insert_with(Vec::new);
-        // 最多保留最近 20 条消息（10轮对话）
-        if history.len() >= 20 {
-            // 移除最早的一对消息（user + assistant）
-            history.drain(0..2);
+    let new_order = max_order + 1;
+
+    // 检查消息数量，如果超过10条（5轮对话）则删除最早的2条
+    let count = ai_conversation_history::Entity::find()
+        .filter(ai_conversation_history::Column::SourceKey.eq(source_key))
+        .count(db)
+        .await?;
+
+    if count >= 10 {
+        // 获取最早的2条记录的ID
+        let oldest = ai_conversation_history::Entity::find()
+            .filter(ai_conversation_history::Column::SourceKey.eq(source_key))
+            .order_by_asc(ai_conversation_history::Column::OrderIndex)
+            .limit(2)
+            .all(db)
+            .await?;
+
+        for record in oldest {
+            ai_conversation_history::Entity::delete_by_id(record.id)
+                .exec(db)
+                .await?;
         }
-        history.push(ConversationMessage {
-            role: role.to_string(),
-            content: content.to_string(),
-        });
+        debug!("清理 {} 的旧对话记录，保留最近8条", source_key);
     }
+
+    // 插入新消息
+    let new_message = ai_conversation_history::ActiveModel {
+        source_key: Set(source_key.to_string()),
+        role: Set(role.to_string()),
+        content: Set(content.to_string()),
+        order_index: Set(new_order),
+        created_at: Set(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+        ..Default::default()
+    };
+
+    new_message.insert(db).await?;
+    debug!("保存对话消息到数据库: source_key={}, role={}, order={}", source_key, role, new_order);
+
+    Ok(())
 }
 
-/// 获取对话历史
-fn get_conversation_history(source_key: &str) -> Vec<ConversationMessage> {
-    if let Ok(cache) = CONVERSATION_HISTORY_CACHE.lock() {
-        cache.get(source_key).cloned().unwrap_or_default()
-    } else {
-        Vec::new()
+/// 获取对话历史（数据库持久化版本）
+async fn get_conversation_history(db: &DatabaseConnection, source_key: &str) -> Vec<ConversationMessage> {
+    match ai_conversation_history::Entity::find()
+        .filter(ai_conversation_history::Column::SourceKey.eq(source_key))
+        .order_by_asc(ai_conversation_history::Column::OrderIndex)
+        .all(db)
+        .await
+    {
+        Ok(records) => {
+            records
+                .into_iter()
+                .map(|r| ConversationMessage {
+                    role: r.role,
+                    content: r.content,
+                })
+                .collect()
+        }
+        Err(e) => {
+            warn!("获取对话历史失败: {}", e);
+            Vec::new()
+        }
     }
 }
 
@@ -163,8 +219,12 @@ pub async fn ai_generate_filename(
 ) -> Result<String> {
     let api_key = cfg.api_key.clone().ok_or_else(|| anyhow!("API key missing"))?;
 
-    // 获取对话历史
-    let history = get_conversation_history(source_key);
+    // 获取数据库连接
+    let db = crate::database::get_global_db()
+        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+
+    // 获取对话历史（从数据库）
+    let history = get_conversation_history(db.as_ref(), source_key).await;
     let history_len = history.len();
 
     // 调试日志
@@ -277,9 +337,13 @@ pub async fn ai_generate_filename(
         return Err(anyhow!("Empty filename"));
     }
 
-    // 将用户消息和助手回复添加到对话历史
-    add_conversation_message(source_key, "user", &user_content);
-    add_conversation_message(source_key, "assistant", &name);
+    // 将用户消息和助手回复添加到对话历史（保存到数据库）
+    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "user", &user_content).await {
+        warn!("保存用户消息到数据库失败: {}", e);
+    }
+    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "assistant", &name).await {
+        warn!("保存助手回复到数据库失败: {}", e);
+    }
 
     info!(
         "AI重命名成功 [{}]: {} → {}",
@@ -471,8 +535,12 @@ pub async fn rename_inconsistent_file(
     // 构建重命名请求，强调必须与现有风格一致
     let api_key = cfg.api_key.clone().ok_or_else(|| anyhow!("API key missing"))?;
 
-    // 获取对话历史作为参考
-    let history = get_conversation_history(source_key);
+    // 获取数据库连接
+    let db = crate::database::get_global_db()
+        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+
+    // 获取对话历史作为参考（从数据库）
+    let history = get_conversation_history(db.as_ref(), source_key).await;
     if history.is_empty() {
         return Err(anyhow!("没有对话历史，无法确定一致的命名风格"));
     }
@@ -560,8 +628,17 @@ pub async fn rename_inconsistent_file(
         new_stem = new_stem.chars().take(180).collect();
     }
 
-    if new_stem.is_empty() || new_stem == current_stem {
-        return Err(anyhow!("生成的文件名无效或相同"));
+    if new_stem.is_empty() {
+        return Err(anyhow!("生成的文件名为空"));
+    }
+
+    // 如果生成的文件名与当前相同，说明AI认为当前命名已经是一致的，跳过
+    if new_stem == current_stem {
+        info!(
+            "[{}] 文件名已一致，无需修改: {}",
+            source_key, current_stem
+        );
+        return Ok(file_path.to_path_buf());
     }
 
     // 执行重命名

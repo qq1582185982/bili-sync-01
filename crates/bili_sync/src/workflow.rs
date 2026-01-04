@@ -896,6 +896,10 @@ pub async fn fetch_video_details(
                             // 检查是否为合作视频，支持submission和收藏夹来源
                             let mut video_model_mut = video_model.clone();
                             let mut collaboration_video_updated = false;
+
+                            // 使用写事务函数（立即获取写锁，避免 SQLITE_BUSY_SNAPSHOT）
+                            let txn = crate::database::begin_write_transaction(connection).await?;
+
                             if let Some(staff_list) = staff {
                                 debug!("视频 {} 有staff信息，成员数量: {}", video_model.bvid, staff_list.len());
                                 for staff_member in staff_list.iter() {
@@ -920,7 +924,7 @@ pub async fn fetch_video_details(
                                         debug!("submission来源视频，source_submission_id: {}", source_submission_id);
                                         if let Ok(Some(submission)) =
                                             submission::Entity::find_by_id(source_submission_id)
-                                                .one(connection)
+                                                .one(&txn)
                                                 .await
                                         {
                                             debug!(
@@ -957,7 +961,7 @@ pub async fn fetch_video_details(
                                             if let Ok(Some(submission)) = submission::Entity::find()
                                                 .filter(submission::Column::UpperId.eq(staff_member.mid))
                                                 .filter(submission::Column::Enabled.eq(true))
-                                                .one(connection)
+                                                .one(&txn)
                                                 .await
                                             {
                                                 debug!(
@@ -1011,7 +1015,6 @@ pub async fn fetch_video_details(
                                 debug!("视频 {} 没有staff信息", video_model.bvid);
                             }
 
-                            let txn = connection.begin().await?;
                             // 将分页信息写入数据库
                             create_pages(pages, &video_model_mut, &txn).await?;
                             let mut video_active_model = view_info.into_detail_model(video_model_mut.clone());

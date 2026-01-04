@@ -12019,7 +12019,12 @@ pub async fn validate_regex_pattern(
     )
 )]
 pub async fn clear_ai_rename_cache() -> Result<ApiResponse<crate::api::response::ClearAiCacheResponse>, ApiError> {
-    crate::utils::ai_rename::clear_all_naming_cache();
+    if let Err(e) = crate::utils::ai_rename::clear_all_naming_cache().await {
+        return Ok(ApiResponse::ok(crate::api::response::ClearAiCacheResponse {
+            success: false,
+            message: format!("清除AI对话历史失败: {}", e),
+        }));
+    }
 
     Ok(ApiResponse::ok(crate::api::response::ClearAiCacheResponse {
         success: true,
@@ -12043,7 +12048,12 @@ pub async fn clear_ai_rename_cache_for_source(
     Path((source_type, id)): Path<(String, i32)>,
 ) -> Result<ApiResponse<crate::api::response::ClearAiCacheResponse>, ApiError> {
     let source_key = format!("{}_{}", source_type, id);
-    crate::utils::ai_rename::clear_naming_cache(&source_key);
+    if let Err(e) = crate::utils::ai_rename::clear_naming_cache(&source_key).await {
+        return Ok(ApiResponse::ok(crate::api::response::ClearAiCacheResponse {
+            success: false,
+            message: format!("清除 {} 的AI对话历史失败: {}", source_key, e),
+        }));
+    }
 
     Ok(ApiResponse::ok(crate::api::response::ClearAiCacheResponse {
         success: true,

@@ -40,6 +40,7 @@ mod m20260101_000001_add_audio_only_field;
 mod m20260101_000002_add_download_toggles;
 mod m20260103_000001_add_ai_rename_toggle;
 mod m20260103_000002_add_ai_rename_prompts;
+mod m20260104_000001_create_ai_conversation_history;
 
 pub struct Migrator;
 
@@ -87,6 +88,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260101_000002_add_download_toggles::Migration),
             Box::new(m20260103_000001_add_ai_rename_toggle::Migration),
             Box::new(m20260103_000002_add_ai_rename_prompts::Migration),
+            Box::new(m20260104_000001_create_ai_conversation_history::Migration),
         ]
     }
 }
