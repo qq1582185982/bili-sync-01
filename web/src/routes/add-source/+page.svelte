@@ -20,7 +20,7 @@
 		AddVideoSourceRequest,
 		KeywordFilterMode
 	} from '$lib/types';
-	import { Search, X, Plus as PlusIcon, Filter as FilterIcon } from '@lucide/svelte';
+	import { Search, X, Plus as PlusIcon, Filter as FilterIcon, Info as InfoIcon } from '@lucide/svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { flip } from 'svelte/animate';
@@ -2437,7 +2437,18 @@
 
 						<!-- 保存路径 -->
 						<div class="space-y-2">
-							<Label for="path">保存路径</Label>
+							<div class="flex items-center gap-1">
+								<Label for="path">保存路径</Label>
+								<div class="group relative">
+									<InfoIcon class="h-4 w-4 text-muted-foreground cursor-help" />
+									<div class="absolute left-0 bottom-full mb-2 hidden w-72 rounded-md border bg-popover p-3 text-sm shadow-md group-hover:block z-50">
+										<p class="font-medium mb-1">Docker 路径说明</p>
+										<p class="text-muted-foreground text-xs">如果使用 Docker 部署并设置了卷映射，请填写容器内路径。</p>
+										<p class="text-muted-foreground text-xs mt-1">例如映射 <code class="bg-muted px-1 rounded">/volume1/Videos:/Downloads</code></p>
+										<p class="text-muted-foreground text-xs">则应填写 <code class="bg-muted px-1 rounded">/Downloads</code></p>
+									</div>
+								</div>
+							</div>
 							<Input
 								id="path"
 								bind:value={path}
