@@ -69,6 +69,10 @@ pub struct AddVideoSourceRequest {
     pub ai_rename_video_prompt: Option<String>,
     // AI重命名音频提示词（覆盖全局配置）
     pub ai_rename_audio_prompt: Option<String>,
+    // 仅音频时是否只保留m4a（不下载封面/nfo/弹幕/字幕）
+    pub audio_only_m4a_only: Option<bool>,
+    // 是否启用平铺目录模式（不为每个视频创建子文件夹）
+    pub flat_folder: Option<bool>,
 }
 
 // 删除视频源的请求结构体
@@ -94,6 +98,10 @@ pub struct UpdateVideoSourceScanDeletedRequest {
 pub struct UpdateVideoSourceDownloadOptionsRequest {
     /// 是否仅下载音频（输出为m4a文件）
     pub audio_only: Option<bool>,
+    /// 仅音频时是否只保留m4a（不下载封面/nfo/弹幕/字幕）
+    pub audio_only_m4a_only: Option<bool>,
+    /// 是否启用平铺目录模式（不为每个视频创建子文件夹）
+    pub flat_folder: Option<bool>,
     /// 是否下载弹幕文件（ASS）
     pub download_danmaku: Option<bool>,
     /// 是否下载字幕文件（SRT）

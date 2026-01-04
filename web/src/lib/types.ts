@@ -52,6 +52,8 @@ export interface VideoSource {
 	keyword_filter_mode?: KeywordFilterMode; // 【已废弃】关键词过滤模式
 	// 下载选项
 	audio_only: boolean; // 仅下载音频（输出m4a格式）
+	audio_only_m4a_only: boolean; // 仅音频时只保留m4a（不下载封面/nfo/弹幕/字幕）
+	flat_folder: boolean; // 平铺目录模式（不为每个视频创建子文件夹）
 	download_danmaku: boolean; // 是否下载弹幕
 	download_subtitle: boolean; // 是否下载字幕
 	ai_rename: boolean; // 是否启用AI重命名
@@ -187,6 +189,8 @@ export interface AddVideoSourceRequest {
 	keyword_filter_mode?: KeywordFilterMode; // 关键词过滤模式: "blacklist"（排除匹配）或 "whitelist"（只下载匹配）
 	// 下载选项
 	audio_only?: boolean; // 仅下载音频（输出m4a格式）
+	audio_only_m4a_only?: boolean; // 仅音频时只保留m4a（不下载封面/nfo/弹幕/字幕）
+	flat_folder?: boolean; // 平铺目录模式（不为每个视频创建子文件夹）
 	download_danmaku?: boolean; // 是否下载弹幕（默认true）
 	download_subtitle?: boolean; // 是否下载字幕（默认true）
 	ai_rename?: boolean; // 是否启用AI重命名（默认false）

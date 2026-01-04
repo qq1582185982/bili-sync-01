@@ -357,6 +357,8 @@ class ApiClient {
 		id: number,
 		options: {
 			audio_only?: boolean;
+			audio_only_m4a_only?: boolean;
+			flat_folder?: boolean;
 			download_danmaku?: boolean;
 			download_subtitle?: boolean;
 			ai_rename?: boolean;
@@ -368,6 +370,8 @@ class ApiClient {
 		source_id: number;
 		source_type: string;
 		audio_only: boolean;
+		audio_only_m4a_only: boolean;
+		flat_folder: boolean;
 		download_danmaku: boolean;
 		download_subtitle: boolean;
 		ai_rename: boolean;
@@ -380,6 +384,8 @@ class ApiClient {
 			source_id: number;
 			source_type: string;
 			audio_only: boolean;
+			audio_only_m4a_only: boolean;
+			flat_folder: boolean;
 			download_danmaku: boolean;
 			download_subtitle: boolean;
 			ai_rename: boolean;
@@ -972,6 +978,8 @@ export const api = {
 		id: number,
 		options: {
 			audio_only?: boolean;
+			audio_only_m4a_only?: boolean;
+			flat_folder?: boolean;
 			download_danmaku?: boolean;
 			download_subtitle?: boolean;
 			ai_rename?: boolean;

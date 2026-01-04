@@ -39,6 +39,8 @@ pub struct Model {
     pub whitelist_keywords: Option<String>,
     pub keyword_case_sensitive: bool,
     pub audio_only: bool,
+    pub audio_only_m4a_only: bool,
+    pub flat_folder: bool,
     pub download_danmaku: bool,
     pub download_subtitle: bool,
     pub ai_rename: bool,

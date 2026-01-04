@@ -125,6 +125,8 @@ pub struct UpdateVideoSourceDownloadOptionsResponse {
     pub source_id: i32,
     pub source_type: String,
     pub audio_only: bool,
+    pub audio_only_m4a_only: bool,
+    pub flat_folder: bool,
     pub download_danmaku: bool,
     pub download_subtitle: bool,
     pub ai_rename: bool,
@@ -203,6 +205,8 @@ pub struct VideoSource {
     pub keyword_filter_mode: Option<String>,   // 【已废弃】关键词过滤模式
     // 音频和下载选项
     pub audio_only: bool,           // 是否仅下载音频（输出m4a）
+    pub audio_only_m4a_only: bool,  // 仅音频时只保留m4a（不下载封面/nfo/弹幕/字幕）
+    pub flat_folder: bool,          // 是否启用平铺目录模式
     pub download_danmaku: bool,     // 是否下载弹幕文件
     pub download_subtitle: bool,    // 是否下载字幕文件
     pub ai_rename: bool,            // 是否启用AI重命名

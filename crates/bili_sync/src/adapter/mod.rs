@@ -139,6 +139,18 @@ pub trait VideoSource {
         false // 默认实现：下载视频
     }
 
+    /// 仅音频下载时，是否只保留 m4a 文件（不下载封面/nfo/弹幕/字幕等 sidecar）
+    /// 默认为 false
+    fn audio_only_m4a_only(&self) -> bool {
+        false
+    }
+
+    /// 是否启用平铺目录模式（不为每个视频创建子文件夹）
+    /// 默认为 false
+    fn flat_folder(&self) -> bool {
+        false
+    }
+
     /// 获取是否下载弹幕（默认为 true）
     fn download_danmaku(&self) -> bool {
         true // 默认实现：下载弹幕
@@ -302,6 +314,8 @@ pub async fn bangumi_from<'a>(
             whitelist_keywords: model.whitelist_keywords,
             keyword_case_sensitive: model.keyword_case_sensitive,
             audio_only: model.audio_only,
+            audio_only_m4a_only: model.audio_only_m4a_only,
+            flat_folder: model.flat_folder,
             download_danmaku: model.download_danmaku,
             download_subtitle: model.download_subtitle,
             ai_rename: model.ai_rename,
@@ -336,6 +350,8 @@ pub async fn bangumi_from<'a>(
             whitelist_keywords: None,
             keyword_case_sensitive: true,
             audio_only: false,
+            audio_only_m4a_only: false,
+            flat_folder: false,
             download_danmaku: true,
             download_subtitle: true,
             ai_rename: false,

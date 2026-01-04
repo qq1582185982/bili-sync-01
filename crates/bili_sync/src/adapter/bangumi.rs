@@ -36,6 +36,8 @@ pub struct BangumiSource {
     pub whitelist_keywords: Option<String>,
     pub keyword_case_sensitive: bool,
     pub audio_only: bool,
+    pub audio_only_m4a_only: bool,
+    pub flat_folder: bool,
     pub download_danmaku: bool,
     pub download_subtitle: bool,
     pub ai_rename: bool,
@@ -518,6 +520,14 @@ impl VideoSource for BangumiSource {
 
     fn audio_only(&self) -> bool {
         self.audio_only
+    }
+
+    fn audio_only_m4a_only(&self) -> bool {
+        self.audio_only_m4a_only
+    }
+
+    fn flat_folder(&self) -> bool {
+        self.flat_folder
     }
 
     fn download_danmaku(&self) -> bool {

@@ -216,6 +216,8 @@ pub async fn get_video_sources(
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
                 audio_only: model.audio_only,
+                audio_only_m4a_only: model.audio_only_m4a_only,
+                flat_folder: model.flat_folder,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
                 ai_rename: model.ai_rename,
@@ -258,6 +260,8 @@ pub async fn get_video_sources(
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
                 audio_only: model.audio_only,
+                audio_only_m4a_only: model.audio_only_m4a_only,
+                flat_folder: model.flat_folder,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
                 ai_rename: model.ai_rename,
@@ -300,6 +304,8 @@ pub async fn get_video_sources(
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
                 audio_only: model.audio_only,
+                audio_only_m4a_only: model.audio_only_m4a_only,
+                flat_folder: model.flat_folder,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
                 ai_rename: model.ai_rename,
@@ -342,6 +348,8 @@ pub async fn get_video_sources(
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
                 audio_only: model.audio_only,
+                audio_only_m4a_only: model.audio_only_m4a_only,
+                flat_folder: model.flat_folder,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
                 ai_rename: model.ai_rename,
@@ -398,6 +406,8 @@ pub async fn get_video_sources(
                 keyword_filters,
                 keyword_filter_mode: model.keyword_filter_mode,
                 audio_only: model.audio_only,
+                audio_only_m4a_only: model.audio_only_m4a_only,
+                flat_folder: model.flat_folder,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
                 ai_rename: model.ai_rename,
@@ -1752,6 +1762,8 @@ pub async fn add_video_source_internal(
                 whitelist_keywords: sea_orm::Set(None),
                 keyword_case_sensitive: sea_orm::Set(true),
                 audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
+                audio_only_m4a_only: sea_orm::Set(params.audio_only_m4a_only.unwrap_or(false)),
+                flat_folder: sea_orm::Set(params.flat_folder.unwrap_or(false)),
                 download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
                 download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
                 ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
@@ -1816,6 +1828,8 @@ pub async fn add_video_source_internal(
                 whitelist_keywords: sea_orm::Set(None),
                 keyword_case_sensitive: sea_orm::Set(true),
                 audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
+                audio_only_m4a_only: sea_orm::Set(params.audio_only_m4a_only.unwrap_or(false)),
+                flat_folder: sea_orm::Set(params.flat_folder.unwrap_or(false)),
                 download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
                 download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
                 ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
@@ -1890,6 +1904,8 @@ pub async fn add_video_source_internal(
                 ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
                 ai_rename_video_prompt: sea_orm::Set(params.ai_rename_video_prompt.clone().unwrap_or_default()),
                 ai_rename_audio_prompt: sea_orm::Set(params.ai_rename_audio_prompt.clone().unwrap_or_default()),
+                audio_only_m4a_only: sea_orm::Set(params.audio_only_m4a_only.unwrap_or(false)),
+                flat_folder: sea_orm::Set(params.flat_folder.unwrap_or(false)),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -2265,6 +2281,8 @@ pub async fn add_video_source_internal(
                 ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
                 ai_rename_video_prompt: sea_orm::Set(params.ai_rename_video_prompt.clone().unwrap_or_default()),
                 ai_rename_audio_prompt: sea_orm::Set(params.ai_rename_audio_prompt.clone().unwrap_or_default()),
+                audio_only_m4a_only: sea_orm::Set(params.audio_only_m4a_only.unwrap_or(false)),
+                flat_folder: sea_orm::Set(params.flat_folder.unwrap_or(false)),
             };
 
             let insert_result = watch_later::Entity::insert(watch_later).exec(&txn).await?;
@@ -3786,6 +3804,8 @@ pub async fn update_video_source_download_options_internal(
                 .ok_or_else(|| anyhow!("未找到指定的合集"))?;
 
             let audio_only = params.audio_only.unwrap_or(collection.audio_only);
+            let audio_only_m4a_only = params.audio_only_m4a_only.unwrap_or(collection.audio_only_m4a_only);
+            let flat_folder = params.flat_folder.unwrap_or(collection.flat_folder);
             let download_danmaku = params.download_danmaku.unwrap_or(collection.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(collection.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(collection.ai_rename);
@@ -3795,6 +3815,8 @@ pub async fn update_video_source_download_options_internal(
             collection::Entity::update(collection::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
+                audio_only_m4a_only: sea_orm::Set(audio_only_m4a_only),
+                flat_folder: sea_orm::Set(flat_folder),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
                 ai_rename: sea_orm::Set(ai_rename),
@@ -3810,6 +3832,8 @@ pub async fn update_video_source_download_options_internal(
                 source_id: id,
                 source_type: "collection".to_string(),
                 audio_only,
+                audio_only_m4a_only,
+                flat_folder,
                 download_danmaku,
                 download_subtitle,
                 ai_rename,
@@ -3825,6 +3849,8 @@ pub async fn update_video_source_download_options_internal(
                 .ok_or_else(|| anyhow!("未找到指定的收藏夹"))?;
 
             let audio_only = params.audio_only.unwrap_or(favorite.audio_only);
+            let audio_only_m4a_only = params.audio_only_m4a_only.unwrap_or(favorite.audio_only_m4a_only);
+            let flat_folder = params.flat_folder.unwrap_or(favorite.flat_folder);
             let download_danmaku = params.download_danmaku.unwrap_or(favorite.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(favorite.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(favorite.ai_rename);
@@ -3834,6 +3860,8 @@ pub async fn update_video_source_download_options_internal(
             favorite::Entity::update(favorite::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
+                audio_only_m4a_only: sea_orm::Set(audio_only_m4a_only),
+                flat_folder: sea_orm::Set(flat_folder),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
                 ai_rename: sea_orm::Set(ai_rename),
@@ -3849,6 +3877,8 @@ pub async fn update_video_source_download_options_internal(
                 source_id: id,
                 source_type: "favorite".to_string(),
                 audio_only,
+                audio_only_m4a_only,
+                flat_folder,
                 download_danmaku,
                 download_subtitle,
                 ai_rename,
@@ -3864,6 +3894,8 @@ pub async fn update_video_source_download_options_internal(
                 .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
 
             let audio_only = params.audio_only.unwrap_or(submission.audio_only);
+            let audio_only_m4a_only = params.audio_only_m4a_only.unwrap_or(submission.audio_only_m4a_only);
+            let flat_folder = params.flat_folder.unwrap_or(submission.flat_folder);
             let download_danmaku = params.download_danmaku.unwrap_or(submission.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(submission.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(submission.ai_rename);
@@ -3873,6 +3905,8 @@ pub async fn update_video_source_download_options_internal(
             submission::Entity::update(submission::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
+                audio_only_m4a_only: sea_orm::Set(audio_only_m4a_only),
+                flat_folder: sea_orm::Set(flat_folder),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
                 ai_rename: sea_orm::Set(ai_rename),
@@ -3888,6 +3922,8 @@ pub async fn update_video_source_download_options_internal(
                 source_id: id,
                 source_type: "submission".to_string(),
                 audio_only,
+                audio_only_m4a_only,
+                flat_folder,
                 download_danmaku,
                 download_subtitle,
                 ai_rename,
@@ -3903,6 +3939,8 @@ pub async fn update_video_source_download_options_internal(
                 .ok_or_else(|| anyhow!("未找到指定的稍后观看"))?;
 
             let audio_only = params.audio_only.unwrap_or(watch_later.audio_only);
+            let audio_only_m4a_only = params.audio_only_m4a_only.unwrap_or(watch_later.audio_only_m4a_only);
+            let flat_folder = params.flat_folder.unwrap_or(watch_later.flat_folder);
             let download_danmaku = params.download_danmaku.unwrap_or(watch_later.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(watch_later.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(watch_later.ai_rename);
@@ -3912,6 +3950,8 @@ pub async fn update_video_source_download_options_internal(
             watch_later::Entity::update(watch_later::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
+                audio_only_m4a_only: sea_orm::Set(audio_only_m4a_only),
+                flat_folder: sea_orm::Set(flat_folder),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
                 ai_rename: sea_orm::Set(ai_rename),
@@ -3927,6 +3967,8 @@ pub async fn update_video_source_download_options_internal(
                 source_id: id,
                 source_type: "watch_later".to_string(),
                 audio_only,
+                audio_only_m4a_only,
+                flat_folder,
                 download_danmaku,
                 download_subtitle,
                 ai_rename,
@@ -3942,6 +3984,8 @@ pub async fn update_video_source_download_options_internal(
                 .ok_or_else(|| anyhow!("未找到指定的番剧"))?;
 
             let audio_only = params.audio_only.unwrap_or(video_source.audio_only);
+            let audio_only_m4a_only = params.audio_only_m4a_only.unwrap_or(video_source.audio_only_m4a_only);
+            let flat_folder = params.flat_folder.unwrap_or(video_source.flat_folder);
             let download_danmaku = params.download_danmaku.unwrap_or(video_source.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(video_source.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(video_source.ai_rename);
@@ -3951,6 +3995,8 @@ pub async fn update_video_source_download_options_internal(
             video_source::Entity::update(video_source::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
+                audio_only_m4a_only: sea_orm::Set(audio_only_m4a_only),
+                flat_folder: sea_orm::Set(flat_folder),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
                 ai_rename: sea_orm::Set(ai_rename),
@@ -3966,6 +4012,8 @@ pub async fn update_video_source_download_options_internal(
                 source_id: id,
                 source_type: "bangumi".to_string(),
                 audio_only,
+                audio_only_m4a_only,
+                flat_folder,
                 download_danmaku,
                 download_subtitle,
                 ai_rename,

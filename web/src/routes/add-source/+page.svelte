@@ -39,6 +39,8 @@
 
 	// 下载选项
 	let audioOnly = false; // 仅下载音频
+	let audioOnlyM4aOnly = false; // 仅音频时只保留m4a（不下载封面/nfo/弹幕/字幕）
+	let flatFolder = false; // 平铺目录模式
 	let downloadDanmaku = true; // 下载弹幕（默认开启）
 	let downloadSubtitle = true; // 下载字幕（默认开启）
 	let aiRename = false; // AI重命名（默认关闭）
@@ -608,6 +610,8 @@
 				path,
 				// 下载选项
 				audio_only: audioOnly,
+				audio_only_m4a_only: audioOnlyM4aOnly,
+				flat_folder: flatFolder,
 				download_danmaku: downloadDanmaku,
 				download_subtitle: downloadSubtitle,
 				ai_rename: aiRename,
@@ -697,6 +701,8 @@
 				showKeywordSection = false;
 				// 重置下载选项
 				audioOnly = false;
+				audioOnlyM4aOnly = false;
+				flatFolder = false;
 				downloadDanmaku = true;
 				downloadSubtitle = true;
 				aiRename = false;
@@ -2487,6 +2493,78 @@
 									</label>
 								</div>
 
+								<!-- 仅保留M4A（仅在音频模式开启时显示） -->
+								{#if audioOnly}
+									<div
+										class="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-600 dark:bg-amber-900/30"
+									>
+										<div class="flex items-center gap-2">
+											<svg
+												class="h-4 w-4 text-amber-600 dark:text-amber-400"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+												/>
+											</svg>
+											<div>
+												<span class="text-xs font-medium text-amber-700 dark:text-amber-300"
+													>仅保留M4A</span
+												>
+												<p class="text-[10px] text-amber-600 dark:text-amber-400">
+													只下载音频文件，不下载封面、NFO、弹幕、字幕
+												</p>
+											</div>
+										</div>
+										<label class="relative inline-flex cursor-pointer items-center">
+											<input type="checkbox" bind:checked={audioOnlyM4aOnly} class="peer sr-only" />
+											<div
+												class="peer h-5 w-9 rounded-full bg-gray-300 peer-checked:bg-amber-600 peer-focus:ring-2 peer-focus:ring-amber-500 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-600 dark:peer-checked:bg-amber-500"
+											></div>
+										</label>
+									</div>
+								{/if}
+
+								<!-- 平铺目录模式 -->
+								<div
+									class="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-700"
+								>
+									<div class="flex items-center gap-2">
+										<svg
+											class="h-4 w-4 text-purple-600 dark:text-purple-400"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="2"
+												d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+											/>
+										</svg>
+										<div>
+											<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+												>平铺目录</span
+											>
+											<p class="text-[10px] text-gray-500 dark:text-gray-400">
+												所有文件直接放入根目录，不创建子文件夹
+											</p>
+										</div>
+									</div>
+									<label class="relative inline-flex cursor-pointer items-center">
+										<input type="checkbox" bind:checked={flatFolder} class="peer sr-only" />
+										<div
+											class="peer h-5 w-9 rounded-full bg-gray-300 peer-checked:bg-purple-600 peer-focus:ring-2 peer-focus:ring-purple-500 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-600 dark:peer-checked:bg-purple-500"
+										></div>
+									</label>
+								</div>
+
 								<!-- 下载弹幕 -->
 								<div
 									class="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-700"
@@ -2600,10 +2678,11 @@
 										</div>
 										<!-- 视频提示词 -->
 										<div class="space-y-1">
-											<label class="text-[10px] font-medium text-gray-600 dark:text-gray-400">
+											<label for="ai-video-prompt" class="text-[10px] font-medium text-gray-600 dark:text-gray-400">
 												视频重命名提示词
 											</label>
 											<textarea
+												id="ai-video-prompt"
 												bind:value={aiRenameVideoPrompt}
 												placeholder="例如：作者-标题-来源-清晰度"
 												rows="2"
@@ -2612,10 +2691,11 @@
 										</div>
 										<!-- 音频提示词 -->
 										<div class="space-y-1">
-											<label class="text-[10px] font-medium text-gray-600 dark:text-gray-400">
+											<label for="ai-audio-prompt" class="text-[10px] font-medium text-gray-600 dark:text-gray-400">
 												音频重命名提示词
 											</label>
 											<textarea
+												id="ai-audio-prompt"
 												bind:value={aiRenameAudioPrompt}
 												placeholder="例如：歌手-歌名-版本信息"
 												rows="2"

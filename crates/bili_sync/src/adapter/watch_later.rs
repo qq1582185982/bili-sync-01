@@ -107,6 +107,14 @@ impl VideoSource for watch_later::Model {
         self.audio_only
     }
 
+    fn audio_only_m4a_only(&self) -> bool {
+        self.audio_only_m4a_only
+    }
+
+    fn flat_folder(&self) -> bool {
+        self.flat_folder
+    }
+
     fn download_danmaku(&self) -> bool {
         self.download_danmaku
     }

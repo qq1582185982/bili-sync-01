@@ -26,6 +26,8 @@
 	import ListVideoIcon from '@lucide/svelte/icons/list-video';
 	import FilterIcon from '@lucide/svelte/icons/filter';
 	import MusicIcon from '@lucide/svelte/icons/music';
+	import FileAudioIcon from '@lucide/svelte/icons/file-audio';
+	import FolderSyncIcon from '@lucide/svelte/icons/folder-sync';
 	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import SubtitlesIcon from '@lucide/svelte/icons/subtitles';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
@@ -189,6 +191,58 @@
 			if (result.data.success) {
 				toast.success('设置更新成功', {
 					description: newAudioOnly ? '已启用仅下载音频模式' : '已禁用仅下载音频模式'
+				});
+				await loadVideoSources();
+			} else {
+				toast.error('设置更新失败', { description: result.data.message });
+			}
+		} catch (error: unknown) {
+			console.error('设置更新失败:', error);
+			toast.error('设置更新失败', { description: (error as Error).message });
+		}
+	}
+
+	// 切换仅保留M4A设置
+	async function handleToggleAudioOnlyM4aOnly(
+		sourceType: string,
+		sourceId: number,
+		currentAudioOnlyM4aOnly: boolean
+	) {
+		try {
+			const newAudioOnlyM4aOnly = !currentAudioOnlyM4aOnly;
+			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+				audio_only_m4a_only: newAudioOnlyM4aOnly
+			});
+
+			if (result.data.success) {
+				toast.success('设置更新成功', {
+					description: newAudioOnlyM4aOnly ? '已启用仅保留M4A模式' : '已禁用仅保留M4A模式'
+				});
+				await loadVideoSources();
+			} else {
+				toast.error('设置更新失败', { description: result.data.message });
+			}
+		} catch (error: unknown) {
+			console.error('设置更新失败:', error);
+			toast.error('设置更新失败', { description: (error as Error).message });
+		}
+	}
+
+	// 切换平铺目录设置
+	async function handleToggleFlatFolder(
+		sourceType: string,
+		sourceId: number,
+		currentFlatFolder: boolean
+	) {
+		try {
+			const newFlatFolder = !currentFlatFolder;
+			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+				flat_folder: newFlatFolder
+			});
+
+			if (result.data.success) {
+				toast.success('设置更新成功', {
+					description: newFlatFolder ? '已启用平铺目录模式' : '已禁用平铺目录模式'
 				});
 				await loadVideoSources();
 			} else {
@@ -565,6 +619,12 @@
 												<div class="mt-1 flex flex-wrap gap-2 text-xs">
 													{#if source.audio_only}
 														<span class="text-amber-600">仅音频模式</span>
+														{#if source.audio_only_m4a_only}
+															<span class="text-amber-500">仅M4A</span>
+														{/if}
+													{/if}
+													{#if source.flat_folder}
+														<span class="text-purple-600">平铺目录</span>
 													{/if}
 													{#if source.download_danmaku === false}
 														<span class="text-gray-500">弹幕下载已禁用</span>
@@ -684,6 +744,48 @@
 													<MusicIcon
 														class="h-4 w-4 {source.audio_only
 															? 'text-amber-600'
+															: 'text-gray-400'}"
+													/>
+												</Button>
+
+												<!-- 仅保留M4A（仅在音频模式开启时显示） -->
+												{#if source.audio_only}
+													<Button
+														size="sm"
+														variant="ghost"
+														onclick={() =>
+															handleToggleAudioOnlyM4aOnly(
+																sourceConfig.type,
+																source.id,
+																source.audio_only_m4a_only ?? false
+															)}
+														title={source.audio_only_m4a_only ? '禁用仅M4A模式' : '启用仅M4A模式'}
+														class="h-8 w-8 p-0"
+													>
+														<FileAudioIcon
+															class="h-4 w-4 {source.audio_only_m4a_only
+																? 'text-amber-500'
+																: 'text-gray-400'}"
+														/>
+													</Button>
+												{/if}
+
+												<!-- 平铺目录 -->
+												<Button
+													size="sm"
+													variant="ghost"
+													onclick={() =>
+														handleToggleFlatFolder(
+															sourceConfig.type,
+															source.id,
+															source.flat_folder ?? false
+														)}
+													title={source.flat_folder ? '禁用平铺目录' : '启用平铺目录'}
+													class="h-8 w-8 p-0"
+												>
+													<FolderSyncIcon
+														class="h-4 w-4 {source.flat_folder
+															? 'text-purple-600'
 															: 'text-gray-400'}"
 													/>
 												</Button>

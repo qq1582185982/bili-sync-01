@@ -1778,7 +1778,16 @@ pub async fn download_video_pages(
         debug!("数据库中保存的路径: {:?}", final_video_model.path);
         debug!("注意：将忽略数据库中的路径，从视频源基础路径重新计算");
 
-        let path = if let VideoSourceEnum::Collection(collection_source) = video_source {
+        // 检查是否启用平铺目录模式
+        let flat_folder = video_source.flat_folder();
+        if flat_folder {
+            debug!("平铺目录模式：所有文件直接放在视频源根目录");
+        }
+
+        let path = if flat_folder {
+            // 平铺目录模式：直接使用视频源根目录，不创建子文件夹
+            video_source_base_path.to_path_buf()
+        } else if let VideoSourceEnum::Collection(collection_source) = video_source {
             // 合集的特殊处理
             let config = crate::config::reload_config();
             match config.collection_folder_mode.as_ref() {
@@ -3010,6 +3019,15 @@ pub async fn download_page(
 
     // 获取是否仅下载音频的设置
     let audio_only = video_source.audio_only();
+
+    // 仅音频模式下，如果启用了audio_only_m4a_only，跳过所有sidecar文件
+    // separate_status[0] = 封面, [2] = NFO, [3] = 弹幕, [4] = 字幕
+    if audio_only && video_source.audio_only_m4a_only() {
+        separate_status[0] = false; // 跳过封面
+        separate_status[2] = false; // 跳过NFO
+        separate_status[3] = false; // 跳过弹幕
+        separate_status[4] = false; // 跳过字幕
+    }
 
     // 检查是否为番剧
     let is_bangumi = match video_model.source_type {

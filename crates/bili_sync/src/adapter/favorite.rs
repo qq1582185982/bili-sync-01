@@ -108,6 +108,14 @@ impl VideoSource for favorite::Model {
         self.audio_only
     }
 
+    fn audio_only_m4a_only(&self) -> bool {
+        self.audio_only_m4a_only
+    }
+
+    fn flat_folder(&self) -> bool {
+        self.flat_folder
+    }
+
     fn download_danmaku(&self) -> bool {
         self.download_danmaku
     }
@@ -173,6 +181,8 @@ pub async fn init_favorite_sources(
                         whitelist_keywords: Set(None),
                         keyword_case_sensitive: Set(true),
                         audio_only: Set(false),
+                        audio_only_m4a_only: Set(false),
+                        flat_folder: Set(false),
                         download_danmaku: Set(true),
                         download_subtitle: Set(true),
                         ai_rename: Set(false),
@@ -208,6 +218,8 @@ pub async fn init_favorite_sources(
                         whitelist_keywords: Set(None),
                         keyword_case_sensitive: Set(true),
                         audio_only: Set(false),
+                        audio_only_m4a_only: Set(false),
+                        flat_folder: Set(false),
                         download_danmaku: Set(true),
                         download_subtitle: Set(true),
                         ai_rename: Set(false),
