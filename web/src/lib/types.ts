@@ -54,6 +54,9 @@ export interface VideoSource {
 	audio_only: boolean; // 仅下载音频（输出m4a格式）
 	download_danmaku: boolean; // 是否下载弹幕
 	download_subtitle: boolean; // 是否下载字幕
+	ai_rename: boolean; // 是否启用AI重命名
+	ai_rename_video_prompt: string; // AI重命名视频提示词
+	ai_rename_audio_prompt: string; // AI重命名音频提示词
 }
 
 // 视频来源响应类型
@@ -186,6 +189,9 @@ export interface AddVideoSourceRequest {
 	audio_only?: boolean; // 仅下载音频（输出m4a格式）
 	download_danmaku?: boolean; // 是否下载弹幕（默认true）
 	download_subtitle?: boolean; // 是否下载字幕（默认true）
+	ai_rename?: boolean; // 是否启用AI重命名（默认false）
+	ai_rename_video_prompt?: string; // AI重命名视频提示词
+	ai_rename_audio_prompt?: string; // AI重命名音频提示词
 }
 
 // 添加视频源响应类型
@@ -294,8 +300,22 @@ export interface ConfigResponse {
 		mode: string;
 		timeout: number;
 	};
+	// AI重命名配置
+	ai_rename?: AiRenameConfig;
 	// 服务器绑定地址
 	bind_address: string;
+}
+
+// AI重命名配置类型
+export interface AiRenameConfig {
+	enabled: boolean;
+	provider: string;
+	base_url: string;
+	api_key?: string;
+	model: string;
+	timeout_seconds: number;
+	video_prompt_hint: string;
+	audio_prompt_hint: string;
 }
 
 // 更新配置请求类型
@@ -379,6 +399,15 @@ export interface UpdateConfigRequest {
 	risk_control_auto_solve_api_key?: string;
 	risk_control_auto_solve_max_retries?: number;
 	risk_control_auto_solve_timeout?: number;
+	// AI重命名配置
+	ai_rename_enabled?: boolean;
+	ai_rename_provider?: string;
+	ai_rename_base_url?: string;
+	ai_rename_api_key?: string;
+	ai_rename_model?: string;
+	ai_rename_timeout_seconds?: number;
+	ai_rename_video_prompt_hint?: string;
+	ai_rename_audio_prompt_hint?: string;
 	// 服务器绑定地址
 	bind_address?: string;
 }

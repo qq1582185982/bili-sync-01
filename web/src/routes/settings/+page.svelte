@@ -16,7 +16,7 @@
 	import * as Tabs from '$lib/components/ui/tabs';
 	import QrLogin from '$lib/components/qr-login.svelte';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
-	import type { ConfigResponse, VideoInfo, UserInfo } from '$lib/types';
+	import type { ConfigResponse, VideoInfo, UserInfo, UpdateConfigRequest } from '$lib/types';
 	import {
 		DownloadIcon,
 		FileTextIcon,
@@ -27,7 +27,8 @@
 		ShieldIcon,
 		VideoIcon,
 		PaletteIcon,
-		BellIcon
+		BellIcon,
+		SparklesIcon
 	} from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -114,6 +115,12 @@
 			title: '推送通知',
 			description: '扫描完成推送、Server酱/企业微信配置',
 			icon: BellIcon
+		},
+		{
+			id: 'ai_rename',
+			title: 'AI重命名',
+			description: '使用AI自动重命名下载的视频文件',
+			icon: SparklesIcon
 		},
 		{
 			id: 'system',
@@ -245,6 +252,18 @@
 		total_notifications_sent: number;
 		last_error: string | null;
 	} | null = null;
+
+	// AI重命名配置
+	let aiRenameEnabled = false;
+	let aiRenameProvider = 'deepseek';
+	let aiRenameBaseUrl = 'https://api.deepseek.com/v1';
+	let aiRenameApiKey = '';
+	let aiRenameModel = 'deepseek-chat';
+	let aiRenameTimeoutSeconds = 30;
+	let aiRenameVideoPromptHint = '';
+	let aiRenameAudioPromptHint = '';
+	let aiRenameSaving = false;
+	let aiRenameClearingCache = false;
 
 	// 显示帮助信息的状态（在文件命名抽屉中使用）
 	let showHelp = false;
@@ -542,6 +561,16 @@
 
 			// 番剧目录结构配置
 			bangumiUseSeasonStructure = config.bangumi_use_season_structure ?? false;
+
+			// AI重命名配置
+			aiRenameEnabled = config.ai_rename?.enabled ?? false;
+			aiRenameProvider = config.ai_rename?.provider || 'deepseek';
+			aiRenameBaseUrl = config.ai_rename?.base_url || 'https://api.deepseek.com/v1';
+			aiRenameApiKey = config.ai_rename?.api_key || '';
+			aiRenameModel = config.ai_rename?.model || 'deepseek-chat';
+			aiRenameTimeoutSeconds = config.ai_rename?.timeout_seconds ?? 30;
+			aiRenameVideoPromptHint = config.ai_rename?.video_prompt_hint || '';
+			aiRenameAudioPromptHint = config.ai_rename?.audio_prompt_hint || '';
 		} catch (error: unknown) {
 			console.error('加载配置失败:', error);
 			toast.error('加载配置失败', {
@@ -952,6 +981,56 @@
 			toast.error('保存失败', { description: error instanceof Error ? error.message : '未知错误' });
 		} finally {
 			isSaving = false;
+		}
+	}
+
+	// 保存AI重命名配置
+	async function saveAiRenameConfig() {
+		aiRenameSaving = true;
+		try {
+			const config: UpdateConfigRequest = {
+				ai_rename_enabled: aiRenameEnabled,
+				ai_rename_provider: aiRenameProvider,
+				ai_rename_base_url: aiRenameBaseUrl,
+				ai_rename_api_key: aiRenameApiKey || undefined,
+				ai_rename_model: aiRenameModel,
+				ai_rename_timeout_seconds: aiRenameTimeoutSeconds,
+				ai_rename_video_prompt_hint: aiRenameVideoPromptHint || undefined,
+				ai_rename_audio_prompt_hint: aiRenameAudioPromptHint || undefined
+			};
+
+			const response = await api.updateConfig(config);
+			if (response.status_code === 200) {
+				toast.success('AI重命名配置保存成功');
+				// 重新加载配置以确保同步
+				await loadConfig();
+				openSheet = null; // 关闭抽屉
+			} else {
+				toast.error('保存失败', { description: response.data || '未知错误' });
+			}
+		} catch (error: unknown) {
+			console.error('保存AI重命名配置失败:', error);
+			toast.error('保存失败', { description: error instanceof Error ? error.message : '未知错误' });
+		} finally {
+			aiRenameSaving = false;
+		}
+	}
+
+	// 清除所有AI对话历史缓存
+	async function handleClearAllAiCache() {
+		aiRenameClearingCache = true;
+		try {
+			const response = await api.clearAiRenameCache();
+			if (response.data.success) {
+				toast.success('已清除所有AI对话历史缓存');
+			} else {
+				toast.error('清除失败', { description: response.data.message });
+			}
+		} catch (error: unknown) {
+			console.error('清除AI缓存失败:', error);
+			toast.error('清除失败', { description: error instanceof Error ? error.message : '未知错误' });
+		} finally {
+			aiRenameClearingCache = false;
 		}
 	}
 
@@ -3826,6 +3905,245 @@
 						<Button type="submit" disabled={isSaving} class="w-full">
 							{isSaving ? '保存中...' : '保存设置'}
 						</Button>
+					</SheetFooter>
+				</form>
+			</div>
+		</div>
+	</SheetContent>
+</Sheet>
+
+<!-- AI重命名设置抽屉 -->
+<Sheet
+	open={openSheet === 'ai_rename'}
+	onOpenChange={(open) => {
+		if (!open) openSheet = null;
+	}}
+>
+	<SheetContent
+		side={isMobile ? 'bottom' : 'right'}
+		class="{isMobile
+			? 'h-[90vh] max-h-[90vh] w-full max-w-none overflow-hidden'
+			: '!inset-y-0 !right-0 !h-screen !w-screen !max-w-none'} [&>button]:hidden"
+	>
+		{#if !isMobile && randomCovers.length > 0}
+			<!-- 电脑端背景图 -->
+			<div class="absolute inset-0 z-0 overflow-hidden">
+				<img
+					src={randomCovers[(currentBackgroundIndex + 10) % randomCovers.length]}
+					alt="背景"
+					class="h-full w-full object-cover"
+					style="opacity: 0.6; filter: contrast(1.1) brightness(0.9);"
+					loading="lazy"
+				/>
+				<div
+					class="absolute inset-0"
+					style="background: linear-gradient(to bottom right, {$isDark
+						? 'rgba(0,0,0,0.85), rgba(0,0,0,0.5)'
+						: 'rgba(255,255,255,0.85), rgba(255,255,255,0.5)'});"
+				></div>
+			</div>
+		{/if}
+		<div class="flex h-full items-center justify-center {isMobile ? '' : 'p-8'} relative z-10">
+			<div
+				class="{isMobile
+					? 'bg-background h-full w-full max-w-none'
+					: 'bg-card/95 w-full max-w-4xl rounded-lg border shadow-2xl backdrop-blur-sm'} relative overflow-hidden"
+			>
+				<SheetHeader class="{isMobile ? 'border-b p-4' : 'border-b p-6'} relative">
+					<SheetTitle>AI重命名设置</SheetTitle>
+					<SheetDescription>配置AI自动重命名功能，使用大语言模型为视频文件生成更好的文件名</SheetDescription>
+					<!-- 自定义关闭按钮 -->
+					<button
+						onclick={() => (openSheet = null)}
+						class="ring-offset-background focus:ring-ring absolute top-2 right-2 rounded-sm p-1 opacity-70 transition-opacity hover:bg-gray-100 hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-none disabled:pointer-events-none dark:hover:bg-gray-800"
+						type="button"
+						aria-label="关闭"
+					>
+						<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M6 18L18 6M6 6l12 12"
+							></path>
+						</svg>
+					</button>
+				</SheetHeader>
+				<form
+					onsubmit={(e) => {
+						e.preventDefault();
+						saveAiRenameConfig();
+					}}
+					class="flex flex-col {isMobile ? 'h-[calc(90vh-8rem)]' : 'h-[calc(100vh-12rem)]'}"
+				>
+					<div class="flex-1 space-y-6 overflow-y-auto {isMobile ? 'px-4 py-4' : 'px-6 py-6'}">
+						<!-- 功能说明 -->
+						<div class="rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-800 dark:bg-purple-950/20">
+							<h4 class="mb-2 font-medium text-purple-800 dark:text-purple-400">功能说明</h4>
+							<p class="text-sm text-purple-700 dark:text-purple-300">
+								AI重命名功能会在视频下载完成后，使用大语言模型分析视频标题、UP主等信息，自动生成更规范、更易读的文件名。
+								此功能需要配置OpenAI兼容的API密钥（如DeepSeek、OpenAI等）。
+							</p>
+						</div>
+
+						<div class="space-y-4">
+							<!-- 启用AI重命名 -->
+							<div class="flex items-center space-x-2">
+								<input
+									type="checkbox"
+									id="ai-rename-enabled"
+									bind:checked={aiRenameEnabled}
+									class="text-primary focus:ring-primary h-4 w-4 rounded border-gray-300"
+								/>
+								<Label
+									for="ai-rename-enabled"
+									class="text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+								>
+									启用AI重命名（全局开关）
+								</Label>
+							</div>
+							<p class="text-muted-foreground text-sm">
+								启用后，还需要在视频源管理页面为单个视频源开启AI重命名功能才会生效
+							</p>
+
+							<!-- API提供商 -->
+							<div class="space-y-2">
+								<Label for="ai-rename-provider">API提供商</Label>
+								<select
+									id="ai-rename-provider"
+									bind:value={aiRenameProvider}
+									class="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+								>
+									<option value="deepseek">DeepSeek</option>
+									<option value="openai">OpenAI</option>
+									<option value="custom">自定义 (OpenAI兼容)</option>
+								</select>
+							</div>
+
+							<!-- API Base URL -->
+							<div class="space-y-2">
+								<Label for="ai-rename-base-url">API Base URL</Label>
+								<Input
+									id="ai-rename-base-url"
+									type="text"
+									bind:value={aiRenameBaseUrl}
+									placeholder="https://api.deepseek.com/v1"
+								/>
+								<p class="text-muted-foreground text-xs">
+									DeepSeek: https://api.deepseek.com/v1 | OpenAI: https://api.openai.com/v1
+								</p>
+							</div>
+
+							<!-- API Key -->
+							<div class="space-y-2">
+								<Label for="ai-rename-api-key">API Key</Label>
+								<Input
+									id="ai-rename-api-key"
+									type="password"
+									bind:value={aiRenameApiKey}
+									placeholder="sk-xxxxxxxxxxxxxxxx"
+								/>
+								<p class="text-muted-foreground text-xs">
+									请从API提供商获取API密钥，密钥将安全存储在本地配置中
+								</p>
+							</div>
+
+							<!-- 模型名称 -->
+							<div class="space-y-2">
+								<Label for="ai-rename-model">模型名称</Label>
+								<Input
+									id="ai-rename-model"
+									type="text"
+									bind:value={aiRenameModel}
+									placeholder="deepseek-chat"
+								/>
+								<p class="text-muted-foreground text-xs">
+									DeepSeek推荐: deepseek-chat | OpenAI推荐: gpt-4o-mini 或 gpt-3.5-turbo
+								</p>
+							</div>
+
+							<!-- 超时时间 -->
+							<div class="space-y-2">
+								<Label for="ai-rename-timeout">请求超时时间（秒）</Label>
+								<Input
+									id="ai-rename-timeout"
+									type="number"
+									bind:value={aiRenameTimeoutSeconds}
+									min="10"
+									max="120"
+									placeholder="30"
+								/>
+							</div>
+
+							<!-- 视频提示词 -->
+							<div class="space-y-2">
+								<Label for="ai-rename-video-hint">视频重命名提示词（可选）</Label>
+								<textarea
+									id="ai-rename-video-hint"
+									bind:value={aiRenameVideoPromptHint}
+									placeholder="例如：保留集数信息，使用中文括号"
+									class="border-input bg-background ring-offset-background focus-visible:ring-ring flex min-h-[80px] w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+								></textarea>
+								<p class="text-muted-foreground text-xs">
+									自定义提示词，用于指导AI如何重命名视频文件
+								</p>
+							</div>
+
+							<!-- 音频提示词 -->
+							<div class="space-y-2">
+								<Label for="ai-rename-audio-hint">音频重命名提示词（可选）</Label>
+								<textarea
+									id="ai-rename-audio-hint"
+									bind:value={aiRenameAudioPromptHint}
+									placeholder="例如：保留歌手名称和专辑信息"
+									class="border-input bg-background ring-offset-background focus-visible:ring-ring flex min-h-[80px] w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+								></textarea>
+								<p class="text-muted-foreground text-xs">
+									自定义提示词，用于指导AI如何重命名音频文件（仅下载音频模式）
+								</p>
+							</div>
+						</div>
+
+						<!-- 使用说明 -->
+						<div class="rounded-lg bg-blue-100 p-3 dark:bg-blue-900/20">
+							<p class="text-sm text-blue-700 dark:text-blue-300">
+								<strong>使用说明：</strong>
+							</p>
+							<div class="space-y-1 text-sm text-blue-700 dark:text-blue-300">
+								<p>1. 在此页面配置API密钥并启用全局开关</p>
+								<p>2. 在"视频源管理"页面为需要AI重命名的视频源开启开关</p>
+								<p>3. 新下载的视频将自动使用AI生成的文件名</p>
+								<p>4. 番剧类型不支持AI重命名（保持原有命名逻辑）</p>
+							</div>
+						</div>
+
+						<!-- 费用提示 -->
+						<div class="rounded-lg bg-amber-100 p-3 dark:bg-amber-900/20">
+							<p class="text-sm text-amber-700 dark:text-amber-300">
+								<strong>费用提示：</strong>
+							</p>
+							<div class="space-y-1 text-sm text-amber-700 dark:text-amber-300">
+								<p>• DeepSeek API价格实惠，约￥0.001/千token</p>
+								<p>• OpenAI GPT-4o-mini约$0.15/百万token</p>
+								<p>• 每次重命名约消耗100-200个token</p>
+							</div>
+						</div>
+					</div>
+					<SheetFooter class={isMobile ? 'pb-safe border-t px-4 pt-3' : 'pb-safe border-t pt-4'}>
+						<div class="flex w-full gap-2">
+							<Button
+								type="button"
+								variant="outline"
+								onclick={handleClearAllAiCache}
+								disabled={aiRenameClearingCache}
+								class="flex-shrink-0 text-orange-600 hover:text-orange-700 dark:text-orange-400"
+							>
+								{aiRenameClearingCache ? '清除中...' : '清除全部缓存'}
+							</Button>
+							<Button type="submit" disabled={aiRenameSaving} class="flex-1">
+								{aiRenameSaving ? '保存中...' : '保存设置'}
+							</Button>
+						</div>
 					</SheetFooter>
 				</form>
 			</div>

@@ -25,6 +25,9 @@ pub struct Model {
     pub audio_only: bool,
     pub download_danmaku: bool,
     pub download_subtitle: bool,
+    pub ai_rename: bool,
+    pub ai_rename_video_prompt: String,
+    pub ai_rename_audio_prompt: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

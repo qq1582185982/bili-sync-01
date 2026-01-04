@@ -124,6 +124,22 @@ impl VideoSource for collection::Model {
     fn download_subtitle(&self) -> bool {
         self.download_subtitle
     }
+
+    fn ai_rename(&self) -> bool {
+        self.ai_rename
+    }
+
+    fn ai_rename_video_prompt(&self) -> &str {
+        &self.ai_rename_video_prompt
+    }
+
+    fn ai_rename_audio_prompt(&self) -> &str {
+        &self.ai_rename_audio_prompt
+    }
+
+    fn source_key(&self) -> String {
+        format!("collection_{}", self.id)
+    }
 }
 
 // 修改初始化合集源的方法中的类型转换问题

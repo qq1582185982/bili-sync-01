@@ -115,6 +115,22 @@ impl VideoSource for favorite::Model {
     fn download_subtitle(&self) -> bool {
         self.download_subtitle
     }
+
+    fn ai_rename(&self) -> bool {
+        self.ai_rename
+    }
+
+    fn ai_rename_video_prompt(&self) -> &str {
+        &self.ai_rename_video_prompt
+    }
+
+    fn ai_rename_audio_prompt(&self) -> &str {
+        &self.ai_rename_audio_prompt
+    }
+
+    fn source_key(&self) -> String {
+        format!("favorite_{}", self.id)
+    }
 }
 
 #[allow(dead_code)]
@@ -159,6 +175,9 @@ pub async fn init_favorite_sources(
                         audio_only: Set(false),
                         download_danmaku: Set(true),
                         download_subtitle: Set(true),
+                        ai_rename: Set(false),
+                        ai_rename_video_prompt: Set(String::new()),
+                        ai_rename_audio_prompt: Set(String::new()),
                     };
 
                     let result = favorite::Entity::insert(model)
@@ -191,6 +210,9 @@ pub async fn init_favorite_sources(
                         audio_only: Set(false),
                         download_danmaku: Set(true),
                         download_subtitle: Set(true),
+                        ai_rename: Set(false),
+                        ai_rename_video_prompt: Set(String::new()),
+                        ai_rename_audio_prompt: Set(String::new()),
                     };
 
                     let result = favorite::Entity::insert(model)

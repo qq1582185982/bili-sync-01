@@ -218,6 +218,9 @@ pub async fn get_video_sources(
                 audio_only: model.audio_only,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
+                ai_rename: model.ai_rename,
+                ai_rename_video_prompt: model.ai_rename_video_prompt,
+                ai_rename_audio_prompt: model.ai_rename_audio_prompt,
             }
         })
         .collect();
@@ -257,6 +260,9 @@ pub async fn get_video_sources(
                 audio_only: model.audio_only,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
+                ai_rename: model.ai_rename,
+                ai_rename_video_prompt: model.ai_rename_video_prompt,
+                ai_rename_audio_prompt: model.ai_rename_audio_prompt,
             }
         })
         .collect();
@@ -296,6 +302,9 @@ pub async fn get_video_sources(
                 audio_only: model.audio_only,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
+                ai_rename: model.ai_rename,
+                ai_rename_video_prompt: model.ai_rename_video_prompt,
+                ai_rename_audio_prompt: model.ai_rename_audio_prompt,
             }
         })
         .collect();
@@ -335,6 +344,9 @@ pub async fn get_video_sources(
                 audio_only: model.audio_only,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
+                ai_rename: model.ai_rename,
+                ai_rename_video_prompt: model.ai_rename_video_prompt,
+                ai_rename_audio_prompt: model.ai_rename_audio_prompt,
             }
         })
         .collect();
@@ -388,6 +400,9 @@ pub async fn get_video_sources(
                 audio_only: model.audio_only,
                 download_danmaku: model.download_danmaku,
                 download_subtitle: model.download_subtitle,
+                ai_rename: model.ai_rename,
+                ai_rename_video_prompt: model.ai_rename_video_prompt,
+                ai_rename_audio_prompt: model.ai_rename_audio_prompt,
             }
         })
         .collect();
@@ -1739,6 +1754,9 @@ pub async fn add_video_source_internal(
                 audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
                 download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
                 download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
+                ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
+                ai_rename_video_prompt: sea_orm::Set(params.ai_rename_video_prompt.clone().unwrap_or_default()),
+                ai_rename_audio_prompt: sea_orm::Set(params.ai_rename_audio_prompt.clone().unwrap_or_default()),
             };
 
             let insert_result = collection::Entity::insert(collection).exec(&txn).await?;
@@ -1800,6 +1818,9 @@ pub async fn add_video_source_internal(
                 audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
                 download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
                 download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
+                ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
+                ai_rename_video_prompt: sea_orm::Set(params.ai_rename_video_prompt.clone().unwrap_or_default()),
+                ai_rename_audio_prompt: sea_orm::Set(params.ai_rename_audio_prompt.clone().unwrap_or_default()),
             };
 
             let insert_result = favorite::Entity::insert(favorite).exec(&txn).await?;
@@ -1866,6 +1887,9 @@ pub async fn add_video_source_internal(
                 audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
                 download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
                 download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
+                ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
+                ai_rename_video_prompt: sea_orm::Set(params.ai_rename_video_prompt.clone().unwrap_or_default()),
+                ai_rename_audio_prompt: sea_orm::Set(params.ai_rename_audio_prompt.clone().unwrap_or_default()),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -2167,6 +2191,7 @@ pub async fn add_video_source_internal(
                     audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
                     download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
                     download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
+                    ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
                     ..Default::default()
                 };
 
@@ -2237,6 +2262,9 @@ pub async fn add_video_source_internal(
                 audio_only: sea_orm::Set(params.audio_only.unwrap_or(false)),
                 download_danmaku: sea_orm::Set(params.download_danmaku.unwrap_or(true)),
                 download_subtitle: sea_orm::Set(params.download_subtitle.unwrap_or(true)),
+                ai_rename: sea_orm::Set(params.ai_rename.unwrap_or(false)),
+                ai_rename_video_prompt: sea_orm::Set(params.ai_rename_video_prompt.clone().unwrap_or_default()),
+                ai_rename_audio_prompt: sea_orm::Set(params.ai_rename_audio_prompt.clone().unwrap_or_default()),
             };
 
             let insert_result = watch_later::Entity::insert(watch_later).exec(&txn).await?;
@@ -3760,12 +3788,18 @@ pub async fn update_video_source_download_options_internal(
             let audio_only = params.audio_only.unwrap_or(collection.audio_only);
             let download_danmaku = params.download_danmaku.unwrap_or(collection.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(collection.download_subtitle);
+            let ai_rename = params.ai_rename.unwrap_or(collection.ai_rename);
+            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(collection.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(collection.ai_rename_audio_prompt.clone());
 
             collection::Entity::update(collection::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
+                ai_rename: sea_orm::Set(ai_rename),
+                ai_rename_video_prompt: sea_orm::Set(ai_rename_video_prompt.clone()),
+                ai_rename_audio_prompt: sea_orm::Set(ai_rename_audio_prompt.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -3778,6 +3812,9 @@ pub async fn update_video_source_download_options_internal(
                 audio_only,
                 download_danmaku,
                 download_subtitle,
+                ai_rename,
+                ai_rename_video_prompt,
+                ai_rename_audio_prompt,
                 message: format!("合集 {} 的下载选项已更新", collection.name),
             }
         }
@@ -3790,12 +3827,18 @@ pub async fn update_video_source_download_options_internal(
             let audio_only = params.audio_only.unwrap_or(favorite.audio_only);
             let download_danmaku = params.download_danmaku.unwrap_or(favorite.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(favorite.download_subtitle);
+            let ai_rename = params.ai_rename.unwrap_or(favorite.ai_rename);
+            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(favorite.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(favorite.ai_rename_audio_prompt.clone());
 
             favorite::Entity::update(favorite::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
+                ai_rename: sea_orm::Set(ai_rename),
+                ai_rename_video_prompt: sea_orm::Set(ai_rename_video_prompt.clone()),
+                ai_rename_audio_prompt: sea_orm::Set(ai_rename_audio_prompt.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -3808,6 +3851,9 @@ pub async fn update_video_source_download_options_internal(
                 audio_only,
                 download_danmaku,
                 download_subtitle,
+                ai_rename,
+                ai_rename_video_prompt,
+                ai_rename_audio_prompt,
                 message: format!("收藏夹 {} 的下载选项已更新", favorite.name),
             }
         }
@@ -3820,12 +3866,18 @@ pub async fn update_video_source_download_options_internal(
             let audio_only = params.audio_only.unwrap_or(submission.audio_only);
             let download_danmaku = params.download_danmaku.unwrap_or(submission.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(submission.download_subtitle);
+            let ai_rename = params.ai_rename.unwrap_or(submission.ai_rename);
+            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(submission.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(submission.ai_rename_audio_prompt.clone());
 
             submission::Entity::update(submission::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
+                ai_rename: sea_orm::Set(ai_rename),
+                ai_rename_video_prompt: sea_orm::Set(ai_rename_video_prompt.clone()),
+                ai_rename_audio_prompt: sea_orm::Set(ai_rename_audio_prompt.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -3838,6 +3890,9 @@ pub async fn update_video_source_download_options_internal(
                 audio_only,
                 download_danmaku,
                 download_subtitle,
+                ai_rename,
+                ai_rename_video_prompt,
+                ai_rename_audio_prompt,
                 message: format!("UP主投稿 {} 的下载选项已更新", submission.upper_name),
             }
         }
@@ -3850,12 +3905,18 @@ pub async fn update_video_source_download_options_internal(
             let audio_only = params.audio_only.unwrap_or(watch_later.audio_only);
             let download_danmaku = params.download_danmaku.unwrap_or(watch_later.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(watch_later.download_subtitle);
+            let ai_rename = params.ai_rename.unwrap_or(watch_later.ai_rename);
+            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(watch_later.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(watch_later.ai_rename_audio_prompt.clone());
 
             watch_later::Entity::update(watch_later::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
+                ai_rename: sea_orm::Set(ai_rename),
+                ai_rename_video_prompt: sea_orm::Set(ai_rename_video_prompt.clone()),
+                ai_rename_audio_prompt: sea_orm::Set(ai_rename_audio_prompt.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -3868,6 +3929,9 @@ pub async fn update_video_source_download_options_internal(
                 audio_only,
                 download_danmaku,
                 download_subtitle,
+                ai_rename,
+                ai_rename_video_prompt,
+                ai_rename_audio_prompt,
                 message: "稍后观看的下载选项已更新".to_string(),
             }
         }
@@ -3880,12 +3944,18 @@ pub async fn update_video_source_download_options_internal(
             let audio_only = params.audio_only.unwrap_or(video_source.audio_only);
             let download_danmaku = params.download_danmaku.unwrap_or(video_source.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(video_source.download_subtitle);
+            let ai_rename = params.ai_rename.unwrap_or(video_source.ai_rename);
+            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(video_source.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(video_source.ai_rename_audio_prompt.clone());
 
             video_source::Entity::update(video_source::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
                 download_danmaku: sea_orm::Set(download_danmaku),
                 download_subtitle: sea_orm::Set(download_subtitle),
+                ai_rename: sea_orm::Set(ai_rename),
+                ai_rename_video_prompt: sea_orm::Set(ai_rename_video_prompt.clone()),
+                ai_rename_audio_prompt: sea_orm::Set(ai_rename_audio_prompt.clone()),
                 ..Default::default()
             })
             .exec(&txn)
@@ -3898,6 +3968,9 @@ pub async fn update_video_source_download_options_internal(
                 audio_only,
                 download_danmaku,
                 download_subtitle,
+                ai_rename,
+                ai_rename_video_prompt,
+                ai_rename_audio_prompt,
                 message: format!("番剧 {} 的下载选项已更新", video_source.name),
             }
         }
@@ -4805,6 +4878,17 @@ pub async fn get_config() -> Result<ApiResponse<crate::api::response::ConfigResp
                 }
             }),
         },
+        // AI重命名配置
+        ai_rename: crate::api::response::AiRenameConfigResponse {
+            enabled: config.ai_rename.enabled,
+            provider: config.ai_rename.provider.clone(),
+            base_url: config.ai_rename.base_url.clone(),
+            api_key: config.ai_rename.api_key.clone(),
+            model: config.ai_rename.model.clone(),
+            timeout_seconds: config.ai_rename.timeout_seconds,
+            video_prompt_hint: config.ai_rename.video_prompt_hint.clone(),
+            audio_prompt_hint: config.ai_rename.audio_prompt_hint.clone(),
+        },
         // 服务器绑定地址
         bind_address: config.bind_address.clone(),
     }))
@@ -5609,6 +5693,56 @@ pub async fn update_config_internal(
         }
     }
 
+    // 处理AI重命名配置更新
+    if let Some(enabled) = params.ai_rename_enabled {
+        if config.ai_rename.enabled != enabled {
+            config.ai_rename.enabled = enabled;
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(provider) = &params.ai_rename_provider {
+        if config.ai_rename.provider != *provider {
+            config.ai_rename.provider = provider.clone();
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(base_url) = &params.ai_rename_base_url {
+        if config.ai_rename.base_url != *base_url {
+            config.ai_rename.base_url = base_url.clone();
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(api_key) = &params.ai_rename_api_key {
+        if config.ai_rename.api_key.as_ref() != Some(api_key) {
+            config.ai_rename.api_key = if api_key.is_empty() { None } else { Some(api_key.clone()) };
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(model) = &params.ai_rename_model {
+        if config.ai_rename.model != *model {
+            config.ai_rename.model = model.clone();
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(timeout_seconds) = params.ai_rename_timeout_seconds {
+        if config.ai_rename.timeout_seconds != timeout_seconds {
+            config.ai_rename.timeout_seconds = timeout_seconds;
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(video_prompt_hint) = &params.ai_rename_video_prompt_hint {
+        if config.ai_rename.video_prompt_hint != *video_prompt_hint {
+            config.ai_rename.video_prompt_hint = video_prompt_hint.clone();
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(audio_prompt_hint) = &params.ai_rename_audio_prompt_hint {
+        if config.ai_rename.audio_prompt_hint != *audio_prompt_hint {
+            config.ai_rename.audio_prompt_hint = audio_prompt_hint.clone();
+            updated_fields.push("ai_rename");
+        }
+    }
+
     if updated_fields.is_empty() {
         return Ok(crate::api::response::UpdateConfigResponse {
             success: false,
@@ -5893,6 +6027,20 @@ pub async fn update_config_internal(
                             "actors_field_initialized",
                             serde_json::to_value(config.actors_field_initialized)?,
                         )
+                        .await
+                }
+                // AI重命名配置字段
+                "ai_rename"
+                | "ai_rename.enabled"
+                | "ai_rename.provider"
+                | "ai_rename.base_url"
+                | "ai_rename.api_key"
+                | "ai_rename.model"
+                | "ai_rename.timeout_seconds"
+                | "ai_rename.video_prompt_hint"
+                | "ai_rename.audio_prompt_hint" => {
+                    manager
+                        .update_config_item("ai_rename", serde_json::to_value(&config.ai_rename)?)
                         .await
                 }
                 _ => {
@@ -11860,4 +12008,45 @@ pub async fn validate_regex_pattern(
     };
 
     Ok(ApiResponse::ok(result))
+}
+
+/// 清除AI对话历史缓存
+#[utoipa::path(
+    post,
+    path = "/api/ai-rename/clear-cache",
+    responses(
+        (status = 200, body = ApiResponse<crate::api::response::ClearAiCacheResponse>),
+    )
+)]
+pub async fn clear_ai_rename_cache() -> Result<ApiResponse<crate::api::response::ClearAiCacheResponse>, ApiError> {
+    crate::utils::ai_rename::clear_all_naming_cache();
+
+    Ok(ApiResponse::ok(crate::api::response::ClearAiCacheResponse {
+        success: true,
+        message: "AI对话历史已清除".to_string(),
+    }))
+}
+
+/// 清除指定视频源的AI对话历史缓存
+#[utoipa::path(
+    post,
+    path = "/api/ai-rename/clear-cache/{source_type}/{id}",
+    params(
+        ("source_type" = String, Path, description = "视频源类型"),
+        ("id" = i32, Path, description = "视频源ID"),
+    ),
+    responses(
+        (status = 200, body = ApiResponse<crate::api::response::ClearAiCacheResponse>),
+    )
+)]
+pub async fn clear_ai_rename_cache_for_source(
+    Path((source_type, id)): Path<(String, i32)>,
+) -> Result<ApiResponse<crate::api::response::ClearAiCacheResponse>, ApiError> {
+    let source_key = format!("{}_{}", source_type, id);
+    crate::utils::ai_rename::clear_naming_cache(&source_key);
+
+    Ok(ApiResponse::ok(crate::api::response::ClearAiCacheResponse {
+        success: true,
+        message: format!("已清除 {} 的AI对话历史", source_key),
+    }))
 }

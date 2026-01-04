@@ -63,6 +63,12 @@ pub struct AddVideoSourceRequest {
     pub download_danmaku: Option<bool>,
     // 是否下载字幕文件（SRT）
     pub download_subtitle: Option<bool>,
+    // 是否启用AI重命名
+    pub ai_rename: Option<bool>,
+    // AI重命名视频提示词（覆盖全局配置）
+    pub ai_rename_video_prompt: Option<String>,
+    // AI重命名音频提示词（覆盖全局配置）
+    pub ai_rename_audio_prompt: Option<String>,
 }
 
 // 删除视频源的请求结构体
@@ -92,6 +98,12 @@ pub struct UpdateVideoSourceDownloadOptionsRequest {
     pub download_danmaku: Option<bool>,
     /// 是否下载字幕文件（SRT）
     pub download_subtitle: Option<bool>,
+    /// 是否启用AI重命名
+    pub ai_rename: Option<bool>,
+    /// AI重命名视频提示词（覆盖全局配置）
+    pub ai_rename_video_prompt: Option<String>,
+    /// AI重命名音频提示词（覆盖全局配置）
+    pub ai_rename_audio_prompt: Option<String>,
 }
 
 // 更新投稿源选中视频列表的请求结构体
@@ -217,6 +229,15 @@ pub struct UpdateConfigRequest {
     pub risk_control_auto_solve_api_key: Option<String>,
     pub risk_control_auto_solve_max_retries: Option<u32>,
     pub risk_control_auto_solve_timeout: Option<u64>,
+    // AI重命名配置
+    pub ai_rename_enabled: Option<bool>,
+    pub ai_rename_provider: Option<String>,
+    pub ai_rename_base_url: Option<String>,
+    pub ai_rename_api_key: Option<String>,
+    pub ai_rename_model: Option<String>,
+    pub ai_rename_timeout_seconds: Option<u64>,
+    pub ai_rename_video_prompt_hint: Option<String>,
+    pub ai_rename_audio_prompt_hint: Option<String>,
     // 服务器绑定地址
     pub bind_address: Option<String>,
 }

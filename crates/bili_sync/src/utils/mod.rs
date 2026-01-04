@@ -1,3 +1,4 @@
+pub mod ai_rename;
 pub mod bangumi_cache;
 pub mod bangumi_name_extractor;
 pub mod convert;

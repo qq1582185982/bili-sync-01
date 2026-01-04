@@ -217,6 +217,10 @@ pub struct Config {
     // 风控验证配置
     #[serde(default)]
     pub risk_control: RiskControlConfig,
+
+    /// AI 自动重命名配置（OpenAI 兼容接口）
+    #[serde(default)]
+    pub ai_rename: crate::utils::ai_rename::AiRenameConfig,
 }
 
 fn default_skip_bangumi_preview() -> bool {
@@ -551,6 +555,7 @@ impl Clone for Config {
             enable_startup_data_fix: self.enable_startup_data_fix,
             enable_cid_population: self.enable_cid_population,
             risk_control: self.risk_control.clone(),
+            ai_rename: self.ai_rename.clone(),
         }
     }
 }
@@ -591,6 +596,7 @@ impl Default for Config {
             enable_startup_data_fix: false, // 默认关闭，减少不必要的日志
             enable_cid_population: false,   // 默认关闭，减少不必要的日志
             risk_control: RiskControlConfig::default(),
+            ai_rename: crate::utils::ai_rename::AiRenameConfig::default(),
         }
     }
 }

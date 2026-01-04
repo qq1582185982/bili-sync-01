@@ -359,6 +359,9 @@ class ApiClient {
 			audio_only?: boolean;
 			download_danmaku?: boolean;
 			download_subtitle?: boolean;
+			ai_rename?: boolean;
+			ai_rename_video_prompt?: string;
+			ai_rename_audio_prompt?: string;
 		}
 	): Promise<ApiResponse<{
 		success: boolean;
@@ -367,6 +370,9 @@ class ApiClient {
 		audio_only: boolean;
 		download_danmaku: boolean;
 		download_subtitle: boolean;
+		ai_rename: boolean;
+		ai_rename_video_prompt: string;
+		ai_rename_audio_prompt: string;
 		message: string;
 	}>> {
 		return this.put<{
@@ -376,6 +382,9 @@ class ApiClient {
 			audio_only: boolean;
 			download_danmaku: boolean;
 			download_subtitle: boolean;
+			ai_rename: boolean;
+			ai_rename_video_prompt: string;
+			ai_rename_audio_prompt: string;
 			message: string;
 		}>(`/video-sources/${sourceType}/${id}/download-options`, options);
 	}
@@ -456,6 +465,28 @@ class ApiClient {
 	 */
 	async validateRegex(pattern: string): Promise<ApiResponse<ValidateRegexResponse>> {
 		return this.post<ValidateRegexResponse>('/validate-regex', { pattern });
+	}
+
+	/**
+	 * 清除AI对话历史缓存
+	 */
+	async clearAiRenameCache(): Promise<ApiResponse<{ success: boolean; message: string }>> {
+		return this.post<{ success: boolean; message: string }>('/ai-rename/clear-cache', {});
+	}
+
+	/**
+	 * 清除指定视频源的AI对话历史缓存
+	 * @param sourceType 视频源类型
+	 * @param id 视频源ID
+	 */
+	async clearAiRenameCacheForSource(
+		sourceType: string,
+		id: number
+	): Promise<ApiResponse<{ success: boolean; message: string }>> {
+		return this.post<{ success: boolean; message: string }>(
+			`/ai-rename/clear-cache/${sourceType}/${id}`,
+			{}
+		);
 	}
 
 	/**
@@ -943,6 +974,9 @@ export const api = {
 			audio_only?: boolean;
 			download_danmaku?: boolean;
 			download_subtitle?: boolean;
+			ai_rename?: boolean;
+			ai_rename_video_prompt?: string;
+			ai_rename_audio_prompt?: string;
 		}
 	) => apiClient.updateVideoSourceDownloadOptions(sourceType, id, options),
 
@@ -986,6 +1020,17 @@ export const api = {
 	 * 验证正则表达式
 	 */
 	validateRegex: (pattern: string) => apiClient.validateRegex(pattern),
+
+	/**
+	 * 清除AI对话历史缓存
+	 */
+	clearAiRenameCache: () => apiClient.clearAiRenameCache(),
+
+	/**
+	 * 清除指定视频源的AI对话历史缓存
+	 */
+	clearAiRenameCacheForSource: (sourceType: string, id: number) =>
+		apiClient.clearAiRenameCacheForSource(sourceType, id),
 
 	/**
 	 * 检查是否需要初始设置

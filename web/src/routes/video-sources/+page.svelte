@@ -13,6 +13,7 @@
 	import ResetPathDialog from '$lib/components/reset-path-dialog.svelte';
 	import SubmissionSelectionDialog from '$lib/components/submission-selection-dialog.svelte';
 	import KeywordFilterDialog from '$lib/components/keyword-filter-dialog.svelte';
+	import AiPromptDialog from '$lib/components/ai-prompt-dialog.svelte';
 
 	// 图标导入
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -27,6 +28,7 @@
 	import MusicIcon from '@lucide/svelte/icons/music';
 	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import SubtitlesIcon from '@lucide/svelte/icons/subtitles';
+	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import { goto } from '$app/navigation';
 
 	let loading = false;
@@ -73,6 +75,17 @@
 		type: '',
 		id: 0,
 		name: ''
+	};
+
+	// AI提示词对话框状态
+	let showAiPromptDialog = false;
+	let aiPromptInfo = {
+		type: '',
+		id: 0,
+		name: '',
+		videoPrompt: '',
+		audioPrompt: '',
+		aiRename: false
 	};
 
 	async function loadVideoSources() {
@@ -237,6 +250,31 @@
 			console.error('设置更新失败:', error);
 			toast.error('设置更新失败', { description: (error as Error).message });
 		}
+	}
+
+	// 打开AI提示词设置对话框
+	function handleOpenAiPromptDialog(
+		sourceType: string,
+		sourceId: number,
+		sourceName: string,
+		currentAiRename: boolean,
+		videoPrompt: string,
+		audioPrompt: string
+	) {
+		aiPromptInfo = {
+			type: sourceType,
+			id: sourceId,
+			name: sourceName,
+			videoPrompt: videoPrompt || '',
+			audioPrompt: audioPrompt || '',
+			aiRename: currentAiRename
+		};
+		showAiPromptDialog = true;
+	}
+
+	// AI提示词保存后的回调
+	async function handleAiPromptSave() {
+		await loadVideoSources();
 	}
 
 	// 确认删除
@@ -534,6 +572,11 @@
 													{#if source.download_subtitle === false}
 														<span class="text-gray-500">字幕下载已禁用</span>
 													{/if}
+													{#if source.ai_rename}
+														<span class="text-blue-600">
+															AI重命名已启用{#if source.ai_rename_video_prompt || source.ai_rename_audio_prompt}（自定义提示词）{/if}
+														</span>
+													{/if}
 												</div>
 											</div>
 
@@ -685,6 +728,29 @@
 													/>
 												</Button>
 
+												<!-- AI重命名 -->
+												<Button
+													size="sm"
+													variant="ghost"
+													onclick={() =>
+														handleOpenAiPromptDialog(
+															sourceConfig.type,
+															source.id,
+															source.name,
+															source.ai_rename ?? false,
+															source.ai_rename_video_prompt ?? '',
+															source.ai_rename_audio_prompt ?? ''
+														)}
+													title="AI重命名设置"
+													class="h-8 w-8 p-0"
+												>
+													<SparklesIcon
+														class="h-4 w-4 {source.ai_rename
+															? 'text-blue-600'
+															: 'text-gray-400'}"
+													/>
+												</Button>
+
 												<!-- 删除 -->
 												<Button
 													size="sm"
@@ -767,4 +833,16 @@
 	sourceId={keywordFilterInfo.id}
 	on:save={handleKeywordFilterSave}
 	on:cancel={handleKeywordFilterCancel}
+/>
+
+<!-- AI提示词设置对话框 -->
+<AiPromptDialog
+	bind:isOpen={showAiPromptDialog}
+	sourceName={aiPromptInfo.name}
+	sourceType={aiPromptInfo.type}
+	sourceId={aiPromptInfo.id}
+	initialVideoPrompt={aiPromptInfo.videoPrompt}
+	initialAudioPrompt={aiPromptInfo.audioPrompt}
+	initialAiRename={aiPromptInfo.aiRename}
+	on:save={handleAiPromptSave}
 />

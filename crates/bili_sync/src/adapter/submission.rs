@@ -226,6 +226,22 @@ impl VideoSource for submission::Model {
     fn download_subtitle(&self) -> bool {
         self.download_subtitle
     }
+
+    fn ai_rename(&self) -> bool {
+        self.ai_rename
+    }
+
+    fn ai_rename_video_prompt(&self) -> &str {
+        &self.ai_rename_video_prompt
+    }
+
+    fn ai_rename_audio_prompt(&self) -> &str {
+        &self.ai_rename_audio_prompt
+    }
+
+    fn source_key(&self) -> String {
+        format!("submission_{}", self.id)
+    }
 }
 
 #[allow(dead_code)]
@@ -279,6 +295,9 @@ pub async fn init_submission_sources(
                         audio_only: Set(false),
                         download_danmaku: Set(true),
                         download_subtitle: Set(true),
+                        ai_rename: Set(false),
+                        ai_rename_video_prompt: Set(String::new()),
+                        ai_rename_audio_prompt: Set(String::new()),
                     };
 
                     // 插入数据库
@@ -310,6 +329,9 @@ pub async fn init_submission_sources(
                         audio_only: Set(false),
                         download_danmaku: Set(true),
                         download_subtitle: Set(true),
+                        ai_rename: Set(false),
+                        ai_rename_video_prompt: Set(String::new()),
+                        ai_rename_audio_prompt: Set(String::new()),
                     };
 
                     let result = submission::Entity::insert(model)

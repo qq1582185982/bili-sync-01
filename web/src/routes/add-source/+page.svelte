@@ -41,6 +41,9 @@
 	let audioOnly = false; // 仅下载音频
 	let downloadDanmaku = true; // 下载弹幕（默认开启）
 	let downloadSubtitle = true; // 下载字幕（默认开启）
+	let aiRename = false; // AI重命名（默认关闭）
+	let aiRenameVideoPrompt = ''; // AI重命名视频提示词
+	let aiRenameAudioPrompt = ''; // AI重命名音频提示词
 
 	// 添加手动输入标志
 	let isManualInput = false;
@@ -606,7 +609,10 @@
 				// 下载选项
 				audio_only: audioOnly,
 				download_danmaku: downloadDanmaku,
-				download_subtitle: downloadSubtitle
+				download_subtitle: downloadSubtitle,
+				ai_rename: aiRename,
+				ai_rename_video_prompt: aiRenameVideoPrompt.trim() || undefined,
+				ai_rename_audio_prompt: aiRenameAudioPrompt.trim() || undefined
 			};
 
 			if (sourceType === 'collection') {
@@ -693,6 +699,9 @@
 				audioOnly = false;
 				downloadDanmaku = true;
 				downloadSubtitle = true;
+				aiRename = false;
+				aiRenameVideoPrompt = '';
+				aiRenameAudioPrompt = '';
 				// 跳转到视频源管理页面
 				goto('/video-sources');
 			} else {
@@ -2547,6 +2556,74 @@
 										></div>
 									</label>
 								</div>
+
+								<!-- AI重命名 -->
+								<div
+									class="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-700"
+								>
+									<div class="flex items-center gap-2">
+										<svg
+											class="h-4 w-4 text-blue-600 dark:text-blue-400"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="2"
+												d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+											/>
+										</svg>
+										<div>
+											<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+												>AI重命名</span
+											>
+											<p class="text-[10px] text-gray-500 dark:text-gray-400">
+												使用AI对下载的文件进行智能重命名
+											</p>
+										</div>
+									</div>
+									<label class="relative inline-flex cursor-pointer items-center">
+										<input type="checkbox" bind:checked={aiRename} class="peer sr-only" />
+										<div
+											class="peer h-5 w-9 rounded-full bg-gray-300 peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-500 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-600 dark:peer-checked:bg-blue-500"
+										></div>
+									</label>
+								</div>
+
+								<!-- AI重命名提示词设置（仅在启用AI重命名时显示） -->
+								{#if aiRename}
+									<div class="mt-3 space-y-3 rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
+										<div class="text-xs font-medium text-blue-800 dark:text-blue-200">
+											自定义提示词（留空使用全局配置）
+										</div>
+										<!-- 视频提示词 -->
+										<div class="space-y-1">
+											<label class="text-[10px] font-medium text-gray-600 dark:text-gray-400">
+												视频重命名提示词
+											</label>
+											<textarea
+												bind:value={aiRenameVideoPrompt}
+												placeholder="例如：作者-标题-来源-清晰度"
+												rows="2"
+												class="w-full resize-none rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+											></textarea>
+										</div>
+										<!-- 音频提示词 -->
+										<div class="space-y-1">
+											<label class="text-[10px] font-medium text-gray-600 dark:text-gray-400">
+												音频重命名提示词
+											</label>
+											<textarea
+												bind:value={aiRenameAudioPrompt}
+												placeholder="例如：歌手-歌名-版本信息"
+												rows="2"
+												class="w-full resize-none rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+											></textarea>
+										</div>
+									</div>
+								{/if}
 							</div>
 						</div>
 

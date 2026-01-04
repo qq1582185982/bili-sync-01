@@ -148,6 +148,25 @@ pub trait VideoSource {
     fn download_subtitle(&self) -> bool {
         true // 默认实现：下载字幕
     }
+
+    /// 获取是否启用AI重命名（默认为 false）
+    fn ai_rename(&self) -> bool {
+        false // 默认实现：不启用AI重命名
+    }
+
+    /// 获取视频源的AI重命名视频提示词
+    fn ai_rename_video_prompt(&self) -> &str {
+        "" // 默认实现：空提示词，使用全局配置
+    }
+
+    /// 获取视频源的AI重命名音频提示词
+    fn ai_rename_audio_prompt(&self) -> &str {
+        "" // 默认实现：空提示词，使用全局配置
+    }
+
+    /// 获取视频源的唯一键（用于AI重命名缓存）
+    /// 格式: "{source_type}_{id}"，例如 "collection_123"
+    fn source_key(&self) -> String;
 }
 
 #[derive(Clone, Debug)]
@@ -285,6 +304,9 @@ pub async fn bangumi_from<'a>(
             audio_only: model.audio_only,
             download_danmaku: model.download_danmaku,
             download_subtitle: model.download_subtitle,
+            ai_rename: model.ai_rename,
+            ai_rename_video_prompt: model.ai_rename_video_prompt,
+            ai_rename_audio_prompt: model.ai_rename_audio_prompt,
         }
     } else {
         // 如果数据库中不存在，使用默认值并发出警告
@@ -316,6 +338,9 @@ pub async fn bangumi_from<'a>(
             audio_only: false,
             download_danmaku: true,
             download_subtitle: true,
+            ai_rename: false,
+            ai_rename_video_prompt: String::new(),
+            ai_rename_audio_prompt: String::new(),
         }
     };
 

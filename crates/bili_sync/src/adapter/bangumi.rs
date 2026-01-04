@@ -38,6 +38,9 @@ pub struct BangumiSource {
     pub audio_only: bool,
     pub download_danmaku: bool,
     pub download_subtitle: bool,
+    pub ai_rename: bool,
+    pub ai_rename_video_prompt: String,
+    pub ai_rename_audio_prompt: String,
 }
 
 impl BangumiSource {
@@ -523,5 +526,21 @@ impl VideoSource for BangumiSource {
 
     fn download_subtitle(&self) -> bool {
         self.download_subtitle
+    }
+
+    fn ai_rename(&self) -> bool {
+        self.ai_rename
+    }
+
+    fn ai_rename_video_prompt(&self) -> &str {
+        &self.ai_rename_video_prompt
+    }
+
+    fn ai_rename_audio_prompt(&self) -> &str {
+        &self.ai_rename_audio_prompt
+    }
+
+    fn source_key(&self) -> String {
+        format!("bangumi_{}", self.id)
     }
 }

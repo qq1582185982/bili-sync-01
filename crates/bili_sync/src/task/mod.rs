@@ -1024,6 +1024,9 @@ impl AddTaskQueue {
                 audio_only: None,      // 任务队列中使用默认值
                 download_danmaku: None, // 任务队列中使用默认值
                 download_subtitle: None, // 任务队列中使用默认值
+                ai_rename: None,       // 任务队列中使用默认值
+                ai_rename_video_prompt: None, // 任务队列中使用默认值
+                ai_rename_audio_prompt: None, // 任务队列中使用默认值
             };
 
             match add_video_source_internal(db.clone(), request).await {
@@ -1489,6 +1492,15 @@ impl ConfigTaskQueue {
                 risk_control_auto_solve_api_key: None,
                 risk_control_auto_solve_max_retries: None,
                 risk_control_auto_solve_timeout: None,
+                // AI重命名配置，任务队列中不使用
+                ai_rename_enabled: None,
+                ai_rename_provider: None,
+                ai_rename_base_url: None,
+                ai_rename_api_key: None,
+                ai_rename_model: None,
+                ai_rename_timeout_seconds: None,
+                ai_rename_video_prompt_hint: None,
+                ai_rename_audio_prompt_hint: None,
                 // 服务器绑定地址，任务队列中不使用
                 bind_address: None,
             };

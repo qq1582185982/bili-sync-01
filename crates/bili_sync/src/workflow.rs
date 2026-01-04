@@ -220,6 +220,16 @@ pub async fn process_video_source(
             warn!("循环内重试失败的视频时出错: {:#}", e);
             // 重试失败不中断主流程，继续执行
         }
+
+        // 保底策略：检查AI重命名一致性
+        // 仅在AI重命名启用时执行，遍历已下载的文件，找出命名格式不一致的进行修复
+        let cfg = crate::config::reload_config();
+        let is_bangumi = matches!(&video_source, VideoSourceEnum::BangumiSource(_));
+        if !is_bangumi && video_source.ai_rename() && cfg.ai_rename.enabled {
+            if let Err(e) = check_and_fix_naming_consistency(&video_source, &cfg.ai_rename).await {
+                warn!("AI命名一致性检查失败: {:#}", e);
+            }
+        }
     }
     Ok((new_video_count, new_videos))
 }
@@ -1213,6 +1223,128 @@ pub async fn download_unprocessed_videos(
         bail!(DownloadAbortError());
     }
     video_source.log_download_video_end();
+    Ok(())
+}
+
+/// 检查并修复AI命名一致性
+///
+/// 遍历视频源目录下的所有视频文件，使用AI检测哪些文件命名格式与多数不一致，
+/// 然后对这些异类文件重新进行AI重命名。
+async fn check_and_fix_naming_consistency(
+    video_source: &VideoSourceEnum,
+    ai_config: &crate::utils::ai_rename::AiRenameConfig,
+) -> Result<()> {
+    use crate::utils::ai_rename;
+    use std::collections::HashSet;
+
+    let source_key = video_source.source_key();
+    let source_path = video_source.path();
+
+    // 视频/音频扩展名集合
+    let media_exts: HashSet<&str> = ["mp4", "mkv", "flv", "webm", "avi", "m4a", "mp3", "flac"]
+        .into_iter()
+        .collect();
+
+    // 收集源目录下所有视频文件的 stem（递归搜索，因为可能有Season子目录）
+    let mut video_stems: Vec<String> = Vec::new();
+    let mut file_paths: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+
+    fn collect_video_files(
+        dir: &std::path::Path,
+        media_exts: &HashSet<&str>,
+        video_stems: &mut Vec<String>,
+        file_paths: &mut std::collections::HashMap<String, std::path::PathBuf>,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    collect_video_files(&path, media_exts, video_stems, file_paths);
+                } else if path.is_file() {
+                    if let (Some(stem), Some(ext)) = (
+                        path.file_stem().and_then(|s| s.to_str()),
+                        path.extension().and_then(|s| s.to_str()),
+                    ) {
+                        if media_exts.contains(ext.to_lowercase().as_str()) {
+                            video_stems.push(stem.to_string());
+                            file_paths.insert(stem.to_string(), path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    collect_video_files(&source_path, &media_exts, &mut video_stems, &mut file_paths);
+
+    if video_stems.len() < 3 {
+        debug!("[{}] 视频文件数量不足3个，跳过一致性检查", source_key);
+        return Ok(());
+    }
+
+    info!(
+        "[{}] 开始AI命名一致性检查，共 {} 个视频文件",
+        source_key,
+        video_stems.len()
+    );
+
+    // 调用AI检测不一致的文件
+    let inconsistent = match ai_rename::find_inconsistent_filenames(ai_config, &source_key, &video_stems).await {
+        Ok(list) => list,
+        Err(e) => {
+            warn!("[{}] 一致性检测API调用失败: {}", source_key, e);
+            return Ok(());
+        }
+    };
+
+    if inconsistent.is_empty() {
+        info!("[{}] 所有文件命名格式一致，无需修复", source_key);
+        return Ok(());
+    }
+
+    info!(
+        "[{}] 发现 {} 个命名不一致的文件，开始修复",
+        source_key,
+        inconsistent.len()
+    );
+
+    // 获取视频源自定义提示词
+    let video_prompt_override = video_source.ai_rename_video_prompt();
+    let audio_prompt_override = video_source.ai_rename_audio_prompt();
+
+    // 对每个不一致的文件进行重命名
+    for stem in &inconsistent {
+        if let Some(file_path) = file_paths.get(stem) {
+            match ai_rename::rename_inconsistent_file(
+                ai_config,
+                &source_key,
+                file_path,
+                video_prompt_override,
+                audio_prompt_override,
+            )
+            .await
+            {
+                Ok(new_path) => {
+                    info!(
+                        "[{}] 一致性修复成功: {} → {}",
+                        source_key,
+                        file_path.display(),
+                        new_path.display()
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "[{}] 一致性修复失败 {}: {}",
+                        source_key,
+                        file_path.display(),
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    info!("[{}] AI命名一致性检查完成", source_key);
     Ok(())
 }
 
@@ -3188,9 +3320,74 @@ pub async fn download_page(
         }
         _ => {}
     }
+
+    // AI 自动重命名（仅非番剧 + 单源开关 + 全局开关）
+    let mut final_video_path = video_path.clone();
+    let cfg = crate::config::reload_config();
+    if !is_bangumi && video_source.ai_rename() && cfg.ai_rename.enabled {
+        use crate::utils::ai_rename;
+        let source = match video_source {
+            VideoSourceEnum::Favorite(_) => "收藏夹",
+            VideoSourceEnum::Collection(_) => "合集",
+            VideoSourceEnum::Submission(_) => "投稿",
+            VideoSourceEnum::WatchLater(_) => "稍后再看",
+            VideoSourceEnum::BangumiSource(_) => "番剧",
+        };
+        let quality = ""; // TODO: 实际清晰度信息
+        let is_audio = audio_only;
+        // 获取视频源唯一键（用于保持命名风格一致）
+        let source_key = video_source.source_key();
+        // 获取当前文件名（不含扩展名）
+        let current_filename = video_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&video_model.name);
+        // 获取视频源自定义提示词
+        let video_prompt_override = video_source.ai_rename_video_prompt();
+        let audio_prompt_override = video_source.ai_rename_audio_prompt();
+        match ai_rename::ai_generate_filename(
+            &cfg.ai_rename,
+            &source_key,
+            &video_model.name,
+            &video_model.upper_name,
+            source,
+            quality,
+            is_audio,
+            current_filename,
+            video_prompt_override,
+            audio_prompt_override,
+        )
+        .await
+        {
+            Ok(new_stem) => {
+                let new_path = video_path.with_file_name(format!(
+                    "{}.{}",
+                    new_stem,
+                    video_path.extension().and_then(|s| s.to_str()).unwrap_or(media_ext)
+                ));
+                if let Err(e) = std::fs::rename(&video_path, &new_path) {
+                    warn!("AI 重命名文件失败: {}", e);
+                } else {
+                    if let Err(e) = ai_rename::rename_sidecars(&video_path, &new_stem) {
+                        warn!("AI 重命名侧车文件失败: {}", e);
+                    }
+                    info!(
+                        "AI 自动重命名成功: {} -> {}",
+                        video_path.display(),
+                        new_path.display()
+                    );
+                    final_video_path = new_path;
+                }
+            }
+            Err(e) => {
+                warn!("AI 重命名 API 调用失败: {}", e);
+            }
+        }
+    }
+
     let mut page_active_model: page::ActiveModel = page_model.into();
     page_active_model.download_status = Set(status.into());
-    page_active_model.path = Set(Some(video_path.to_string_lossy().to_string()));
+    page_active_model.path = Set(Some(final_video_path.to_string_lossy().to_string()));
     Ok(page_active_model)
 }
 

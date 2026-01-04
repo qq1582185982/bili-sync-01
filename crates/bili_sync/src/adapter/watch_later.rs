@@ -114,6 +114,22 @@ impl VideoSource for watch_later::Model {
     fn download_subtitle(&self) -> bool {
         self.download_subtitle
     }
+
+    fn ai_rename(&self) -> bool {
+        self.ai_rename
+    }
+
+    fn ai_rename_video_prompt(&self) -> &str {
+        &self.ai_rename_video_prompt
+    }
+
+    fn ai_rename_audio_prompt(&self) -> &str {
+        &self.ai_rename_audio_prompt
+    }
+
+    fn source_key(&self) -> String {
+        format!("watch_later_{}", self.id)
+    }
 }
 
 // 稍后观看源的初始化现在通过Web API完成，不再需要这个函数

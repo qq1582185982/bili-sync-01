@@ -127,6 +127,9 @@ pub struct UpdateVideoSourceDownloadOptionsResponse {
     pub audio_only: bool,
     pub download_danmaku: bool,
     pub download_subtitle: bool,
+    pub ai_rename: bool,
+    pub ai_rename_video_prompt: String,
+    pub ai_rename_audio_prompt: String,
     pub message: String,
 }
 
@@ -202,6 +205,9 @@ pub struct VideoSource {
     pub audio_only: bool,           // 是否仅下载音频（输出m4a）
     pub download_danmaku: bool,     // 是否下载弹幕文件
     pub download_subtitle: bool,    // 是否下载字幕文件
+    pub ai_rename: bool,            // 是否启用AI重命名
+    pub ai_rename_video_prompt: String, // AI重命名视频提示词
+    pub ai_rename_audio_prompt: String, // AI重命名音频提示词
 }
 
 #[derive(Serialize, ToSchema)]
@@ -351,6 +357,8 @@ pub struct ConfigResponse {
     pub notification: NotificationConfigResponse,
     // 风控验证配置
     pub risk_control: RiskControlConfigResponse,
+    // AI重命名配置
+    pub ai_rename: AiRenameConfigResponse,
     // 服务器绑定地址
     pub bind_address: String,
 }
@@ -775,6 +783,19 @@ pub struct AutoSolveConfigResponse {
     pub solve_timeout: u64,
 }
 
+// AI重命名配置响应
+#[derive(Serialize, ToSchema)]
+pub struct AiRenameConfigResponse {
+    pub enabled: bool,
+    pub provider: String,
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub model: String,
+    pub timeout_seconds: u64,
+    pub video_prompt_hint: String,
+    pub audio_prompt_hint: String,
+}
+
 // 测试风控验证响应
 #[derive(Serialize, ToSchema)]
 pub struct TestRiskControlResponse {
@@ -815,6 +836,13 @@ pub struct ValidateRegexResponse {
     pub valid: bool,
     pub pattern: String,
     pub error: Option<String>,
+}
+
+// 清除AI缓存响应
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct ClearAiCacheResponse {
+    pub success: bool,
+    pub message: String,
 }
 
 // 最新入库项响应
