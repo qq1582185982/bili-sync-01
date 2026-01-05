@@ -2,18 +2,252 @@
 //!
 //! DeepSeek 使用自建的 WASM 算法，非标准 Keccak-256
 //! 本模块通过 wasmtime 直接加载 WASM 求解 POW
+//!
+//! WASM 自动更新：从 DeepSeek 网站获取最新 WASM 并缓存到配置目录
 
 use once_cell::sync::Lazy;
+use regex::Regex;
 use sha3::{Digest, Keccak256};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use tracing::{debug, info, warn};
 use wasmtime::*;
 
 use crate::config::CONFIG_DIR;
 
-/// 嵌入的 WASM 文件（DeepSeek POW 求解器）
-static SHA3_WASM: &[u8] = include_bytes!("../../resources/sha3_wasm.wasm");
+/// WASM 哈希文件路径
+fn wasm_hash_file() -> PathBuf {
+    CONFIG_DIR.join(".wasm_hash")
+}
+
+/// WASM 文件路径
+fn wasm_file_path() -> PathBuf {
+    CONFIG_DIR.join("sha3_wasm.wasm")
+}
+
+/// 全局 WASM 更新状态（记录上次成功检查的时间）
+static WASM_LAST_CHECK: Lazy<parking_lot::Mutex<Option<std::time::Instant>>> =
+    Lazy::new(|| parking_lot::Mutex::new(None));
+
+/// 从 DeepSeek 网站获取最新 WASM 哈希
+async fn fetch_latest_wasm_hash() -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .ok()?;
+
+    // 1. 获取主页 HTML
+    let html = client
+        .get("https://chat.deepseek.com/")
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()?;
+
+    // 提取 main.js URL
+    let main_js_re = Regex::new(r#"src="(https://static\.deepseek\.com/chat/static/main\.[^"]+\.js)""#).ok()?;
+    let main_js_url = main_js_re.captures(&html)?.get(1)?.as_str();
+
+    debug!("获取 main.js: {}", main_js_url);
+
+    // 2. 获取 main.js 内容
+    let main_js = client
+        .get(main_js_url)
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()?;
+
+    // 尝试从 main.js 提取 WASM 哈希
+    let wasm_re = Regex::new(r"sha3_wasm_bg\.([a-f0-9]+)\.wasm").ok()?;
+    if let Some(caps) = wasm_re.captures(&main_js) {
+        let hash = caps.get(1)?.as_str().to_string();
+        debug!("从 main.js 提取到 WASM 哈希: {}", hash);
+        return Some(hash);
+    }
+
+    // 3. 搜索 chunk 文件
+    let chunk_re = Regex::new(r"\d{4,5}\.[a-f0-9]+\.js").ok()?;
+    let chunks: Vec<_> = chunk_re
+        .find_iter(&main_js)
+        .map(|m| m.as_str().to_string())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .take(10)
+        .collect();
+
+    for chunk in chunks {
+        let chunk_url = format!("https://static.deepseek.com/chat/static/{}", chunk);
+        if let Ok(resp) = client
+            .get(&chunk_url)
+            .header("User-Agent", "Mozilla/5.0")
+            .send()
+            .await
+        {
+            if let Ok(chunk_js) = resp.text().await {
+                if let Some(caps) = wasm_re.captures(&chunk_js) {
+                    let hash = caps.get(1)?.as_str().to_string();
+                    debug!("从 chunk {} 提取到 WASM 哈希: {}", chunk, hash);
+                    return Some(hash);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// 下载 WASM 文件
+async fn download_wasm(hash: &str) -> anyhow::Result<Vec<u8>> {
+    let url = format!(
+        "https://static.deepseek.com/chat/static/sha3_wasm_bg.{}.wasm",
+        hash
+    );
+
+    debug!("下载 WASM: {}", url);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+
+    let bytes = client
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await?
+        .bytes()
+        .await?;
+
+    // 验证 WASM 魔数
+    if bytes.len() < 4 || bytes[0] != 0x00 || bytes[1] != 0x61 || bytes[2] != 0x73 || bytes[3] != 0x6d {
+        anyhow::bail!("下载的文件不是有效的 WASM");
+    }
+
+    info!("已下载 WASM ({:.1} KB)", bytes.len() as f64 / 1024.0);
+    Ok(bytes.to_vec())
+}
+
+/// 检查 WASM 文件是否存在且有效
+fn is_wasm_valid() -> bool {
+    if let Ok(bytes) = std::fs::read(wasm_file_path()) {
+        bytes.len() >= 4 && bytes[0] == 0x00 && bytes[1] == 0x61 && bytes[2] == 0x73 && bytes[3] == 0x6d
+    } else {
+        false
+    }
+}
+
+/// 检查并更新 WASM 文件
+/// 每次调用都会检查本地文件是否存在，但网络更新检查每小时最多一次
+pub async fn check_and_update_wasm() -> bool {
+    // 如果本地文件不存在或无效，强制下载
+    if !is_wasm_valid() {
+        info!("WASM 文件不存在或无效，正在下载...");
+        match do_check_and_update_wasm().await {
+            Ok(updated) => {
+                if updated {
+                    // 更新检查时间
+                    *WASM_LAST_CHECK.lock() = Some(std::time::Instant::now());
+                }
+                return updated;
+            }
+            Err(e) => {
+                warn!("WASM 下载失败: {}", e);
+                return false;
+            }
+        }
+    }
+
+    // 本地文件有效，检查是否需要更新（每小时最多检查一次）
+    let should_check = {
+        let guard = WASM_LAST_CHECK.lock();
+        guard
+            .map(|t| t.elapsed() > std::time::Duration::from_secs(3600))
+            .unwrap_or(true)
+    };
+
+    if should_check {
+        match do_check_and_update_wasm().await {
+            Ok(updated) => {
+                *WASM_LAST_CHECK.lock() = Some(std::time::Instant::now());
+                updated
+            }
+            Err(e) => {
+                debug!("WASM 更新检查失败: {}", e);
+                // 更新检查时间，避免频繁重试
+                *WASM_LAST_CHECK.lock() = Some(std::time::Instant::now());
+                false
+            }
+        }
+    } else {
+        false
+    }
+}
+
+/// 执行 WASM 更新检查
+async fn do_check_and_update_wasm() -> anyhow::Result<bool> {
+    // 获取最新哈希
+    let latest_hash = match fetch_latest_wasm_hash().await {
+        Some(h) => h,
+        None => {
+            debug!("无法获取最新 WASM 信息，使用本地文件");
+            return Ok(false);
+        }
+    };
+
+    // 读取本地哈希
+    let local_hash = std::fs::read_to_string(wasm_hash_file()).unwrap_or_default();
+    let local_hash = local_hash.trim();
+
+    // 检查本地文件是否存在且有效
+    let local_valid = if wasm_file_path().exists() {
+        if let Ok(bytes) = std::fs::read(wasm_file_path()) {
+            bytes.len() >= 4 && bytes[0] == 0x00 && bytes[1] == 0x61 && bytes[2] == 0x73 && bytes[3] == 0x6d
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    // 如果哈希相同且文件有效，无需更新
+    if local_hash == latest_hash && local_valid {
+        debug!("WASM 已是最新版本: {}", latest_hash);
+        return Ok(false);
+    }
+
+    // 需要更新
+    if !local_valid {
+        info!("首次下载 WASM 或本地文件损坏，正在下载...");
+    } else if local_hash != latest_hash {
+        info!("发现新版本 WASM: {} -> {}", local_hash, latest_hash);
+    }
+
+    // 下载新版本
+    let wasm_bytes = download_wasm(&latest_hash).await?;
+
+    // 确保目录存在
+    if let Some(parent) = wasm_file_path().parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // 保存 WASM 文件
+    std::fs::write(wasm_file_path(), &wasm_bytes)?;
+
+    // 保存哈希
+    std::fs::write(wasm_hash_file(), &latest_hash)?;
+
+    info!("WASM 已更新到: {}", latest_hash);
+
+    // 重新初始化 WASM 运行时
+    reinit_wasm_runtime();
+
+    Ok(true)
+}
 
 /// POW 挑战响应数据
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -38,19 +272,30 @@ pub struct PowResponse {
     pub target_path: String,
 }
 
-/// WASM 运行时（全局单例，避免重复初始化）
-static WASM_RUNTIME: Lazy<Mutex<Option<WasmPowSolver>>> = Lazy::new(|| {
+/// WASM 运行时（全局单例，支持重新初始化）
+static WASM_RUNTIME: Lazy<parking_lot::RwLock<Option<WasmPowSolver>>> = Lazy::new(|| {
+    parking_lot::RwLock::new(init_wasm_solver())
+});
+
+/// 初始化 WASM 求解器
+fn init_wasm_solver() -> Option<WasmPowSolver> {
     match WasmPowSolver::new() {
         Ok(solver) => {
             info!("WASM POW 求解器初始化成功");
-            Mutex::new(Some(solver))
+            Some(solver)
         }
         Err(e) => {
             warn!("WASM POW 求解器初始化失败: {}", e);
-            Mutex::new(None)
+            None
         }
     }
-});
+}
+
+/// 重新初始化 WASM 运行时（WASM 更新后调用）
+fn reinit_wasm_runtime() {
+    let mut guard = WASM_RUNTIME.write();
+    *guard = init_wasm_solver();
+}
 
 /// WASM POW 求解器
 struct WasmPowSolver {
@@ -99,56 +344,28 @@ impl WasmPowSolver {
     }
 
     /// 加载 WASM 字节
-    /// 优先从环境变量/文件系统加载，否则使用嵌入的 WASM
+    /// 从文件系统加载（配置目录或环境变量指定路径）
     fn load_wasm_bytes() -> anyhow::Result<Vec<u8>> {
-        // 按优先级查找外部文件: 环境变量 > 配置目录 > 可执行文件同级目录
-        let external_paths = [
+        // 按优先级查找文件: 环境变量 > 配置目录 > 可执行文件同级目录
+        let paths = [
             std::env::var("DEEPSEEK_WASM_PATH").ok(),
-            CONFIG_DIR.join("sha3_wasm.wasm").to_str().map(|s| s.to_string()),
+            Some(wasm_file_path().to_string_lossy().to_string()),
             std::env::current_exe()
                 .ok()
                 .and_then(|p| p.parent().map(|d| d.join("sha3_wasm.wasm").to_string_lossy().to_string())),
         ];
 
-        // 尝试从外部文件加载
-        for path in external_paths.iter().flatten() {
+        for path in paths.iter().flatten() {
             if let Ok(bytes) = std::fs::read(path) {
-                debug!("从外部文件加载 WASM: {}", path);
-                return Ok(bytes);
-            }
-        }
-
-        // 使用嵌入的 WASM（确保先解压到配置目录）
-        let wasm_path = Self::extract_wasm_to_config_dir()?;
-        debug!("使用解压的嵌入 WASM: {}", wasm_path.display());
-
-        Ok(SHA3_WASM.to_vec())
-    }
-
-    /// 将嵌入的 WASM 解压到配置目录
-    fn extract_wasm_to_config_dir() -> anyhow::Result<PathBuf> {
-        let wasm_path = CONFIG_DIR.join("sha3_wasm.wasm");
-
-        // 如果文件已存在且大小正确，直接返回
-        if wasm_path.exists() {
-            if let Ok(metadata) = std::fs::metadata(&wasm_path) {
-                if metadata.len() == SHA3_WASM.len() as u64 {
-                    debug!("WASM 文件已存在: {}", wasm_path.display());
-                    return Ok(wasm_path);
+                // 验证 WASM 魔数
+                if bytes.len() >= 4 && bytes[0] == 0x00 && bytes[1] == 0x61 && bytes[2] == 0x73 && bytes[3] == 0x6d {
+                    debug!("从文件加载 WASM: {}", path);
+                    return Ok(bytes);
                 }
             }
         }
 
-        // 确保配置目录存在
-        if let Some(parent) = wasm_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        // 写入 WASM 文件
-        std::fs::write(&wasm_path, SHA3_WASM)?;
-        info!("已解压 WASM 文件到: {} ({} bytes)", wasm_path.display(), SHA3_WASM.len());
-
-        Ok(wasm_path)
+        anyhow::bail!("WASM 文件不存在或无效，请等待自动下载完成后重试")
     }
 
     /// 向 WASM 内存写入字符串
@@ -227,7 +444,7 @@ fn solve_pow_wasm(challenge: &PowChallenge) -> Option<u64> {
     let start = std::time::Instant::now();
 
     // 获取全局 WASM 运行时
-    let mut guard = WASM_RUNTIME.lock().ok()?;
+    let mut guard = WASM_RUNTIME.write();
     let solver = guard.as_mut()?;
 
     // 调用 WASM 求解

@@ -406,6 +406,9 @@ pub async fn deepseek_web_generate(
     thinking_enabled: bool,
     timeout_seconds: u64,
 ) -> Result<(String, DeepSeekSession)> {
+    // 检查并更新 WASM（仅首次调用时执行）
+    super::deepseek_pow::check_and_update_wasm().await;
+
     let client = DeepSeekWebClient::new(token, timeout_seconds)?;
 
     // 获取或创建会话
