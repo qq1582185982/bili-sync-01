@@ -794,6 +794,8 @@ pub struct AiRenameConfigResponse {
     pub provider: String,
     pub base_url: String,
     pub api_key: Option<String>,
+    pub deepseek_web_token: Option<String>,
+    pub thinking_enabled: bool,
     pub model: String,
     pub timeout_seconds: u64,
     pub video_prompt_hint: String,

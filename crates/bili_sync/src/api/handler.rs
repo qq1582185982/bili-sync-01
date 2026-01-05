@@ -4932,6 +4932,8 @@ pub async fn get_config() -> Result<ApiResponse<crate::api::response::ConfigResp
             provider: config.ai_rename.provider.clone(),
             base_url: config.ai_rename.base_url.clone(),
             api_key: config.ai_rename.api_key.clone(),
+            deepseek_web_token: config.ai_rename.deepseek_web_token.clone(),
+            thinking_enabled: config.ai_rename.thinking_enabled,
             model: config.ai_rename.model.clone(),
             timeout_seconds: config.ai_rename.timeout_seconds,
             video_prompt_hint: config.ai_rename.video_prompt_hint.clone(),
@@ -5763,6 +5765,18 @@ pub async fn update_config_internal(
     if let Some(api_key) = &params.ai_rename_api_key {
         if config.ai_rename.api_key.as_ref() != Some(api_key) {
             config.ai_rename.api_key = if api_key.is_empty() { None } else { Some(api_key.clone()) };
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(token) = &params.ai_rename_deepseek_web_token {
+        if config.ai_rename.deepseek_web_token.as_ref() != Some(token) {
+            config.ai_rename.deepseek_web_token = if token.is_empty() { None } else { Some(token.clone()) };
+            updated_fields.push("ai_rename");
+        }
+    }
+    if let Some(thinking_enabled) = params.ai_rename_thinking_enabled {
+        if config.ai_rename.thinking_enabled != thinking_enabled {
+            config.ai_rename.thinking_enabled = thinking_enabled;
             updated_fields.push("ai_rename");
         }
     }

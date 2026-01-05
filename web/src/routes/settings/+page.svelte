@@ -258,6 +258,8 @@
 	let aiRenameProvider = 'deepseek';
 	let aiRenameBaseUrl = 'https://api.deepseek.com/v1';
 	let aiRenameApiKey = '';
+	let aiRenameDeepseekWebToken = '';
+	let aiRenameThinkingEnabled = false;
 	let aiRenameModel = 'deepseek-chat';
 	let aiRenameTimeoutSeconds = 30;
 	let aiRenameVideoPromptHint = '';
@@ -567,6 +569,8 @@
 			aiRenameProvider = config.ai_rename?.provider || 'deepseek';
 			aiRenameBaseUrl = config.ai_rename?.base_url || 'https://api.deepseek.com/v1';
 			aiRenameApiKey = config.ai_rename?.api_key || '';
+			aiRenameDeepseekWebToken = config.ai_rename?.deepseek_web_token || '';
+			aiRenameThinkingEnabled = config.ai_rename?.thinking_enabled ?? false;
 			aiRenameModel = config.ai_rename?.model || 'deepseek-chat';
 			aiRenameTimeoutSeconds = config.ai_rename?.timeout_seconds ?? 30;
 			aiRenameVideoPromptHint = config.ai_rename?.video_prompt_hint || '';
@@ -993,6 +997,8 @@
 				ai_rename_provider: aiRenameProvider,
 				ai_rename_base_url: aiRenameBaseUrl,
 				ai_rename_api_key: aiRenameApiKey || undefined,
+				ai_rename_deepseek_web_token: aiRenameDeepseekWebToken || undefined,
+				ai_rename_thinking_enabled: aiRenameThinkingEnabled,
 				ai_rename_model: aiRenameModel,
 				ai_rename_timeout_seconds: aiRenameTimeoutSeconds,
 				ai_rename_video_prompt_hint: aiRenameVideoPromptHint || undefined,
@@ -3982,7 +3988,7 @@
 							<h4 class="mb-2 font-medium text-purple-800 dark:text-purple-400">功能说明</h4>
 							<p class="text-sm text-purple-700 dark:text-purple-300">
 								AI重命名功能会在视频下载完成后，使用大语言模型分析视频标题、UP主等信息，自动生成更规范、更易读的文件名。
-								此功能需要配置OpenAI兼容的API密钥（如DeepSeek、OpenAI等）。
+								支持两种方式：<strong>付费API</strong>（DeepSeek/OpenAI等）和<strong>免费Web API</strong>（DeepSeek Web）。
 							</p>
 						</div>
 
@@ -4014,53 +4020,102 @@
 									bind:value={aiRenameProvider}
 									class="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
 								>
-									<option value="deepseek">DeepSeek</option>
+									<option value="deepseek">DeepSeek (付费API)</option>
+									<option value="deepseek-web">DeepSeek Web (免费)</option>
 									<option value="openai">OpenAI</option>
 									<option value="custom">自定义 (OpenAI兼容)</option>
 								</select>
-							</div>
-
-							<!-- API Base URL -->
-							<div class="space-y-2">
-								<Label for="ai-rename-base-url">API Base URL</Label>
-								<Input
-									id="ai-rename-base-url"
-									type="text"
-									bind:value={aiRenameBaseUrl}
-									placeholder="https://api.deepseek.com/v1"
-								/>
 								<p class="text-muted-foreground text-xs">
-									DeepSeek: https://api.deepseek.com/v1 | OpenAI: https://api.openai.com/v1
+									{#if aiRenameProvider === 'deepseek-web'}
+										使用 chat.deepseek.com 免费 Web API，需要从浏览器获取 Token
+									{:else}
+										使用 OpenAI 兼容的付费 API，需要 API Key
+									{/if}
 								</p>
 							</div>
 
-							<!-- API Key -->
-							<div class="space-y-2">
-								<Label for="ai-rename-api-key">API Key</Label>
-								<Input
-									id="ai-rename-api-key"
-									type="password"
-									bind:value={aiRenameApiKey}
-									placeholder="sk-xxxxxxxxxxxxxxxx"
-								/>
-								<p class="text-muted-foreground text-xs">
-									请从API提供商获取API密钥，密钥将安全存储在本地配置中
-								</p>
-							</div>
+							{#if aiRenameProvider === 'deepseek-web'}
+								<!-- DeepSeek Web Token -->
+								<div class="space-y-2">
+									<Label for="ai-rename-web-token">DeepSeek Web Token</Label>
+									<Input
+										id="ai-rename-web-token"
+										type="password"
+										bind:value={aiRenameDeepseekWebToken}
+										placeholder="从浏览器开发者工具获取"
+									/>
+									<div class="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
+										<p class="text-xs text-amber-700 dark:text-amber-300">
+											<strong>获取方法：</strong>
+											<br />1. 登录 <a href="https://chat.deepseek.com" target="_blank" class="underline">chat.deepseek.com</a>
+											<br />2. 按 F12 打开开发者工具 → Network（网络）
+											<br />3. 发送一条消息，找到 completion 请求
+											<br />4. 复制 Request Headers 中 Authorization: Bearer 后面的值
+										</p>
+									</div>
+								</div>
 
-							<!-- 模型名称 -->
-							<div class="space-y-2">
-								<Label for="ai-rename-model">模型名称</Label>
-								<Input
-									id="ai-rename-model"
-									type="text"
-									bind:value={aiRenameModel}
-									placeholder="deepseek-chat"
-								/>
+								<!-- R1 深度思考模式 -->
+								<div class="flex items-center space-x-2">
+									<input
+										type="checkbox"
+										id="ai-rename-thinking"
+										bind:checked={aiRenameThinkingEnabled}
+										class="text-primary focus:ring-primary h-4 w-4 rounded border-gray-300"
+									/>
+									<Label
+										for="ai-rename-thinking"
+										class="text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+									>
+										启用 R1 深度思考模式
+									</Label>
+								</div>
 								<p class="text-muted-foreground text-xs">
-									DeepSeek推荐: deepseek-chat | OpenAI推荐: gpt-4o-mini 或 gpt-3.5-turbo
+									启用后使用 DeepSeek R1 模型进行深度思考，生成结果可能更好但速度较慢
 								</p>
-							</div>
+							{:else}
+								<!-- API Base URL -->
+								<div class="space-y-2">
+									<Label for="ai-rename-base-url">API Base URL</Label>
+									<Input
+										id="ai-rename-base-url"
+										type="text"
+										bind:value={aiRenameBaseUrl}
+										placeholder="https://api.deepseek.com/v1"
+									/>
+									<p class="text-muted-foreground text-xs">
+										DeepSeek: https://api.deepseek.com/v1 | OpenAI: https://api.openai.com/v1
+									</p>
+								</div>
+
+								<!-- API Key -->
+								<div class="space-y-2">
+									<Label for="ai-rename-api-key">API Key</Label>
+									<Input
+										id="ai-rename-api-key"
+										type="password"
+										bind:value={aiRenameApiKey}
+										placeholder="sk-xxxxxxxxxxxxxxxx"
+									/>
+									<p class="text-muted-foreground text-xs">
+										请从API提供商获取API密钥，密钥将安全存储在本地配置中
+									</p>
+								</div>
+
+								<!-- 模型名称 -->
+								<div class="space-y-2">
+									<Label for="ai-rename-model">模型名称</Label>
+									<Input
+										id="ai-rename-model"
+										type="text"
+										bind:value={aiRenameModel}
+										placeholder="deepseek-chat"
+									/>
+									<p class="text-muted-foreground text-xs">
+										DeepSeek推荐: deepseek-chat | OpenAI推荐: gpt-4o-mini 或 gpt-3.5-turbo
+									</p>
+								</div>
+							{/if}
 
 							<!-- 超时时间 -->
 							<div class="space-y-2">

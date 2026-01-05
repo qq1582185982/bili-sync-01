@@ -3346,16 +3346,37 @@ pub async fn download_page(
     let mut final_video_path = video_path.clone();
     let cfg = crate::config::reload_config();
     if !is_bangumi && video_source.ai_rename() && cfg.ai_rename.enabled {
-        use crate::utils::ai_rename;
-        let source = match video_source {
+        use crate::utils::ai_rename::{self, AiRenameContext};
+        let source_type = match video_source {
             VideoSourceEnum::Favorite(_) => "收藏夹",
             VideoSourceEnum::Collection(_) => "合集",
             VideoSourceEnum::Submission(_) => "投稿",
             VideoSourceEnum::WatchLater(_) => "稍后再看",
             VideoSourceEnum::BangumiSource(_) => "番剧",
         };
-        let quality = ""; // TODO: 实际清晰度信息
-        let is_audio = audio_only;
+
+        // 构建 AI 重命名上下文
+        let ctx = AiRenameContext {
+            title: video_model.name.clone(),
+            desc: video_model.intro.clone(),
+            owner: video_model.upper_name.clone(),
+            tname: String::new(), // 分区名称暂不可用
+            duration: page_model.duration as u32,
+            pubdate: video_model.pubtime.format("%Y-%m-%d").to_string(),
+            dimension: match (page_model.width, page_model.height) {
+                (Some(w), Some(h)) => format!("{}x{}", w, h),
+                _ => String::new(),
+            },
+            part_name: page_model.name.clone(),
+            ugc_season: None, // 合集名称需要从 video_source 获取
+            copyright: String::new(), // 版权信息暂不可用
+            view: 0, // 播放量暂不可用
+            pid: page_model.pid,
+            episode_number: video_model.episode_number,
+            source_type: source_type.to_string(),
+            is_audio: audio_only,
+        };
+
         // 获取视频源唯一键（用于保持命名风格一致）
         let source_key = video_source.source_key();
         // 获取当前文件名（不含扩展名）
@@ -3369,11 +3390,7 @@ pub async fn download_page(
         match ai_rename::ai_generate_filename(
             &cfg.ai_rename,
             &source_key,
-            &video_model.name,
-            &video_model.upper_name,
-            source,
-            quality,
-            is_audio,
+            &ctx,
             current_filename,
             video_prompt_override,
             audio_prompt_override,

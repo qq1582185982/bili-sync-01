@@ -316,6 +316,8 @@ export interface AiRenameConfig {
 	provider: string;
 	base_url: string;
 	api_key?: string;
+	deepseek_web_token?: string;
+	thinking_enabled: boolean;
 	model: string;
 	timeout_seconds: number;
 	video_prompt_hint: string;
@@ -408,6 +410,8 @@ export interface UpdateConfigRequest {
 	ai_rename_provider?: string;
 	ai_rename_base_url?: string;
 	ai_rename_api_key?: string;
+	ai_rename_deepseek_web_token?: string;
+	ai_rename_thinking_enabled?: boolean;
 	ai_rename_model?: string;
 	ai_rename_timeout_seconds?: number;
 	ai_rename_video_prompt_hint?: string;
