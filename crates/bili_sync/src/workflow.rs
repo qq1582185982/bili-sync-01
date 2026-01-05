@@ -3406,15 +3406,93 @@ pub async fn download_page(
                 if let Err(e) = std::fs::rename(&video_path, &new_path) {
                     warn!("AI 重命名文件失败: {}", e);
                 } else {
+                    // 先重命名侧车文件（仍在旧目录中），随后再考虑是否需要重命名子文件夹。
                     if let Err(e) = ai_rename::rename_sidecars(&video_path, &new_stem) {
                         warn!("AI 重命名侧车文件失败: {}", e);
                     }
-                    info!(
-                        "AI 自动重命名成功: {} -> {}",
-                        video_path.display(),
-                        new_path.display()
-                    );
-                    final_video_path = new_path;
+
+                    // 新增：未启用平铺目录时，同步重命名子文件夹。
+                    // 重要：为了避免多 P 视频在同一轮下载中路径被打断，这里仅在单 P 视频时执行。
+                    let should_try_rename_folder = !video_source.flat_folder()
+                        && video_model.single_page.unwrap_or(false)
+                        && !matches!(
+                            video_source,
+                            VideoSourceEnum::Collection(_) if crate::config::reload_config().collection_folder_mode.as_ref() == "unified"
+                        );
+
+                    if should_try_rename_folder {
+                        if let Some(old_dir) = new_path.parent() {
+                            if let Some(parent_dir) = old_dir.parent() {
+                                // 目标目录名使用 AI 生成的 stem；若冲突则追加 bvid。
+                                let mut target_dir = parent_dir.join(&new_stem);
+                                if target_dir.exists() {
+                                    target_dir = parent_dir.join(format!("{}-{}", &new_stem, video_model.bvid));
+                                }
+
+                                if target_dir != old_dir {
+                                    match std::fs::rename(old_dir, &target_dir) {
+                                        Ok(_) => {
+                                            let moved_path = target_dir.join(
+                                                new_path
+                                                    .file_name()
+                                                    .expect("new_path should have file name"),
+                                            );
+                                            info!(
+                                                "AI 自动重命名子文件夹成功: {} -> {}",
+                                                old_dir.display(),
+                                                target_dir.display()
+                                            );
+                                            info!(
+                                                "AI 自动重命名成功: {} -> {}",
+                                                video_path.display(),
+                                                moved_path.display()
+                                            );
+                                            final_video_path = moved_path;
+                                        }
+                                        Err(e) => {
+                                            // 文件已成功重命名，目录重命名失败不应中断流程
+                                            warn!("AI 重命名子文件夹失败 {} -> {}: {}", old_dir.display(), target_dir.display(), e);
+                                            info!(
+                                                "AI 自动重命名成功: {} -> {}",
+                                                video_path.display(),
+                                                new_path.display()
+                                            );
+                                            final_video_path = new_path;
+                                        }
+                                    }
+                                } else {
+                                    info!(
+                                        "AI 自动重命名成功: {} -> {}",
+                                        video_path.display(),
+                                        new_path.display()
+                                    );
+                                    final_video_path = new_path;
+                                }
+                            } else {
+                                // 没有父目录，直接认为成功（极端情况）
+                                info!(
+                                    "AI 自动重命名成功: {} -> {}",
+                                    video_path.display(),
+                                    new_path.display()
+                                );
+                                final_video_path = new_path;
+                            }
+                        } else {
+                            info!(
+                                "AI 自动重命名成功: {} -> {}",
+                                video_path.display(),
+                                new_path.display()
+                            );
+                            final_video_path = new_path;
+                        }
+                    } else {
+                        info!(
+                            "AI 自动重命名成功: {} -> {}",
+                            video_path.display(),
+                            new_path.display()
+                        );
+                        final_video_path = new_path;
+                    }
                 }
             }
             Err(e) => {

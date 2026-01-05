@@ -50,11 +50,11 @@ async fn database_connection() -> Result<DatabaseConnection> {
                 conn.execute("PRAGMA synchronous = NORMAL;").await?;
                 conn.execute("PRAGMA optimize;").await?;
 
-                // 用 INFO 级别验证设置是否生效
+                // 用 DEBUG 级别验证设置是否生效
                 let row: (i64,) = sqlx::query_as("PRAGMA busy_timeout;")
                     .fetch_one(&mut *conn)
                     .await?;
-                tracing::info!("新数据库连接已创建，busy_timeout = {}ms", row.0);
+                tracing::debug!("新数据库连接已创建，busy_timeout = {}ms", row.0);
 
                 Ok(())
             })
@@ -68,7 +68,7 @@ async fn database_connection() -> Result<DatabaseConnection> {
         let row: (i64,) = sqlx::query_as("PRAGMA busy_timeout;")
             .fetch_one(&mut *conn)
             .await?;
-        tracing::info!("验证连接池 busy_timeout = {}ms", row.0);
+        tracing::debug!("验证连接池 busy_timeout = {}ms", row.0);
     }
 
     // 转换为 SeaORM 的 DatabaseConnection

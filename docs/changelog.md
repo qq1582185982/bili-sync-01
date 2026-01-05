@@ -1,6 +1,14 @@
 # 更新记录
 
-## v2.7.8.20260105 (2026-01-05)
+## v2.8.0 (2026-01-05)
+- **修复 DeepSeek Web SSE 解析丢失字符的问题**
+  - DeepSeek Web API 的 SSE 响应有多种格式，之前只处理了部分
+  - 保留原有的 V3 直接输出和 response/content 格式支持
+- **新增 AI 重命名时子文件夹同步重命名功能**
+  - 单 P 视频的子文件夹会跟随 AI 重命名结果一起重命名
+  - 仅在非平铺目录模式且非合集 unified 模式时生效
+  - 目录名冲突时自动追加 bvid 避免覆盖
+  - 目录重命名失败不影响文件重命名结果
 - **新增 DeepSeek Web 免费 API 支持**
   - 支持使用 chat.deepseek.com 免费 Web API 进行 AI 重命名
   - 无需 API Key，只需配置 DeepSeek Web Token
