@@ -5772,6 +5772,8 @@ pub async fn update_config_internal(
         if config.ai_rename.deepseek_web_token.as_ref() != Some(token) {
             config.ai_rename.deepseek_web_token = if token.is_empty() { None } else { Some(token.clone()) };
             updated_fields.push("ai_rename");
+            // Token 更新后重置过期通知标志，以便下次过期时可以再次通知
+            crate::utils::deepseek_web::reset_token_expired_flag();
         }
     }
     if let Some(thinking_enabled) = params.ai_rename_thinking_enabled {
@@ -12121,4 +12123,234 @@ pub async fn clear_ai_rename_cache_for_source(
         success: true,
         message: format!("已清除 {} 的AI对话历史", source_key),
     }))
+}
+
+/// 批量重命名视频源下的历史文件
+#[utoipa::path(
+    post,
+    path = "/api/{source_type}/{id}/ai-rename-history",
+    params(
+        ("source_type" = String, Path, description = "视频源类型 (collection/favorite/submission/watch_later)"),
+        ("id" = i32, Path, description = "视频源ID"),
+    ),
+    responses(
+        (status = 200, body = ApiResponse<crate::api::response::BatchRenameResponse>),
+    )
+)]
+pub async fn ai_rename_history(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Path((source_type, id)): Path<(String, i32)>,
+) -> Result<ApiResponse<crate::api::response::BatchRenameResponse>, ApiError> {
+    use crate::utils::ai_rename::{batch_rename_history_files, AiRenameConfig};
+
+    // 获取全局配置
+    let config = crate::config::reload_config();
+    let ai_config: AiRenameConfig = config.ai_rename.clone();
+
+    // 检查全局 AI 重命名是否启用
+    if !ai_config.enabled {
+        return Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {
+            success: false,
+            renamed_count: 0,
+            skipped_count: 0,
+            failed_count: 0,
+            message: "AI 重命名功能未启用，请在系统设置中开启".to_string(),
+        }));
+    }
+
+    // 构建 source_key
+    let source_key = format!("{}_{}", source_type, id);
+
+    // 根据 source_type 获取视频源配置和视频列表
+    let (video_prompt, audio_prompt, videos) = match source_type.as_str() {
+        "collection" => {
+            let source = collection::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的合集"))?;
+
+            // 获取该合集下所有视频及其分页
+            let videos_with_pages = get_videos_with_pages_for_source(
+                db.as_ref(),
+                "collection",
+                id,
+            ).await?;
+
+            (
+                source.ai_rename_video_prompt,
+                source.ai_rename_audio_prompt,
+                videos_with_pages,
+            )
+        }
+        "favorite" => {
+            let source = favorite::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的收藏夹"))?;
+
+            let videos_with_pages = get_videos_with_pages_for_source(
+                db.as_ref(),
+                "favorite",
+                id,
+            ).await?;
+
+            (
+                source.ai_rename_video_prompt,
+                source.ai_rename_audio_prompt,
+                videos_with_pages,
+            )
+        }
+        "submission" => {
+            let source = submission::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
+
+            let videos_with_pages = get_videos_with_pages_for_source(
+                db.as_ref(),
+                "submission",
+                id,
+            ).await?;
+
+            (
+                source.ai_rename_video_prompt,
+                source.ai_rename_audio_prompt,
+                videos_with_pages,
+            )
+        }
+        "watch_later" => {
+            let source = watch_later::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的稍后观看"))?;
+
+            let videos_with_pages = get_videos_with_pages_for_source(
+                db.as_ref(),
+                "watch_later",
+                id,
+            ).await?;
+
+            (
+                source.ai_rename_video_prompt,
+                source.ai_rename_audio_prompt,
+                videos_with_pages,
+            )
+        }
+        _ => {
+            return Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {
+                success: false,
+                renamed_count: 0,
+                skipped_count: 0,
+                failed_count: 0,
+                message: format!("不支持的视频源类型: {}", source_type),
+            }));
+        }
+    };
+
+    if videos.is_empty() {
+        return Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {
+            success: true,
+            renamed_count: 0,
+            skipped_count: 0,
+            failed_count: 0,
+            message: "该视频源没有已下载的视频".to_string(),
+        }));
+    }
+
+    info!(
+        "[{}] 开始批量 AI 重命名，共 {} 个视频",
+        source_key,
+        videos.len()
+    );
+
+    // 执行批量重命名
+    let result = batch_rename_history_files(
+        db.as_ref(),
+        &source_key,
+        videos,
+        &ai_config,
+        &video_prompt,
+        &audio_prompt,
+    ).await;
+
+    match result {
+        Ok(batch_result) => {
+            Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {
+                success: true,
+                renamed_count: batch_result.renamed_count,
+                skipped_count: batch_result.skipped_count,
+                failed_count: batch_result.failed_count,
+                message: format!(
+                    "批量重命名完成：重命名 {} 个，跳过 {} 个，失败 {} 个",
+                    batch_result.renamed_count,
+                    batch_result.skipped_count,
+                    batch_result.failed_count
+                ),
+            }))
+        }
+        Err(e) => {
+            error!("[{}] 批量重命名失败: {}", source_key, e);
+            Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {
+                success: false,
+                renamed_count: 0,
+                skipped_count: 0,
+                failed_count: 0,
+                message: format!("批量重命名失败: {}", e),
+            }))
+        }
+    }
+}
+
+/// 获取视频源下所有已下载视频及其分页
+async fn get_videos_with_pages_for_source(
+    db: &DatabaseConnection,
+    source_type: &str,
+    source_id: i32,
+) -> Result<Vec<(video::Model, Vec<page::Model>)>> {
+    // 根据源类型查询视频
+    let videos = match source_type {
+        "collection" => {
+            video::Entity::find()
+                .filter(video::Column::CollectionId.eq(source_id))
+                .all(db)
+                .await?
+        }
+        "favorite" => {
+            video::Entity::find()
+                .filter(video::Column::FavoriteId.eq(source_id))
+                .all(db)
+                .await?
+        }
+        "submission" => {
+            video::Entity::find()
+                .filter(video::Column::SubmissionId.eq(source_id))
+                .all(db)
+                .await?
+        }
+        "watch_later" => {
+            video::Entity::find()
+                .filter(video::Column::WatchLaterId.eq(source_id))
+                .all(db)
+                .await?
+        }
+        _ => return Err(anyhow!("不支持的视频源类型: {}", source_type)),
+    };
+
+    // 获取每个视频的已下载分页
+    let mut result = Vec::new();
+    for video_model in videos {
+        // 查询已下载的分页（download_status > 0 表示至少有部分下载完成）
+        let pages = page::Entity::find()
+            .filter(page::Column::VideoId.eq(video_model.id))
+            .filter(page::Column::DownloadStatus.gt(0))
+            .filter(page::Column::Path.is_not_null())
+            .all(db)
+            .await?;
+
+        if !pages.is_empty() {
+            result.push((video_model, pages));
+        }
+    }
+
+    Ok(result)
 }

@@ -3,10 +3,12 @@
 //! 使用 chat.deepseek.com 免费 Web API 进行 AI 聊天
 
 use anyhow::{anyhow, Result};
+use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::deepseek_pow::{build_pow_response, encode_pow_header, solve_pow, PowChallenge};
 
@@ -45,6 +47,73 @@ struct CreateSessionResponse {
 #[derive(Debug, Deserialize)]
 struct PowChallengeResponse {
     challenge: PowChallenge,
+}
+
+/// Token 过期错误码
+const TOKEN_EXPIRED_CODES: &[i32] = &[
+    40100, // Unauthorized
+    40101, // Token expired
+    40102, // Token invalid
+    40103, // Token not found
+];
+
+/// 防止重复发送通知的标志
+static TOKEN_EXPIRED_NOTIFIED: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+
+/// 检查是否为 Token 过期/无效错误
+fn is_token_error(status: reqwest::StatusCode, code: Option<i32>, msg: Option<&str>) -> bool {
+    // HTTP 401 通常表示认证失败
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return true;
+    }
+
+    // 检查错误码
+    if let Some(c) = code {
+        if TOKEN_EXPIRED_CODES.contains(&c) {
+            return true;
+        }
+    }
+
+    // 检查错误消息
+    if let Some(m) = msg {
+        let m_lower = m.to_lowercase();
+        if m_lower.contains("token")
+            || m_lower.contains("unauthorized")
+            || m_lower.contains("expire")
+            || m_lower.contains("invalid")
+            || m_lower.contains("authentication")
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// 构建 Token 过期错误消息，并异步发送通知
+fn token_expired_error() -> anyhow::Error {
+    // 异步发送通知（只发送一次，避免重复通知）
+    if !TOKEN_EXPIRED_NOTIFIED.swap(true, Ordering::SeqCst) {
+        tokio::spawn(async {
+            if let Err(e) = super::notification::send_deepseek_token_expired_notification().await {
+                warn!("发送 Token 过期通知失败: {}", e);
+            }
+        });
+    }
+
+    anyhow!(
+        "DeepSeek Web Token 已过期或无效，请重新获取 Token。\n\
+        获取方法：\n\
+        1. 浏览器打开 https://chat.deepseek.com 并登录\n\
+        2. 按 F12 打开开发者工具 → Network 标签\n\
+        3. 刷新页面，找到任意请求的 Authorization 头\n\
+        4. 复制 Bearer 后面的值到系统设置"
+    )
+}
+
+/// 重置 Token 过期通知标志（Token 更新后调用）
+pub fn reset_token_expired_flag() {
+    TOKEN_EXPIRED_NOTIFIED.store(false, Ordering::SeqCst);
 }
 
 /// DeepSeek Web API 客户端
@@ -124,15 +193,23 @@ impl DeepSeekWebClient {
             .send()
             .await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
+        let status = resp.status();
+        if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            // 检查是否为 Token 过期
+            if is_token_error(status, None, Some(&body)) {
+                return Err(token_expired_error());
+            }
             return Err(anyhow!("创建会话失败: HTTP {} - {}", status, body));
         }
 
         let data: ApiResponse<CreateSessionResponse> = resp.json().await?;
 
         if data.code != 0 {
+            // 检查是否为 Token 过期
+            if is_token_error(status, Some(data.code), data.msg.as_deref()) {
+                return Err(token_expired_error());
+            }
             return Err(anyhow!(
                 "创建会话失败: code={}, msg={}",
                 data.code,
@@ -164,15 +241,21 @@ impl DeepSeekWebClient {
             .send()
             .await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
+        let status = resp.status();
+        if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            if is_token_error(status, None, Some(&body)) {
+                return Err(token_expired_error());
+            }
             return Err(anyhow!("获取 POW 挑战失败: HTTP {} - {}", status, body));
         }
 
         let data: ApiResponse<PowChallengeResponse> = resp.json().await?;
 
         if data.code != 0 {
+            if is_token_error(status, Some(data.code), data.msg.as_deref()) {
+                return Err(token_expired_error());
+            }
             return Err(anyhow!(
                 "获取 POW 挑战失败: code={}, msg={}",
                 data.code,
@@ -201,6 +284,7 @@ impl DeepSeekWebClient {
     /// - `parent_message_id`: 上一条消息 ID（可选，用于连续对话）
     /// - `prompt`: 用户消息
     /// - `thinking_enabled`: 是否启用 R1 深度思考模式
+    /// - `timeout_seconds`: 读取响应的超时时间
     ///
     /// # 返回
     /// - (响应文本, 新的 message_id)
@@ -210,6 +294,7 @@ impl DeepSeekWebClient {
         parent_message_id: Option<&str>,
         prompt: &str,
         thinking_enabled: bool,
+        timeout_seconds: u64,
     ) -> Result<(String, Option<String>)> {
         // 1. 获取并求解 POW 挑战
         let challenge = self.get_pow_challenge().await?;
@@ -251,14 +336,33 @@ impl DeepSeekWebClient {
             .send()
             .await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
+        debug!("收到HTTP响应: status={}", resp.status());
+
+        let status = resp.status();
+        if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            if is_token_error(status, None, Some(&body)) {
+                return Err(token_expired_error());
+            }
             return Err(anyhow!("聊天请求失败: HTTP {} - {}", status, body));
         }
 
-        // 4. 解析 SSE 流响应
-        let body = resp.text().await?;
+        // 4. 解析 SSE 流响应（带超时保护）
+        debug!("开始读取响应体...");
+        let read_timeout = Duration::from_secs(timeout_seconds.max(30));
+        let body = match tokio::time::timeout(read_timeout, resp.text()).await {
+            Ok(Ok(body)) => {
+                debug!("响应体读取完成: {} 字节", body.len());
+                body
+            }
+            Ok(Err(e)) => {
+                return Err(anyhow!("读取响应体失败: {}", e));
+            }
+            Err(_) => {
+                return Err(anyhow!("读取响应体超时 ({}秒)", timeout_seconds));
+            }
+        };
+
         let (response_text, message_id) = self.parse_sse_response(&body)?;
 
         Ok((response_text, message_id))
@@ -273,6 +377,14 @@ impl DeepSeekWebClient {
                 if let Some(code) = json.get("code").and_then(|c| c.as_i64()) {
                     if code != 0 {
                         let msg = json.get("msg").and_then(|m| m.as_str()).unwrap_or("未知错误");
+                        // 检查是否为 Token 过期
+                        if is_token_error(
+                            reqwest::StatusCode::OK, // 已经是 200 了，只检查 code 和 msg
+                            Some(code as i32),
+                            Some(msg),
+                        ) {
+                            return Err(token_expired_error());
+                        }
                         return Err(anyhow!("API 错误: code={}, msg={}", code, msg));
                     }
                 }
@@ -388,6 +500,48 @@ impl DeepSeekWebClient {
     }
 }
 
+/// 使用 DeepSeek Web API 生成原始响应（不清洗）
+///
+/// # 参数
+/// - `token`: DeepSeek Web Token
+/// - `session`: 会话信息（可选，如果为 None 则创建新会话）
+/// - `prompt`: 用户消息
+/// - `thinking_enabled`: 是否启用 R1 深度思考模式
+/// - `timeout_seconds`: 超时时间
+///
+/// # 返回
+/// - (原始响应文本, 更新后的会话信息)
+pub async fn deepseek_web_generate_raw(
+    token: &str,
+    session: Option<DeepSeekSession>,
+    prompt: &str,
+    thinking_enabled: bool,
+    timeout_seconds: u64,
+) -> Result<(String, DeepSeekSession)> {
+    // 检查并更新 WASM（仅首次调用时执行）
+    super::deepseek_pow::check_and_update_wasm().await;
+
+    let client = DeepSeekWebClient::new(token, timeout_seconds)?;
+
+    // 获取或创建会话
+    let (session_id, parent_message_id) = match session {
+        Some(s) => (s.session_id, s.parent_message_id),
+        None => (client.create_session().await?, None),
+    };
+
+    // 发送消息
+    let (response, new_message_id) = client
+        .send_message(&session_id, parent_message_id.as_deref(), prompt, thinking_enabled, timeout_seconds)
+        .await?;
+
+    let updated_session = DeepSeekSession {
+        session_id,
+        parent_message_id: new_message_id,
+    };
+
+    Ok((response, updated_session))
+}
+
 /// 使用 DeepSeek Web API 生成文件名
 ///
 /// # 参数
@@ -419,7 +573,7 @@ pub async fn deepseek_web_generate(
 
     // 发送消息
     let (response, new_message_id) = client
-        .send_message(&session_id, parent_message_id.as_deref(), prompt, thinking_enabled)
+        .send_message(&session_id, parent_message_id.as_deref(), prompt, thinking_enabled, timeout_seconds)
         .await?;
 
     // 清洗响应

@@ -15,6 +15,7 @@ use utoipa_swagger_ui::{Config, SwaggerUi};
 use crate::api::auth;
 use crate::api::handler::{
     add_video_source,
+    ai_rename_history,
     batch_update_config_internal,
     check_initial_setup,
     clear_ai_rename_cache,
@@ -177,6 +178,7 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
         .route("/api/validate-regex", post(validate_regex_pattern))
         .route("/api/ai-rename/clear-cache", post(clear_ai_rename_cache))
         .route("/api/ai-rename/clear-cache/{source_type}/{id}", post(clear_ai_rename_cache_for_source))
+        .route("/api/{source_type}/{id}/ai-rename-history", post(ai_rename_history))
         .route("/api/videos", get(get_videos))
         .route("/api/videos/{id}", get(get_video))
         .route("/api/videos/{id}", delete(delete_video))

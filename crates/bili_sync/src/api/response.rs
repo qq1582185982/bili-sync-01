@@ -873,3 +873,13 @@ pub struct LatestIngestItemResponse {
 pub struct LatestIngestResponse {
     pub items: Vec<LatestIngestItemResponse>,
 }
+
+// AI批量重命名响应
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct BatchRenameResponse {
+    pub success: bool,
+    pub renamed_count: usize,
+    pub skipped_count: usize,
+    pub failed_count: usize,
+    pub message: String,
+}

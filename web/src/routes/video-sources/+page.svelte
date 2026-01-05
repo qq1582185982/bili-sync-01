@@ -14,6 +14,7 @@
 	import SubmissionSelectionDialog from '$lib/components/submission-selection-dialog.svelte';
 	import KeywordFilterDialog from '$lib/components/keyword-filter-dialog.svelte';
 	import AiPromptDialog from '$lib/components/ai-prompt-dialog.svelte';
+	import AiRenameHistoryDialog from '$lib/components/ai-rename-history-dialog.svelte';
 
 	// 图标导入
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -31,6 +32,7 @@
 	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import SubtitlesIcon from '@lucide/svelte/icons/subtitles';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
+	import HistoryIcon from '@lucide/svelte/icons/history';
 	import { goto } from '$app/navigation';
 
 	let loading = false;
@@ -88,6 +90,16 @@
 		videoPrompt: '',
 		audioPrompt: '',
 		aiRename: false
+	};
+
+	// AI批量重命名历史对话框状态
+	let showAiRenameHistoryDialog = false;
+	let aiRenameHistoryInfo = {
+		type: '',
+		id: 0,
+		name: '',
+		videoPrompt: '',
+		audioPrompt: ''
 	};
 
 	async function loadVideoSources() {
@@ -329,6 +341,30 @@
 	// AI提示词保存后的回调
 	async function handleAiPromptSave() {
 		await loadVideoSources();
+	}
+
+	// AI批量重命名历史文件 - 打开对话框
+	function handleAiRenameHistory(
+		sourceType: string,
+		sourceId: number,
+		sourceName: string,
+		videoPrompt: string,
+		audioPrompt: string
+	) {
+		aiRenameHistoryInfo = {
+			type: sourceType,
+			id: sourceId,
+			name: sourceName,
+			videoPrompt: videoPrompt || '',
+			audioPrompt: audioPrompt || ''
+		};
+		showAiRenameHistoryDialog = true;
+	}
+
+	// AI批量重命名完成后的回调
+	function handleAiRenameHistoryComplete() {
+		// 刷新视频源列表以显示最新状态（AI重命名已开启）
+		loadVideoSources();
 	}
 
 	// 确认删除
@@ -853,6 +889,30 @@
 													/>
 												</Button>
 
+												<!-- AI批量重命名历史（番剧不支持） -->
+												{#if sourceConfig.type !== 'bangumi'}
+													<Button
+														size="sm"
+														variant="ghost"
+														onclick={() =>
+															handleAiRenameHistory(
+																sourceConfig.type,
+																source.id,
+																source.name,
+																source.ai_rename_video_prompt ?? '',
+																source.ai_rename_audio_prompt ?? ''
+															)}
+														title="AI批量重命名历史文件"
+														class="h-8 w-8 p-0"
+													>
+														<HistoryIcon
+															class="h-4 w-4 {source.ai_rename
+																? 'text-cyan-600'
+																: 'text-gray-400'}"
+														/>
+													</Button>
+												{/if}
+
 												<!-- 删除 -->
 												<Button
 													size="sm"
@@ -947,4 +1007,15 @@
 	initialAudioPrompt={aiPromptInfo.audioPrompt}
 	initialAiRename={aiPromptInfo.aiRename}
 	on:save={handleAiPromptSave}
+/>
+
+<!-- AI批量重命名历史对话框 -->
+<AiRenameHistoryDialog
+	bind:isOpen={showAiRenameHistoryDialog}
+	sourceName={aiRenameHistoryInfo.name}
+	sourceType={aiRenameHistoryInfo.type}
+	sourceId={aiRenameHistoryInfo.id}
+	initialVideoPrompt={aiRenameHistoryInfo.videoPrompt}
+	initialAudioPrompt={aiRenameHistoryInfo.audioPrompt}
+	on:complete={handleAiRenameHistoryComplete}
 />

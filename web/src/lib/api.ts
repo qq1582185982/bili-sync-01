@@ -496,6 +496,30 @@ class ApiClient {
 	}
 
 	/**
+	 * 批量AI重命名视频源下的历史文件
+	 * @param sourceType 视频源类型 (collection/favorite/submission/watch_later)
+	 * @param id 视频源ID
+	 */
+	async aiRenameHistory(
+		sourceType: string,
+		id: number
+	): Promise<ApiResponse<{
+		success: boolean;
+		renamed_count: number;
+		skipped_count: number;
+		failed_count: number;
+		message: string;
+	}>> {
+		return this.post<{
+			success: boolean;
+			renamed_count: number;
+			skipped_count: number;
+			failed_count: number;
+			message: string;
+		}>(`/${sourceType}/${id}/ai-rename-history`, {});
+	}
+
+	/**
 	 * 获取配置
 	 */
 	async getConfig(): Promise<ApiResponse<ConfigResponse>> {
@@ -1039,6 +1063,12 @@ export const api = {
 	 */
 	clearAiRenameCacheForSource: (sourceType: string, id: number) =>
 		apiClient.clearAiRenameCacheForSource(sourceType, id),
+
+	/**
+	 * 批量AI重命名视频源下的历史文件
+	 */
+	aiRenameHistory: (sourceType: string, id: number) =>
+		apiClient.aiRenameHistory(sourceType, id),
 
 	/**
 	 * 检查是否需要初始设置

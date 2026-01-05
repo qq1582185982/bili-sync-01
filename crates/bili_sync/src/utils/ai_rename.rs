@@ -995,3 +995,495 @@ pub async fn rename_inconsistent_file(
 
     Ok(new_path)
 }
+
+/// 批量重命名结果
+#[derive(Debug, Default)]
+pub struct BatchRenameResult {
+    pub renamed_count: usize,
+    pub skipped_count: usize,
+    pub failed_count: usize,
+}
+
+/// 待重命名的文件信息
+#[derive(Clone)]
+struct FileToRename {
+    /// 原始文件路径
+    path: std::path::PathBuf,
+    /// 当前文件名（不含扩展名）
+    current_stem: String,
+    /// 扩展名
+    ext: String,
+    /// AI 上下文
+    ctx: AiRenameContext,
+    /// page.id（用于更新数据库）
+    page_id: i32,
+}
+
+/// 批量生成文件名（一次请求处理多个文件）
+///
+/// # 参数
+/// - `cfg`: AI 重命名配置
+/// - `source_key`: 视频源标识
+/// - `files`: 待重命名的文件列表
+/// - `prompt_hint`: 命名提示词
+///
+/// # 返回
+/// - 新文件名列表（与输入顺序对应）
+async fn ai_generate_filenames_batch(
+    cfg: &AiRenameConfig,
+    source_key: &str,
+    files: &[FileToRename],
+    prompt_hint: &str,
+) -> Result<Vec<String>> {
+    if files.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 构建批量 prompt
+    let mut file_list = String::new();
+    for (i, file) in files.iter().enumerate() {
+        let video_info = file.ctx.to_json_string();
+        file_list.push_str(&format!(
+            "{}. 当前文件名: {}\n   视频信息: {}\n\n",
+            i + 1,
+            file.current_stem,
+            video_info.replace('\n', " ") // 压缩为单行
+        ));
+    }
+
+    let full_prompt = format!(
+        "请为以下 {} 个视频文件生成新的文件名。\n\
+        严格按照 JSON 数组格式返回，只输出文件名（不含扩展名），不要解释：\n\
+        [\"文件名1\", \"文件名2\", ...]\n\n\
+        命名结构提示：{}\n\n\
+        文件列表：\n{}",
+        files.len(),
+        prompt_hint,
+        file_list
+    );
+
+    // 根据 provider 选择实现
+    if cfg.provider == "deepseek-web" {
+        ai_generate_filenames_batch_deepseek_web(cfg, source_key, &full_prompt, files.len()).await
+    } else {
+        ai_generate_filenames_batch_openai(cfg, source_key, &full_prompt, files.len()).await
+    }
+}
+
+/// DeepSeek Web 批量生成
+async fn ai_generate_filenames_batch_deepseek_web(
+    cfg: &AiRenameConfig,
+    source_key: &str,
+    prompt: &str,
+    expected_count: usize,
+) -> Result<Vec<String>> {
+    let _lock = AI_RENAME_LOCK.lock().await;
+
+    let token = cfg.deepseek_web_token.clone()
+        .ok_or_else(|| anyhow!("DeepSeek Web Token 未配置"))?;
+
+    let db = crate::database::get_global_db()
+        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+
+    // 从缓存获取会话
+    let cached_session = {
+        let cache = DEEPSEEK_SESSION_CACHE.lock().await;
+        if let Some(session) = cache.get(source_key).cloned() {
+            info!("会话缓存命中（内存）: source_key='{}', session_id='{}'", source_key, session.session_id);
+            Some(session)
+        } else {
+            drop(cache);
+            if let Some(session) = load_deepseek_session(db.as_ref(), source_key).await {
+                info!("会话缓存命中（数据库）: source_key='{}', session_id='{}'", source_key, session.session_id);
+                let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
+                cache.insert(source_key.to_string(), session.clone());
+                Some(session)
+            } else {
+                info!("会话缓存未命中: source_key='{}'，将创建新会话", source_key);
+                None
+            }
+        }
+    };
+
+    // 调用 DeepSeek Web API（使用原始响应，不清洗）
+    let (response, new_session) = super::deepseek_web::deepseek_web_generate_raw(
+        &token,
+        cached_session,
+        prompt,
+        cfg.thinking_enabled,
+        cfg.timeout_seconds,
+    ).await?;
+
+    // 更新会话缓存
+    {
+        let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
+        cache.insert(source_key.to_string(), new_session.clone());
+    }
+    if let Err(e) = save_deepseek_session(db.as_ref(), source_key, &new_session).await {
+        warn!("保存 DeepSeek 会话到数据库失败: {}", e);
+    }
+
+    // 解析 JSON 数组响应
+    parse_batch_response(&response, expected_count)
+}
+
+/// OpenAI 兼容 API 批量生成
+async fn ai_generate_filenames_batch_openai(
+    cfg: &AiRenameConfig,
+    source_key: &str,
+    prompt: &str,
+    expected_count: usize,
+) -> Result<Vec<String>> {
+    let api_key = cfg.api_key.clone().ok_or_else(|| anyhow!("API key missing"))?;
+
+    let db = crate::database::get_global_db()
+        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+
+    let history = get_conversation_history(db.as_ref(), source_key).await;
+
+    let system_prompt = if history.is_empty() {
+        "你是一个文件命名助手。返回 JSON 数组格式的文件名列表，不要解释。".to_string()
+    } else {
+        "你是一个文件命名助手。严格遵循之前的命名风格，返回 JSON 数组格式。".to_string()
+    };
+
+    let mut messages = Vec::with_capacity(2 + history.len());
+    messages.push(ChatMessage {
+        role: "system".to_string(),
+        content: system_prompt,
+    });
+    for msg in &history {
+        messages.push(ChatMessage {
+            role: msg.role.clone(),
+            content: msg.content.clone(),
+        });
+    }
+    messages.push(ChatMessage {
+        role: "user".to_string(),
+        content: prompt.to_string(),
+    });
+
+    let req_body = ChatRequest {
+        model: cfg.model.clone(),
+        messages,
+        max_tokens: Some(512), // 批量需要更多 token
+        temperature: Some(0.1),
+    };
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(cfg.timeout_seconds.max(30)))
+        .build()?;
+
+    let base = cfg.base_url.trim_end_matches('/');
+    let res = client
+        .post(format!("{}/chat/completions", base))
+        .bearer_auth(api_key)
+        .json(&req_body)
+        .send()
+        .await?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        return Err(anyhow!("批量 AI 请求失败: {} {}", status, body));
+    }
+
+    let resp: ChatResponse = res.json().await?;
+    let raw = resp
+        .choices
+        .first()
+        .map(|c| c.message.content.trim().to_string())
+        .ok_or_else(|| anyhow!("No response"))?;
+
+    // 保存对话历史
+    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "user", prompt).await {
+        warn!("保存用户消息失败: {}", e);
+    }
+    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "assistant", &raw).await {
+        warn!("保存助手回复失败: {}", e);
+    }
+
+    parse_batch_response(&raw, expected_count)
+}
+
+/// 解析批量响应的 JSON 数组
+fn parse_batch_response(response: &str, expected_count: usize) -> Result<Vec<String>> {
+    // 尝试提取 JSON 数组
+    let json_str = if let Some(start) = response.find('[') {
+        if let Some(end) = response.rfind(']') {
+            &response[start..=end]
+        } else {
+            response
+        }
+    } else {
+        response
+    };
+
+    // 解析 JSON
+    let names: Vec<String> = serde_json::from_str(json_str)
+        .map_err(|e| anyhow!("解析 JSON 数组失败: {} - 原始响应: {}", e, response))?;
+
+    if names.len() != expected_count {
+        warn!(
+            "AI 返回数量不匹配: 期望 {}, 实际 {}",
+            expected_count, names.len()
+        );
+    }
+
+    // 清洗文件名
+    let cleaned: Vec<String> = names
+        .into_iter()
+        .map(|name| {
+            let mut n = name.replace(['"', '\n', '\r'], "");
+            n = n.replace(' ', "-");
+            n = crate::utils::filenamify::filenamify(&n);
+            if n.chars().count() > 180 {
+                n = n.chars().take(180).collect();
+            }
+            n
+        })
+        .collect();
+
+    Ok(cleaned)
+}
+
+/// 批量重命名视频源下的历史文件
+///
+/// # 参数
+/// - `connection`: 数据库连接
+/// - `source_key`: 视频源唯一标识（如 "collection_123"）
+/// - `videos`: 视频和其分页列表（已下载的）
+/// - `config`: AI 重命名配置
+/// - `video_prompt`: 视频自定义提示词
+/// - `audio_prompt`: 音频自定义提示词
+///
+/// # 返回
+/// - 批量重命名结果（renamed_count, skipped_count, failed_count）
+pub async fn batch_rename_history_files(
+    connection: &DatabaseConnection,
+    source_key: &str,
+    videos: Vec<(bili_sync_entity::video::Model, Vec<bili_sync_entity::page::Model>)>,
+    config: &AiRenameConfig,
+    video_prompt: &str,
+    audio_prompt: &str,
+) -> Result<BatchRenameResult> {
+    let mut result = BatchRenameResult::default();
+
+    // 第一步：收集所有需要重命名的文件
+    let mut video_files: Vec<FileToRename> = Vec::new();
+    let mut audio_files: Vec<FileToRename> = Vec::new();
+
+    info!(
+        "[{}] 开始批量重命名，共 {} 个视频",
+        source_key,
+        videos.len()
+    );
+
+    for (video, pages) in &videos {
+        for page_model in pages {
+            // 检查 page.path 是否存在
+            let page_path = match &page_model.path {
+                Some(p) if !p.is_empty() => p.clone(),
+                _ => {
+                    result.skipped_count += 1;
+                    continue;
+                }
+            };
+
+            // 检查文件是否存在
+            let file_path = Path::new(&page_path);
+            if !file_path.exists() {
+                result.skipped_count += 1;
+                continue;
+            }
+
+            // 获取当前文件名和扩展名
+            let current_stem = match file_path.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => {
+                    result.failed_count += 1;
+                    continue;
+                }
+            };
+
+            let ext = file_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("mp4")
+                .to_string();
+
+            let is_audio = matches!(ext.as_str(), "m4a" | "mp3" | "flac" | "aac" | "ogg");
+
+            let ctx = AiRenameContext {
+                title: video.name.clone(),
+                desc: video.intro.clone(),
+                owner: video.upper_name.clone(),
+                tname: video.category.to_string(),
+                duration: 0,
+                pubdate: video.pubtime.format("%Y-%m-%d").to_string(),
+                dimension: String::new(),
+                part_name: page_model.name.clone(),
+                ugc_season: None,
+                copyright: String::new(),
+                view: 0,
+                pid: page_model.pid,
+                episode_number: None,
+                source_type: source_key.split('_').next().unwrap_or("unknown").to_string(),
+                is_audio,
+            };
+
+            let file_info = FileToRename {
+                path: file_path.to_path_buf(),
+                current_stem,
+                ext,
+                ctx,
+                page_id: page_model.id,
+            };
+
+            if is_audio {
+                audio_files.push(file_info);
+            } else {
+                video_files.push(file_info);
+            }
+        }
+    }
+
+    info!(
+        "[{}] 收集完成: {} 个视频文件, {} 个音频文件",
+        source_key,
+        video_files.len(),
+        audio_files.len()
+    );
+
+    // 第二步：按批次处理视频文件（每批 10 个）
+    let batch_size = 10;
+    let video_prompt_hint = if !video_prompt.is_empty() {
+        video_prompt
+    } else {
+        &config.video_prompt_hint
+    };
+    let audio_prompt_hint = if !audio_prompt.is_empty() {
+        audio_prompt
+    } else {
+        &config.audio_prompt_hint
+    };
+
+    // 处理视频文件
+    for (batch_idx, batch) in video_files.chunks(batch_size).enumerate() {
+        info!(
+            "[{}] 处理视频批次 {}/{}: {} 个文件",
+            source_key,
+            batch_idx + 1,
+            (video_files.len() + batch_size - 1) / batch_size,
+            batch.len()
+        );
+
+        match ai_generate_filenames_batch(config, source_key, batch, video_prompt_hint).await {
+            Ok(new_names) => {
+                for (file, new_stem) in batch.iter().zip(new_names.iter()) {
+                    apply_rename(connection, source_key, file, new_stem, &mut result).await;
+                }
+            }
+            Err(e) => {
+                warn!("[{}] 视频批次 {} 处理失败: {}", source_key, batch_idx + 1, e);
+                result.failed_count += batch.len();
+            }
+        }
+    }
+
+    // 处理音频文件
+    for (batch_idx, batch) in audio_files.chunks(batch_size).enumerate() {
+        info!(
+            "[{}] 处理音频批次 {}/{}: {} 个文件",
+            source_key,
+            batch_idx + 1,
+            (audio_files.len() + batch_size - 1) / batch_size,
+            batch.len()
+        );
+
+        match ai_generate_filenames_batch(config, source_key, batch, audio_prompt_hint).await {
+            Ok(new_names) => {
+                for (file, new_stem) in batch.iter().zip(new_names.iter()) {
+                    apply_rename(connection, source_key, file, new_stem, &mut result).await;
+                }
+            }
+            Err(e) => {
+                warn!("[{}] 音频批次 {} 处理失败: {}", source_key, batch_idx + 1, e);
+                result.failed_count += batch.len();
+            }
+        }
+    }
+
+    info!(
+        "[{}] 批量重命名完成: 重命名 {} 个, 跳过 {} 个, 失败 {} 个",
+        source_key, result.renamed_count, result.skipped_count, result.failed_count
+    );
+
+    Ok(result)
+}
+
+/// 应用单个文件的重命名
+async fn apply_rename(
+    connection: &DatabaseConnection,
+    source_key: &str,
+    file: &FileToRename,
+    new_stem: &str,
+    result: &mut BatchRenameResult,
+) {
+    use bili_sync_entity::page;
+
+    // 文件名相同则跳过
+    if new_stem == file.current_stem || new_stem.is_empty() {
+        result.skipped_count += 1;
+        return;
+    }
+
+    // 构建新路径
+    let parent = file.path.parent().unwrap_or(Path::new("."));
+    let new_filename = format!("{}.{}", new_stem, file.ext);
+    let new_path = parent.join(&new_filename);
+
+    // 检查目标文件是否已存在
+    if new_path.exists() {
+        warn!(
+            "[{}] 目标文件已存在，跳过: {}",
+            source_key, new_path.display()
+        );
+        result.skipped_count += 1;
+        return;
+    }
+
+    // 执行文件重命名
+    if let Err(e) = fs::rename(&file.path, &new_path) {
+        warn!(
+            "[{}] 重命名文件失败: {} -> {} - {}",
+            source_key, file.path.display(), new_path.display(), e
+        );
+        result.failed_count += 1;
+        return;
+    }
+
+    info!(
+        "[{}] 重命名成功: {} -> {}",
+        source_key, file.current_stem, new_stem
+    );
+
+    // 重命名侧车文件
+    if let Err(e) = rename_sidecars(&file.path, new_stem) {
+        warn!("[{}] 重命名侧车文件失败: {}", source_key, e);
+    }
+
+    // 更新数据库中的 page.path
+    let new_path_str = new_path.to_string_lossy().to_string();
+    if let Ok(page_model) = page::Entity::find_by_id(file.page_id).one(connection).await {
+        if let Some(page_model) = page_model {
+            let mut active_page: page::ActiveModel = page_model.into();
+            active_page.path = Set(Some(new_path_str));
+            if let Err(e) = active_page.update(connection).await {
+                warn!("[{}] 更新数据库 page.path 失败: {}", source_key, e);
+            }
+        }
+    }
+
+    result.renamed_count += 1;
+}

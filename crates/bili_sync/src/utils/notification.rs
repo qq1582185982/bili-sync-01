@@ -772,6 +772,17 @@ pub async fn send_error_notification(
     client.send_error(error_type, error_message, context).await
 }
 
+/// 发送 DeepSeek Token 过期通知的便捷函数
+pub async fn send_deepseek_token_expired_notification() -> Result<()> {
+    let config = crate::config::reload_config().notification;
+    let client = NotificationClient::new(config);
+    client.send_error(
+        "DeepSeek Token 过期",
+        "DeepSeek Web Token 已过期或无效，AI 重命名功能将暂停工作。",
+        Some("请在设置页面重新配置 Token。获取方法：浏览器打开 chat.deepseek.com 登录后，F12 开发者工具 → Network → 找到任意请求的 Authorization 头 → 复制 Bearer 后面的值"),
+    ).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
