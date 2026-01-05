@@ -874,6 +874,17 @@ pub struct LatestIngestResponse {
     pub items: Vec<LatestIngestItemResponse>,
 }
 
+// AI批量重命名请求
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Default)]
+pub struct BatchRenameRequest {
+    /// 视频重命名提示词（可选，为空则使用视频源配置或全局配置）
+    #[serde(default)]
+    pub video_prompt: String,
+    /// 音频重命名提示词（可选，为空则使用视频源配置或全局配置）
+    #[serde(default)]
+    pub audio_prompt: String,
+}
+
 // AI批量重命名响应
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct BatchRenameResponse {

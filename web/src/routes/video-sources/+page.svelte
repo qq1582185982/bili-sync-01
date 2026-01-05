@@ -889,29 +889,27 @@
 													/>
 												</Button>
 
-												<!-- AI批量重命名历史（番剧不支持） -->
-												{#if sourceConfig.type !== 'bangumi'}
-													<Button
-														size="sm"
-														variant="ghost"
-														onclick={() =>
-															handleAiRenameHistory(
-																sourceConfig.type,
-																source.id,
-																source.name,
-																source.ai_rename_video_prompt ?? '',
-																source.ai_rename_audio_prompt ?? ''
-															)}
-														title="AI批量重命名历史文件"
-														class="h-8 w-8 p-0"
-													>
-														<HistoryIcon
-															class="h-4 w-4 {source.ai_rename
-																? 'text-cyan-600'
-																: 'text-gray-400'}"
-														/>
-													</Button>
-												{/if}
+												<!-- AI批量重命名历史 -->
+												<Button
+													size="sm"
+													variant="ghost"
+													onclick={() =>
+														handleAiRenameHistory(
+															sourceConfig.type,
+															source.id,
+															source.name,
+															source.ai_rename_video_prompt ?? '',
+															source.ai_rename_audio_prompt ?? ''
+														)}
+													title="AI批量重命名历史文件"
+													class="h-8 w-8 p-0"
+												>
+													<HistoryIcon
+														class="h-4 w-4 {source.ai_rename
+															? 'text-cyan-600'
+															: 'text-gray-400'}"
+													/>
+												</Button>
 
 												<!-- 删除 -->
 												<Button

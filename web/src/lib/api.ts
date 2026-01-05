@@ -499,10 +499,14 @@ class ApiClient {
 	 * 批量AI重命名视频源下的历史文件
 	 * @param sourceType 视频源类型 (collection/favorite/submission/watch_later)
 	 * @param id 视频源ID
+	 * @param videoPrompt 视频重命名提示词（可选）
+	 * @param audioPrompt 音频重命名提示词（可选）
 	 */
 	async aiRenameHistory(
 		sourceType: string,
-		id: number
+		id: number,
+		videoPrompt?: string,
+		audioPrompt?: string
 	): Promise<ApiResponse<{
 		success: boolean;
 		renamed_count: number;
@@ -516,7 +520,10 @@ class ApiClient {
 			skipped_count: number;
 			failed_count: number;
 			message: string;
-		}>(`/${sourceType}/${id}/ai-rename-history`, {});
+		}>(`/${sourceType}/${id}/ai-rename-history`, {
+			video_prompt: videoPrompt || '',
+			audio_prompt: audioPrompt || ''
+		});
 	}
 
 	/**
@@ -1067,8 +1074,8 @@ export const api = {
 	/**
 	 * 批量AI重命名视频源下的历史文件
 	 */
-	aiRenameHistory: (sourceType: string, id: number) =>
-		apiClient.aiRenameHistory(sourceType, id),
+	aiRenameHistory: (sourceType: string, id: number, videoPrompt?: string, audioPrompt?: string) =>
+		apiClient.aiRenameHistory(sourceType, id, videoPrompt, audioPrompt),
 
 	/**
 	 * 检查是否需要初始设置

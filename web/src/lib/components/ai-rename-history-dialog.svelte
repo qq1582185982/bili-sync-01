@@ -39,7 +39,8 @@
 			collection: '合集',
 			favorite: '收藏夹',
 			submission: 'UP主投稿',
-			watch_later: '稍后观看'
+			watch_later: '稍后观看',
+			bangumi: '番剧'
 		};
 		return typeMap[type] || type;
 	}
@@ -61,8 +62,13 @@
 	// 后台执行重命名逻辑
 	async function executeRenameInBackground() {
 		try {
-			// 执行批量重命名
-			const result = await api.aiRenameHistory(sourceType, sourceId);
+			// 执行批量重命名，传递自定义提示词
+			const result = await api.aiRenameHistory(
+				sourceType,
+				sourceId,
+				videoPrompt.trim(),
+				audioPrompt.trim()
+			);
 
 			if (result.data.success) {
 				// 重命名成功后，同步更新该源的 AI 重命名设置（包括提示词和开关）

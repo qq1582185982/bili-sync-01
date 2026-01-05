@@ -3375,6 +3375,7 @@ pub async fn download_page(
             episode_number: video_model.episode_number,
             source_type: source_type.to_string(),
             is_audio: audio_only,
+            sort_index: None, // 单文件重命名不使用排序位置，仅批量重命名时使用
         };
 
         // 获取视频源唯一键（用于保持命名风格一致）
@@ -3398,16 +3399,17 @@ pub async fn download_page(
         .await
         {
             Ok(new_stem) => {
+                let file_ext = video_path.extension().and_then(|s| s.to_str()).unwrap_or(media_ext);
                 let new_path = video_path.with_file_name(format!(
                     "{}.{}",
                     new_stem,
-                    video_path.extension().and_then(|s| s.to_str()).unwrap_or(media_ext)
+                    file_ext
                 ));
                 if let Err(e) = std::fs::rename(&video_path, &new_path) {
                     warn!("AI 重命名文件失败: {}", e);
                 } else {
                     // 先重命名侧车文件（仍在旧目录中），随后再考虑是否需要重命名子文件夹。
-                    if let Err(e) = ai_rename::rename_sidecars(&video_path, &new_stem) {
+                    if let Err(e) = ai_rename::rename_sidecars(&video_path, &new_stem, file_ext) {
                         warn!("AI 重命名侧车文件失败: {}", e);
                     }
 

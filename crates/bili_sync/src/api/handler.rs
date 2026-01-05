@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use axum::extract::{Extension, Path, Query};
+use axum::extract::{Extension, Json, Path, Query};
 use chrono::Datelike;
 
 use crate::utils::time_format::{now_standard_string, to_standard_string};
@@ -12130,9 +12130,10 @@ pub async fn clear_ai_rename_cache_for_source(
     post,
     path = "/api/{source_type}/{id}/ai-rename-history",
     params(
-        ("source_type" = String, Path, description = "视频源类型 (collection/favorite/submission/watch_later)"),
+        ("source_type" = String, Path, description = "视频源类型 (collection/favorite/submission/watch_later/bangumi)"),
         ("id" = i32, Path, description = "视频源ID"),
     ),
+    request_body = crate::api::response::BatchRenameRequest,
     responses(
         (status = 200, body = ApiResponse<crate::api::response::BatchRenameResponse>),
     )
@@ -12140,6 +12141,7 @@ pub async fn clear_ai_rename_cache_for_source(
 pub async fn ai_rename_history(
     Extension(db): Extension<Arc<DatabaseConnection>>,
     Path((source_type, id)): Path<(String, i32)>,
+    Json(req): Json<crate::api::response::BatchRenameRequest>,
 ) -> Result<ApiResponse<crate::api::response::BatchRenameResponse>, ApiError> {
     use crate::utils::ai_rename::{batch_rename_history_files, AiRenameConfig};
 
@@ -12236,6 +12238,24 @@ pub async fn ai_rename_history(
                 videos_with_pages,
             )
         }
+        "bangumi" => {
+            let source = video_source::Entity::find_by_id(id)
+                .one(db.as_ref())
+                .await?
+                .ok_or_else(|| anyhow!("未找到指定的番剧"))?;
+
+            let videos_with_pages = get_videos_with_pages_for_source(
+                db.as_ref(),
+                "bangumi",
+                id,
+            ).await?;
+
+            (
+                source.ai_rename_video_prompt,
+                source.ai_rename_audio_prompt,
+                videos_with_pages,
+            )
+        }
         _ => {
             return Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {
                 success: false,
@@ -12245,6 +12265,18 @@ pub async fn ai_rename_history(
                 message: format!("不支持的视频源类型: {}", source_type),
             }));
         }
+    };
+
+    // 如果请求中提供了自定义提示词，则优先使用请求中的提示词
+    let video_prompt = if !req.video_prompt.is_empty() {
+        req.video_prompt.clone()
+    } else {
+        video_prompt
+    };
+    let audio_prompt = if !req.audio_prompt.is_empty() {
+        req.audio_prompt.clone()
+    } else {
+        audio_prompt
     };
 
     if videos.is_empty() {
@@ -12262,6 +12294,14 @@ pub async fn ai_rename_history(
         source_key,
         videos.len()
     );
+
+    // 记录使用的提示词（便于调试）
+    if !video_prompt.is_empty() {
+        info!("[{}] 视频提示词: {}", source_key, video_prompt);
+    }
+    if !audio_prompt.is_empty() {
+        info!("[{}] 音频提示词: {}", source_key, audio_prompt);
+    }
 
     // 执行批量重命名
     let result = batch_rename_history_files(
@@ -12307,29 +12347,40 @@ async fn get_videos_with_pages_for_source(
     source_type: &str,
     source_id: i32,
 ) -> Result<Vec<(video::Model, Vec<page::Model>)>> {
-    // 根据源类型查询视频
+    // 根据源类型查询视频（按发布时间正序排列，便于AI生成连续的集数编号）
     let videos = match source_type {
         "collection" => {
             video::Entity::find()
                 .filter(video::Column::CollectionId.eq(source_id))
+                .order_by_asc(video::Column::Pubtime)
                 .all(db)
                 .await?
         }
         "favorite" => {
             video::Entity::find()
                 .filter(video::Column::FavoriteId.eq(source_id))
+                .order_by_asc(video::Column::Pubtime)
                 .all(db)
                 .await?
         }
         "submission" => {
             video::Entity::find()
                 .filter(video::Column::SubmissionId.eq(source_id))
+                .order_by_asc(video::Column::Pubtime)
                 .all(db)
                 .await?
         }
         "watch_later" => {
             video::Entity::find()
                 .filter(video::Column::WatchLaterId.eq(source_id))
+                .order_by_asc(video::Column::Pubtime)
+                .all(db)
+                .await?
+        }
+        "bangumi" => {
+            video::Entity::find()
+                .filter(video::Column::SourceId.eq(source_id))
+                .order_by_asc(video::Column::Pubtime)
                 .all(db)
                 .await?
         }

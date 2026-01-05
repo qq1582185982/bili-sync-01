@@ -47,6 +47,8 @@ pub struct AiRenameContext {
     pub source_type: String,
     /// 是否为音频模式
     pub is_audio: bool,
+    /// 在视频源中的排序位置（按发布时间排序后的顺序，从1开始）
+    pub sort_index: Option<i32>,
 }
 
 impl AiRenameContext {
@@ -87,6 +89,9 @@ impl AiRenameContext {
         }
         if let Some(ep) = self.episode_number {
             info["集数"] = serde_json::json!(format!("第{}集", ep));
+        }
+        if let Some(idx) = self.sort_index {
+            info["排序位置"] = serde_json::json!(idx);
         }
         if self.pid > 1 {
             info["分P"] = serde_json::json!(format!("P{}", self.pid));
@@ -663,12 +668,21 @@ async fn ai_generate_filename_openai_compatible(
 
 /// 重命名同目录下的侧车文件（nfo/xml/srt/jpg/jpeg/png/ass等）
 /// 支持复杂后缀如 -fanart.jpg, -thumb.jpg, .zh-CN.default.ass 等
-pub fn rename_sidecars(old: &Path, new_stem: &str) -> Result<()> {
+/// 重命名侧车文件（NFO、字幕、封面等）
+///
+/// # 参数
+/// - `old`: 原始文件路径（用于获取目录和原文件名基）
+/// - `new_stem`: 新的文件名基（不含扩展名）
+/// - `new_ext`: 新的主文件扩展名（用于排除已重命名的主文件）
+pub fn rename_sidecars(old: &Path, new_stem: &str, new_ext: &str) -> Result<()> {
     let parent = old.parent().ok_or_else(|| anyhow!("Invalid path"))?;
     let stem = old
         .file_stem()
         .and_then(|s| s.to_str())
         .ok_or_else(|| anyhow!("Invalid stem"))?;
+
+    // 新的主文件名（需要跳过）
+    let new_main_filename = format!("{}.{}", new_stem, new_ext);
 
     // 扫描目录中所有以旧文件名stem开头的文件
     if let Ok(entries) = fs::read_dir(parent) {
@@ -683,6 +697,11 @@ pub fn rename_sidecars(old: &Path, new_stem: &str) -> Result<()> {
                 None => continue,
             };
 
+            // 跳过刚重命名的主文件
+            if filename == new_main_filename {
+                continue;
+            }
+
             // 检查文件名是否以旧stem开头
             if !filename.starts_with(stem) {
                 continue;
@@ -691,7 +710,7 @@ pub fn rename_sidecars(old: &Path, new_stem: &str) -> Result<()> {
             // 获取stem之后的后缀部分（如 "-fanart.jpg", ".nfo", ".zh-CN.default.ass"）
             let suffix = &filename[stem.len()..];
 
-            // 跳过主视频/音频文件本身（已经被重命名了）
+            // 跳过原始主视频/音频文件本身（理论上已经被重命名了，但以防万一）
             if suffix.starts_with('.') {
                 let ext_lower = suffix.to_lowercase();
                 if ext_lower == ".mp4" || ext_lower == ".mkv" || ext_lower == ".m4a"
@@ -703,6 +722,12 @@ pub fn rename_sidecars(old: &Path, new_stem: &str) -> Result<()> {
             // 构建新文件名
             let new_filename = format!("{}{}", new_stem, suffix);
             let new_path = parent.join(&new_filename);
+
+            // 如果新路径已存在则跳过
+            if new_path.exists() {
+                warn!("侧车文件目标已存在，跳过: {} -> {}", filename, new_filename);
+                continue;
+            }
 
             // 执行重命名
             if let Err(e) = fs::rename(&path, &new_path) {
@@ -982,7 +1007,7 @@ pub async fn rename_inconsistent_file(
     fs::rename(file_path, &new_path)?;
 
     // 重命名侧车文件
-    if let Err(e) = rename_sidecars(file_path, &new_stem) {
+    if let Err(e) = rename_sidecars(file_path, &new_stem, ext) {
         warn!("重命名侧车文件失败: {}", e);
     }
 
@@ -1279,12 +1304,17 @@ pub async fn batch_rename_history_files(
         videos.len()
     );
 
+    // 跟踪视频和音频的排序位置
+    let mut video_sort_index = 1;
+    let mut audio_sort_index = 1;
+
     for (video, pages) in &videos {
         for page_model in pages {
             // 检查 page.path 是否存在
             let page_path = match &page_model.path {
                 Some(p) if !p.is_empty() => p.clone(),
                 _ => {
+                    debug!("[{}] 跳过 page_id={}: path 为空", source_key, page_model.id);
                     result.skipped_count += 1;
                     continue;
                 }
@@ -1293,6 +1323,7 @@ pub async fn batch_rename_history_files(
             // 检查文件是否存在
             let file_path = Path::new(&page_path);
             if !file_path.exists() {
+                debug!("[{}] 跳过 page_id={}: 文件不存在 path={}", source_key, page_model.id, page_path);
                 result.skipped_count += 1;
                 continue;
             }
@@ -1314,6 +1345,17 @@ pub async fn batch_rename_history_files(
 
             let is_audio = matches!(ext.as_str(), "m4a" | "mp3" | "flac" | "aac" | "ogg");
 
+            // 根据文件类型获取排序位置
+            let current_sort_index = if is_audio {
+                let idx = audio_sort_index;
+                audio_sort_index += 1;
+                idx
+            } else {
+                let idx = video_sort_index;
+                video_sort_index += 1;
+                idx
+            };
+
             let ctx = AiRenameContext {
                 title: video.name.clone(),
                 desc: video.intro.clone(),
@@ -1330,6 +1372,7 @@ pub async fn batch_rename_history_files(
                 episode_number: None,
                 source_type: source_key.split('_').next().unwrap_or("unknown").to_string(),
                 is_audio,
+                sort_index: Some(current_sort_index),
             };
 
             let file_info = FileToRename {
@@ -1433,24 +1476,49 @@ async fn apply_rename(
     use bili_sync_entity::page;
 
     // 文件名相同则跳过
-    if new_stem == file.current_stem || new_stem.is_empty() {
+    if new_stem == file.current_stem {
+        info!("[{}] 跳过(文件名相同): '{}'", source_key, new_stem);
         result.skipped_count += 1;
         return;
     }
 
-    // 构建新路径
-    let parent = file.path.parent().unwrap_or(Path::new("."));
-    let new_filename = format!("{}.{}", new_stem, file.ext);
-    let new_path = parent.join(&new_filename);
-
-    // 检查目标文件是否已存在
-    if new_path.exists() {
-        warn!(
-            "[{}] 目标文件已存在，跳过: {}",
-            source_key, new_path.display()
-        );
+    // 新文件名为空则跳过
+    if new_stem.is_empty() {
+        info!("[{}] 跳过(AI返回空): 原文件名 '{}'", source_key, file.current_stem);
         result.skipped_count += 1;
         return;
+    }
+
+    // 构建新路径（处理重复文件名）
+    let parent = file.path.parent().unwrap_or(Path::new("."));
+    let mut final_stem = new_stem.to_string();
+    let mut new_filename = format!("{}.{}", final_stem, file.ext);
+    let mut new_path = parent.join(&new_filename);
+
+    // 如果目标文件已存在，添加后缀使其唯一
+    let mut suffix = 1;
+    while new_path.exists() {
+        final_stem = format!("{}-{}", new_stem, suffix);
+        new_filename = format!("{}.{}", final_stem, file.ext);
+        new_path = parent.join(&new_filename);
+        suffix += 1;
+        if suffix > 99 {
+            // 防止无限循环
+            info!(
+                "[{}] 跳过(无法生成唯一文件名): {} -> {}",
+                source_key, file.current_stem, new_stem
+            );
+            result.skipped_count += 1;
+            return;
+        }
+    }
+
+    // 如果添加了后缀，记录日志
+    if suffix > 1 {
+        info!(
+            "[{}] 检测到重复文件名，自动添加后缀: {} -> {}",
+            source_key, new_stem, final_stem
+        );
     }
 
     // 执行文件重命名
@@ -1465,11 +1533,11 @@ async fn apply_rename(
 
     info!(
         "[{}] 重命名成功: {} -> {}",
-        source_key, file.current_stem, new_stem
+        source_key, file.current_stem, final_stem
     );
 
     // 重命名侧车文件
-    if let Err(e) = rename_sidecars(&file.path, new_stem) {
+    if let Err(e) = rename_sidecars(&file.path, &final_stem, &file.ext) {
         warn!("[{}] 重命名侧车文件失败: {}", source_key, e);
     }
 
