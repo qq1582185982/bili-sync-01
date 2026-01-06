@@ -243,7 +243,6 @@ pub struct UpdateConfigRequest {
     pub ai_rename_base_url: Option<String>,
     pub ai_rename_api_key: Option<String>,
     pub ai_rename_deepseek_web_token: Option<String>,
-    pub ai_rename_thinking_enabled: Option<bool>,
     pub ai_rename_model: Option<String>,
     pub ai_rename_timeout_seconds: Option<u64>,
     pub ai_rename_video_prompt_hint: Option<String>,

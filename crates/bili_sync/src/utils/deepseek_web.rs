@@ -283,7 +283,6 @@ impl DeepSeekWebClient {
     /// - `session_id`: 会话 ID
     /// - `parent_message_id`: 上一条消息 ID（可选，用于连续对话）
     /// - `prompt`: 用户消息
-    /// - `thinking_enabled`: 是否启用 R1 深度思考模式
     /// - `timeout_seconds`: 读取响应的超时时间
     ///
     /// # 返回
@@ -293,7 +292,6 @@ impl DeepSeekWebClient {
         session_id: &str,
         parent_message_id: Option<&str>,
         prompt: &str,
-        thinking_enabled: bool,
         timeout_seconds: u64,
     ) -> Result<(String, Option<String>)> {
         // 1. 获取并求解 POW 挑战
@@ -317,12 +315,12 @@ impl DeepSeekWebClient {
             "parent_message_id": parent_id_num,
             "prompt": prompt,
             "ref_file_ids": [],
-            "thinking_enabled": thinking_enabled,
+            "thinking_enabled": false,
             "search_enabled": false,
             "client_stream_id": client_stream_id
         });
 
-        debug!("发送聊天请求: session={}, thinking={}", session_id, thinking_enabled);
+        debug!("发送聊天请求: session={}", session_id);
 
         // 3. 发送请求
         let mut headers = self.get_headers();
@@ -506,7 +504,6 @@ impl DeepSeekWebClient {
 /// - `token`: DeepSeek Web Token
 /// - `session`: 会话信息（可选，如果为 None 则创建新会话）
 /// - `prompt`: 用户消息
-/// - `thinking_enabled`: 是否启用 R1 深度思考模式
 /// - `timeout_seconds`: 超时时间
 ///
 /// # 返回
@@ -515,7 +512,6 @@ pub async fn deepseek_web_generate_raw(
     token: &str,
     session: Option<DeepSeekSession>,
     prompt: &str,
-    thinking_enabled: bool,
     timeout_seconds: u64,
 ) -> Result<(String, DeepSeekSession)> {
     // 检查并更新 WASM（仅首次调用时执行）
@@ -531,7 +527,7 @@ pub async fn deepseek_web_generate_raw(
 
     // 发送消息
     let (response, new_message_id) = client
-        .send_message(&session_id, parent_message_id.as_deref(), prompt, thinking_enabled, timeout_seconds)
+        .send_message(&session_id, parent_message_id.as_deref(), prompt, timeout_seconds)
         .await?;
 
     let updated_session = DeepSeekSession {
@@ -548,7 +544,6 @@ pub async fn deepseek_web_generate_raw(
 /// - `token`: DeepSeek Web Token
 /// - `session`: 会话信息（可选，如果为 None 则创建新会话）
 /// - `prompt`: 用户消息
-/// - `thinking_enabled`: 是否启用 R1 深度思考模式
 /// - `timeout_seconds`: 超时时间
 ///
 /// # 返回
@@ -557,7 +552,6 @@ pub async fn deepseek_web_generate(
     token: &str,
     session: Option<DeepSeekSession>,
     prompt: &str,
-    thinking_enabled: bool,
     timeout_seconds: u64,
 ) -> Result<(String, DeepSeekSession)> {
     // 检查并更新 WASM（仅首次调用时执行）
@@ -573,7 +567,7 @@ pub async fn deepseek_web_generate(
 
     // 发送消息
     let (response, new_message_id) = client
-        .send_message(&session_id, parent_message_id.as_deref(), prompt, thinking_enabled, timeout_seconds)
+        .send_message(&session_id, parent_message_id.as_deref(), prompt, timeout_seconds)
         .await?;
 
     // 清洗响应

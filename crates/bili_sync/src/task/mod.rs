@@ -1500,7 +1500,6 @@ impl ConfigTaskQueue {
                 ai_rename_base_url: None,
                 ai_rename_api_key: None,
                 ai_rename_deepseek_web_token: None,
-                ai_rename_thinking_enabled: None,
                 ai_rename_model: None,
                 ai_rename_timeout_seconds: None,
                 ai_rename_video_prompt_hint: None,

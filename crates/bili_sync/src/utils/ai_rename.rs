@@ -328,9 +328,6 @@ pub struct AiRenameConfig {
     /// 从浏览器开发者工具中获取
     #[serde(default)]
     pub deepseek_web_token: Option<String>,
-    /// 是否启用 R1 深度思考模式 - 仅 deepseek-web 有效
-    #[serde(default)]
-    pub thinking_enabled: bool,
     /// 模型名，例如 gpt-4o-mini / deepseek-chat
     pub model: String,
     /// 请求超时（秒）
@@ -349,7 +346,6 @@ impl Default for AiRenameConfig {
             base_url: "https://api.deepseek.com/v1".to_string(),
             api_key: None,
             deepseek_web_token: None,
-            thinking_enabled: false,
             model: "deepseek-chat".to_string(),
             timeout_seconds: 20,
             // 视频命名规则
@@ -519,7 +515,6 @@ async fn ai_generate_filename_deepseek_web(
         &token,
         cached_session,
         &full_prompt,
-        cfg.thinking_enabled,
         cfg.timeout_seconds,
     ).await?;
 
@@ -1135,7 +1130,6 @@ async fn ai_generate_filenames_batch_deepseek_web(
         &token,
         cached_session,
         prompt,
-        cfg.thinking_enabled,
         cfg.timeout_seconds,
     ).await?;
 

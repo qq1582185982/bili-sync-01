@@ -259,7 +259,6 @@
 	let aiRenameBaseUrl = 'https://api.deepseek.com/v1';
 	let aiRenameApiKey = '';
 	let aiRenameDeepseekWebToken = '';
-	let aiRenameThinkingEnabled = false;
 	let aiRenameModel = 'deepseek-chat';
 	let aiRenameTimeoutSeconds = 30;
 	let aiRenameVideoPromptHint = '';
@@ -570,7 +569,6 @@
 			aiRenameBaseUrl = config.ai_rename?.base_url || 'https://api.deepseek.com/v1';
 			aiRenameApiKey = config.ai_rename?.api_key || '';
 			aiRenameDeepseekWebToken = config.ai_rename?.deepseek_web_token || '';
-			aiRenameThinkingEnabled = config.ai_rename?.thinking_enabled ?? false;
 			aiRenameModel = config.ai_rename?.model || 'deepseek-chat';
 			aiRenameTimeoutSeconds = config.ai_rename?.timeout_seconds ?? 30;
 			aiRenameVideoPromptHint = config.ai_rename?.video_prompt_hint || '';
@@ -998,7 +996,6 @@
 				ai_rename_base_url: aiRenameBaseUrl,
 				ai_rename_api_key: aiRenameApiKey || undefined,
 				ai_rename_deepseek_web_token: aiRenameDeepseekWebToken || undefined,
-				ai_rename_thinking_enabled: aiRenameThinkingEnabled,
 				ai_rename_model: aiRenameModel,
 				ai_rename_timeout_seconds: aiRenameTimeoutSeconds,
 				ai_rename_video_prompt_hint: aiRenameVideoPromptHint || undefined,
@@ -4055,25 +4052,7 @@
 									</div>
 								</div>
 
-								<!-- R1 深度思考模式 -->
-								<div class="flex items-center space-x-2">
-									<input
-										type="checkbox"
-										id="ai-rename-thinking"
-										bind:checked={aiRenameThinkingEnabled}
-										class="text-primary focus:ring-primary h-4 w-4 rounded border-gray-300"
-									/>
-									<Label
-										for="ai-rename-thinking"
-										class="text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-									>
-										启用 R1 深度思考模式
-									</Label>
-								</div>
-								<p class="text-muted-foreground text-xs">
-									启用后使用 DeepSeek R1 模型进行深度思考，生成结果可能更好但速度较慢
-								</p>
-							{:else}
+								{:else}
 								<!-- API Base URL -->
 								<div class="space-y-2">
 									<Label for="ai-rename-base-url">API Base URL</Label>

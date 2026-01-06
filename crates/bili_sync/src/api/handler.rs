@@ -4933,7 +4933,6 @@ pub async fn get_config() -> Result<ApiResponse<crate::api::response::ConfigResp
             base_url: config.ai_rename.base_url.clone(),
             api_key: config.ai_rename.api_key.clone(),
             deepseek_web_token: config.ai_rename.deepseek_web_token.clone(),
-            thinking_enabled: config.ai_rename.thinking_enabled,
             model: config.ai_rename.model.clone(),
             timeout_seconds: config.ai_rename.timeout_seconds,
             video_prompt_hint: config.ai_rename.video_prompt_hint.clone(),
@@ -5774,12 +5773,6 @@ pub async fn update_config_internal(
             updated_fields.push("ai_rename");
             // Token 更新后重置过期通知标志，以便下次过期时可以再次通知
             crate::utils::deepseek_web::reset_token_expired_flag();
-        }
-    }
-    if let Some(thinking_enabled) = params.ai_rename_thinking_enabled {
-        if config.ai_rename.thinking_enabled != thinking_enabled {
-            config.ai_rename.thinking_enabled = thinking_enabled;
-            updated_fields.push("ai_rename");
         }
     }
     if let Some(model) = &params.ai_rename_model {
