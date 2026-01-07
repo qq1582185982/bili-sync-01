@@ -227,15 +227,9 @@ pub async fn process_video_source(
             warn!("批量 AI 重命名失败: {:#}", e);
         }
 
-        // 保底策略：检查AI重命名一致性
-        // 仅在AI重命名启用时执行，遍历已下载的文件，找出命名格式不一致的进行修复
-        let cfg = crate::config::reload_config();
-        let is_bangumi = matches!(&video_source, VideoSourceEnum::BangumiSource(_));
-        if !is_bangumi && video_source.ai_rename() && cfg.ai_rename.enabled {
-            if let Err(e) = check_and_fix_naming_consistency(&video_source, &cfg.ai_rename).await {
-                warn!("AI命名一致性检查失败: {:#}", e);
-            }
-        }
+        // 注意：一致性检查已移除
+        // 批量处理模式下，所有文件在同一会话中统一命名，天然保证一致性
+        // 额外的一致性检查反而可能产生误判（如将含有详细信息的文件名错误地"简化"）
     }
     Ok((new_video_count, new_videos))
 }
@@ -1239,6 +1233,9 @@ pub async fn download_unprocessed_videos(
 ///
 /// 遍历视频源目录下的所有视频文件，使用AI检测哪些文件命名格式与多数不一致，
 /// 然后对这些异类文件重新进行AI重命名。
+///
+/// 注意：此函数已弃用，批量处理模式下不再需要一致性检查
+#[allow(dead_code)]
 async fn check_and_fix_naming_consistency(
     video_source: &VideoSourceEnum,
     ai_config: &crate::utils::ai_rename::AiRenameConfig,

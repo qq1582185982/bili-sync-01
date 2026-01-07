@@ -862,6 +862,11 @@ pub async fn find_inconsistent_filenames(
         }
     };
 
+    // 获取数据库连接和对话历史
+    let db = crate::database::get_global_db()
+        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let history = get_conversation_history(db.as_ref(), source_key).await;
+
     // 构建文件列表字符串
     let file_list = file_stems
         .iter()
@@ -871,23 +876,36 @@ pub async fn find_inconsistent_filenames(
         .join("\n");
 
     let user_content = format!(
-        "以下是同一视频源的文件列表，请找出命名格式与大多数不一致的文件（异类）。\n\
+        "以下是同一视频源的文件列表，请根据之前的命名风格，找出命名格式与大多数不一致的文件（异类）。\n\
 只输出不一致文件的序号，用逗号分隔。如果全部一致则输出\"无\"。\n\
 不要解释，不要其他内容。\n\n\
 文件列表：\n{}",
         file_list
     );
 
-    let messages = vec![
-        ChatMessage {
-            role: "system".to_string(),
-            content: "你是一个文件命名一致性检测助手。分析文件名列表，找出命名格式与多数文件不同的异类。只输出序号或\"无\"。".to_string(),
-        },
-        ChatMessage {
-            role: "user".to_string(),
-            content: user_content,
-        },
-    ];
+    // 构建消息列表：system + 最近10条对话历史 + 当前用户消息
+    let mut messages = Vec::new();
+
+    // 添加系统消息
+    messages.push(ChatMessage {
+        role: "system".to_string(),
+        content: "你是一个文件命名一致性检测助手。根据之前的命名风格，分析文件名列表，找出命名格式与多数文件不同的异类。只输出序号或\"无\"。".to_string(),
+    });
+
+    // 添加最近10条对话历史（让AI参考之前的命名风格）
+    let history_to_use: Vec<_> = history.iter().rev().take(10).rev().cloned().collect();
+    for msg in &history_to_use {
+        messages.push(ChatMessage {
+            role: msg.role.clone(),
+            content: msg.content.clone(),
+        });
+    }
+
+    // 添加当前用户消息
+    messages.push(ChatMessage {
+        role: "user".to_string(),
+        content: user_content,
+    });
 
     let req_body = ChatRequest {
         model: cfg.model.clone(),
@@ -1244,8 +1262,21 @@ async fn ai_generate_filenames_batch_deepseek_web(
         warn!("保存 DeepSeek 会话到数据库失败: {}", e);
     }
 
-    // 解析 JSON 数组响应
-    parse_batch_response(&response, expected_count)
+    // 保存简化的对话历史（供一致性检查参考命名风格）
+    let simplified_user_msg = format!("为{}个文件生成命名", expected_count);
+    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "user", &simplified_user_msg).await {
+        warn!("保存用户消息失败: {}", e);
+    }
+    // 解析响应并保存文件名列表
+    let parsed_names = parse_batch_response(&response, expected_count);
+    if let Ok(ref names) = parsed_names {
+        let simplified_response = names.join("\n");
+        if let Err(e) = add_conversation_message(db.as_ref(), source_key, "assistant", &simplified_response).await {
+            warn!("保存助手回复失败: {}", e);
+        }
+    }
+
+    parsed_names
 }
 
 /// OpenAI 兼容 API 批量生成
@@ -1316,11 +1347,19 @@ async fn ai_generate_filenames_batch_openai(
         .map(|c| c.message.content.trim().to_string())
         .ok_or_else(|| anyhow!("No response"))?;
 
-    // 保存对话历史
-    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "user", prompt).await {
+    // 保存简化的对话历史（只保存生成的文件名列表，作为命名风格参考）
+    // 不保存完整的 prompt（太长），只保存一个简短的用户消息和生成的文件名
+    let simplified_user_msg = format!("为{}个文件生成命名", expected_count);
+    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "user", &simplified_user_msg).await {
         warn!("保存用户消息失败: {}", e);
     }
-    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "assistant", &raw).await {
+    // 保存生成的文件名列表（JSON格式转为简单列表格式）
+    let simplified_response = if let Ok(names) = serde_json::from_str::<Vec<String>>(&raw) {
+        names.join("\n")
+    } else {
+        raw.clone()
+    };
+    if let Err(e) = add_conversation_message(db.as_ref(), source_key, "assistant", &simplified_response).await {
         warn!("保存助手回复失败: {}", e);
     }
 
