@@ -548,6 +548,7 @@ pub async fn deepseek_web_generate_raw(
 ///
 /// # 返回
 /// - (生成的文件名, 更新后的会话信息)
+#[allow(dead_code)]
 pub async fn deepseek_web_generate(
     token: &str,
     session: Option<DeepSeekSession>,

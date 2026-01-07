@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
+use regex::Regex;
 use reqwest::Client;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use serde::{Deserialize, Serialize};
@@ -49,6 +50,8 @@ pub struct AiRenameContext {
     pub is_audio: bool,
     /// 在视频源中的排序位置（按发布时间排序后的顺序，从1开始）
     pub sort_index: Option<i32>,
+    /// B站视频ID（BV号）
+    pub bvid: String,
 }
 
 impl AiRenameContext {
@@ -59,6 +62,11 @@ impl AiRenameContext {
             "UP主": self.owner,
             "来源": self.source_type,
         });
+
+        // 添加BV号（非空时）
+        if !self.bvid.is_empty() {
+            info["BV号"] = serde_json::json!(self.bvid);
+        }
 
         // 只添加非空字段
         if !self.tname.is_empty() {
@@ -112,7 +120,14 @@ impl AiRenameContext {
             info["模式"] = serde_json::json!("仅音频");
         }
 
-        serde_json::to_string_pretty(&info).unwrap_or_default()
+        let json_str = serde_json::to_string_pretty(&info).unwrap_or_default();
+
+        // 添加 API 参考链接，让 AI 可以参考更多信息
+        if !self.bvid.is_empty() {
+            format!("{}\nAPI参考: https://api.bilibili.com/x/web-interface/view?bvid={}", json_str, self.bvid)
+        } else {
+            json_str
+        }
     }
 }
 
@@ -401,6 +416,7 @@ struct ChatMessageResponse {
 /// - `current_filename`: 当前文件名（不含扩展名，可能包含剧集编号等信息）
 /// - `video_prompt_override`: 视频源自定义视频提示词（非空时覆盖全局配置）
 /// - `audio_prompt_override`: 视频源自定义音频提示词（非空时覆盖全局配置）
+#[allow(dead_code)]
 pub async fn ai_generate_filename(
     cfg: &AiRenameConfig,
     source_key: &str,
@@ -443,6 +459,7 @@ pub async fn ai_generate_filename(
 }
 
 /// 使用 DeepSeek Web API (chat.deepseek.com) 生成文件名
+#[allow(dead_code)]
 async fn ai_generate_filename_deepseek_web(
     cfg: &AiRenameConfig,
     source_key: &str,
@@ -546,6 +563,7 @@ async fn ai_generate_filename_deepseek_web(
 }
 
 /// 使用 OpenAI 兼容 API 生成文件名
+#[allow(dead_code)]
 async fn ai_generate_filename_openai_compatible(
     cfg: &AiRenameConfig,
     source_key: &str,
@@ -731,6 +749,84 @@ pub fn rename_sidecars(old: &Path, new_stem: &str, new_ext: &str) -> Result<()> 
                 info!("重命名侧车文件: {} -> {}", filename, new_filename);
             }
         }
+    }
+
+    Ok(())
+}
+
+/// 更新NFO文件中的标题标签
+///
+/// # 参数
+/// - `nfo_path`: NFO文件路径
+/// - `new_title`: 新的标题（文件名stem）
+///
+/// # 说明
+/// 更新NFO文件中的 <title>、<originaltitle>、<sorttitle> 标签
+/// 如果新标题为空，则跳过不修改
+pub fn update_nfo_content(nfo_path: &Path, new_title: &str) -> Result<()> {
+    // 如果新标题为空，跳过不修改
+    if new_title.trim().is_empty() {
+        debug!("跳过NFO更新: 新标题为空");
+        return Ok(());
+    }
+
+    // 检查NFO文件是否存在
+    if !nfo_path.exists() {
+        debug!("跳过NFO更新: 文件不存在 {:?}", nfo_path);
+        return Ok(());
+    }
+
+    // 读取NFO文件内容
+    let content = match fs::read_to_string(nfo_path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("读取NFO文件失败 {:?}: {}", nfo_path, e);
+            return Err(anyhow!("读取NFO文件失败: {}", e));
+        }
+    };
+
+    // 使用正则表达式更新标签内容
+    // 匹配 <title>...</title>、<originaltitle>...</originaltitle>、<sorttitle>...</sorttitle>
+    let title_re = Regex::new(r"<title>([^<]*)</title>").unwrap();
+    let originaltitle_re = Regex::new(r"<originaltitle>([^<]*)</originaltitle>").unwrap();
+    let sorttitle_re = Regex::new(r"<sorttitle>([^<]*)</sorttitle>").unwrap();
+
+    let mut updated_content = content.clone();
+    let mut updated = false;
+
+    // 更新 <title> 标签（仅当原内容非空时）
+    if let Some(caps) = title_re.captures(&content) {
+        if !caps.get(1).map_or(true, |m| m.as_str().trim().is_empty()) {
+            updated_content = title_re.replace(&updated_content, format!("<title>{}</title>", new_title)).to_string();
+            updated = true;
+        }
+    }
+
+    // 更新 <originaltitle> 标签（仅当原内容非空时）
+    if let Some(caps) = originaltitle_re.captures(&updated_content) {
+        if !caps.get(1).map_or(true, |m| m.as_str().trim().is_empty()) {
+            updated_content = originaltitle_re.replace(&updated_content, format!("<originaltitle>{}</originaltitle>", new_title)).to_string();
+            updated = true;
+        }
+    }
+
+    // 更新 <sorttitle> 标签（仅当原内容非空时）
+    if let Some(caps) = sorttitle_re.captures(&updated_content) {
+        if !caps.get(1).map_or(true, |m| m.as_str().trim().is_empty()) {
+            updated_content = sorttitle_re.replace(&updated_content, format!("<sorttitle>{}</sorttitle>", new_title)).to_string();
+            updated = true;
+        }
+    }
+
+    // 如果有更新，写回文件
+    if updated {
+        if let Err(e) = fs::write(nfo_path, &updated_content) {
+            warn!("写入NFO文件失败 {:?}: {}", nfo_path, e);
+            return Err(anyhow!("写入NFO文件失败: {}", e));
+        }
+        info!("更新NFO文件标题: {:?} -> {}", nfo_path, new_title);
+    } else {
+        debug!("NFO文件无需更新（标签为空或不存在）: {:?}", nfo_path);
     }
 
     Ok(())
@@ -1026,17 +1122,23 @@ pub struct BatchRenameResult {
 
 /// 待重命名的文件信息
 #[derive(Clone)]
-struct FileToRename {
+pub struct FileToRename {
     /// 原始文件路径
-    path: std::path::PathBuf,
+    pub path: std::path::PathBuf,
     /// 当前文件名（不含扩展名）
-    current_stem: String,
+    pub current_stem: String,
     /// 扩展名
-    ext: String,
+    pub ext: String,
     /// AI 上下文
-    ctx: AiRenameContext,
+    pub ctx: AiRenameContext,
     /// page.id（用于更新数据库）
-    page_id: i32,
+    pub page_id: i32,
+    /// video.id（用于更新数据库）
+    pub video_id: i32,
+    /// video bvid（用于冲突时追加）
+    pub bvid: String,
+    /// 是否为单P视频
+    pub single_page: bool,
 }
 
 /// 批量生成文件名（一次请求处理多个文件）
@@ -1049,7 +1151,7 @@ struct FileToRename {
 ///
 /// # 返回
 /// - 新文件名列表（与输入顺序对应）
-async fn ai_generate_filenames_batch(
+pub async fn ai_generate_filenames_batch(
     cfg: &AiRenameConfig,
     source_key: &str,
     files: &[FileToRename],
@@ -1367,6 +1469,7 @@ pub async fn batch_rename_history_files(
                 source_type: source_key.split('_').next().unwrap_or("unknown").to_string(),
                 is_audio,
                 sort_index: Some(current_sort_index),
+                bvid: video.bvid.clone(),
             };
 
             let file_info = FileToRename {
@@ -1375,6 +1478,9 @@ pub async fn batch_rename_history_files(
                 ext,
                 ctx,
                 page_id: page_model.id,
+                video_id: video.id,
+                bvid: video.bvid.clone(),
+                single_page: video.single_page.unwrap_or(true),
             };
 
             if is_audio {
@@ -1533,6 +1639,12 @@ async fn apply_rename(
     // 重命名侧车文件
     if let Err(e) = rename_sidecars(&file.path, &final_stem, &file.ext) {
         warn!("[{}] 重命名侧车文件失败: {}", source_key, e);
+    }
+
+    // 更新NFO文件内容（标题标签）
+    let nfo_path = parent.join(format!("{}.nfo", final_stem));
+    if let Err(e) = update_nfo_content(&nfo_path, &final_stem) {
+        warn!("[{}] 更新NFO内容失败: {}", source_key, e);
     }
 
     // 更新数据库中的 page.path
