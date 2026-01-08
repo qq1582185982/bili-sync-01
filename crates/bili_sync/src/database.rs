@@ -107,6 +107,44 @@ async fn migrate_database() -> Result<()> {
     Ok(())
 }
 
+/// 确保 page 表有 ai_renamed 字段
+async fn ensure_ai_renamed_column(connection: &DatabaseConnection) -> Result<()> {
+    use sea_orm::ConnectionTrait;
+    use tracing::info;
+
+    let backend = connection.get_database_backend();
+
+    // 检查是否已有 ai_renamed 字段
+    let check_sql = "SELECT COUNT(*) FROM pragma_table_info('page') WHERE name = 'ai_renamed'";
+    let result: Option<i32> = connection
+        .query_one(sea_orm::Statement::from_string(backend, check_sql))
+        .await?
+        .and_then(|row| row.try_get_by_index(0).ok());
+
+    if let Some(count) = result {
+        if count >= 1 {
+            debug!("page.ai_renamed 字段已存在");
+            return Ok(());
+        }
+    }
+
+    // 添加 ai_renamed 字段
+    let add_sql = "ALTER TABLE page ADD COLUMN ai_renamed INTEGER DEFAULT 0";
+    match connection
+        .execute(sea_orm::Statement::from_string(backend, add_sql))
+        .await
+    {
+        Ok(_) => info!("成功添加 page.ai_renamed 字段"),
+        Err(e) => {
+            if !e.to_string().contains("duplicate column") {
+                return Err(e.into());
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// 预热数据库，将关键数据加载到内存映射中
 async fn preheat_database(connection: &DatabaseConnection) -> Result<()> {
     use sea_orm::ConnectionTrait;
@@ -157,6 +195,11 @@ pub async fn setup_database() -> DatabaseConnection {
     // 执行番剧缓存相关的数据库迁移
     if let Err(e) = crate::utils::bangumi_cache::ensure_cache_columns(&connection).await {
         tracing::warn!("番剧缓存数据库迁移失败: {}", e);
+    }
+
+    // 添加 page.ai_renamed 字段
+    if let Err(e) = ensure_ai_renamed_column(&connection).await {
+        tracing::warn!("添加 ai_renamed 字段失败: {}", e);
     }
 
     // 预热数据库，加载热数据到内存映射

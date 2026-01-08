@@ -2713,6 +2713,14 @@
 												class="w-full resize-none rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
 											></textarea>
 										</div>
+										<!-- 提示词写法说明 -->
+										<div class="rounded border border-amber-300 bg-amber-50 p-2 dark:border-amber-700 dark:bg-amber-950">
+											<p class="text-[10px] text-amber-700 dark:text-amber-300">
+												⚠️ 提示词需具体明确，模糊描述（如"作者"）可能被理解为UP主而非歌手。<br/>
+												💡 AI会严格按格式生成。示例：<code class="bg-amber-200 dark:bg-amber-800 px-0.5 rounded">BV号-歌手名-日期</code><br/>
+												可用字段：BV号、UP主、标题、歌手、分区、日期、排序位置等
+											</p>
+										</div>
 									</div>
 								{/if}
 							</div>

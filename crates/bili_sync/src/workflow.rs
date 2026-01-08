@@ -1461,11 +1461,8 @@ pub async fn batch_ai_rename_for_source(
                 .unwrap_or("mp4")
                 .to_string();
 
-            // 检查是否已经被 AI 重命名过（通过检查文件名是否以日期开头判断）
-            let looks_like_original = current_stem.chars().take(4).all(|c| c.is_ascii_digit())
-                && current_stem.chars().nth(4) == Some('-');
-
-            if !looks_like_original {
+            // 检查是否已经被 AI 重命名过（通过数据库字段判断）
+            if latest_page.ai_renamed.unwrap_or(0) == 1 {
                 debug!("[{}] 跳过已重命名的文件: {}", source_key, current_stem);
                 skipped_count += 1;
                 continue;
@@ -1789,11 +1786,12 @@ async fn apply_ai_rename(
         new_path.clone()
     };
 
-    // 更新 page.path
+    // 更新 page.path 和 ai_renamed 标记
     let new_path_str = final_path.to_string_lossy().to_string();
     if let Ok(Some(current_page)) = page::Entity::find_by_id(file.page_id).one(connection).await {
         let mut active_page: page::ActiveModel = current_page.into();
         active_page.path = Set(Some(new_path_str.clone()));
+        active_page.ai_renamed = Set(Some(1)); // 标记为已 AI 重命名
         if let Err(e) = active_page.update(connection).await {
             warn!("[{}] 更新 page.path 失败: {}", source_key, e);
         }
@@ -2134,6 +2132,7 @@ pub async fn download_video_pages(
             image: None,
             download_status: 0,
             created_at: now_standard_string(),
+            ai_renamed: None,
         };
 
         // 获取真实的番剧标题（从缓存或API）

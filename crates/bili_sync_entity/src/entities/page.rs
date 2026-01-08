@@ -18,6 +18,9 @@ pub struct Model {
     pub image: Option<String>,
     pub download_status: u32,
     pub created_at: String,
+    /// 是否已被 AI 重命名
+    #[sea_orm(default_value = "0")]
+    pub ai_renamed: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

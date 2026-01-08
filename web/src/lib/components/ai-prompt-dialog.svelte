@@ -155,6 +155,16 @@
 						针对音频文件的AI重命名提示词，留空将使用全局配置
 					</p>
 				</div>
+
+				<!-- 提示词写法说明 -->
+				<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+					<p class="text-xs text-amber-700 dark:text-amber-300">
+						<strong>⚠️ 注意：</strong>提示词需具体明确，模糊的描述（如"作者"）可能被理解为UP主而非歌手。<br/>
+						<strong>💡 写法：</strong>AI会严格按格式生成，不添加额外信息。<br/>
+						<span class="font-mono">示例：BV号-歌手名-日期</span>（歌手从标题《》前提取，日期用YYYYMMDD）<br/>
+						可用字段：BV号、UP主、标题、歌手、分区、日期、排序位置等
+					</p>
+				</div>
 			{/if}
 		</div>
 

@@ -4136,6 +4136,18 @@
 									自定义提示词，用于指导AI如何重命名音频文件（仅下载音频模式）
 								</p>
 							</div>
+
+							<!-- 提示词写法说明 -->
+							<div class="rounded-lg bg-amber-100 p-3 dark:bg-amber-900/20">
+								<p class="text-sm text-amber-700 dark:text-amber-300">
+									<strong>⚠️ 注意：</strong>提示词需具体明确，模糊的描述（如"作者"）可能被理解为UP主而非歌手。
+								</p>
+								<div class="space-y-1 text-sm text-amber-700 dark:text-amber-300">
+									<p><strong>💡 写法：</strong>AI会严格按格式生成，不添加额外信息。</p>
+									<p><code class="bg-amber-200 dark:bg-amber-800 px-1 rounded">示例：BV号-歌手名-日期</code>（歌手从标题《》前提取，日期用YYYYMMDD）</p>
+									<p>可用字段：BV号、UP主、标题、歌手、分区、日期、排序位置等</p>
+								</div>
+							</div>
 						</div>
 
 						<!-- 使用说明 -->

@@ -4156,6 +4156,7 @@ async fn validate_path_reset_safety(
                 image: None,
                 download_status: 0,
                 created_at: now_standard_string(),
+                ai_renamed: None,
             };
 
             let api_title = if let Some(current_path) = std::path::Path::new(&video.path).parent() {
@@ -10386,6 +10387,7 @@ async fn update_bangumi_video_path_in_database(
             image: None,
             download_status: 0,
             created_at: now_standard_string(),
+            ai_renamed: None,
         };
 
         // 🚨 修复路径提取逻辑：处理混合路径分隔符问题
@@ -10519,6 +10521,7 @@ async fn move_bangumi_files_to_new_path(
             image: None,
             download_status: 0,
             created_at: now_standard_string(),
+            ai_renamed: None,
         };
 
         // 修复路径提取逻辑：处理混合路径分隔符问题
