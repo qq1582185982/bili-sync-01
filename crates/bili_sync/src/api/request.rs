@@ -69,6 +69,12 @@ pub struct AddVideoSourceRequest {
     pub ai_rename_video_prompt: Option<String>,
     // AI重命名音频提示词（覆盖全局配置）
     pub ai_rename_audio_prompt: Option<String>,
+    // AI重命名高级选项：对多P视频启用AI重命名
+    pub ai_rename_enable_multi_page: Option<bool>,
+    // AI重命名高级选项：对合集视频启用AI重命名
+    pub ai_rename_enable_collection: Option<bool>,
+    // AI重命名高级选项：对番剧启用AI重命名
+    pub ai_rename_enable_bangumi: Option<bool>,
     // 仅音频时是否只保留m4a（不下载封面/nfo/弹幕/字幕）
     pub audio_only_m4a_only: Option<bool>,
     // 是否启用平铺目录模式（不为每个视频创建子文件夹）
@@ -112,6 +118,12 @@ pub struct UpdateVideoSourceDownloadOptionsRequest {
     pub ai_rename_video_prompt: Option<String>,
     /// AI重命名音频提示词（覆盖全局配置）
     pub ai_rename_audio_prompt: Option<String>,
+    /// 是否对多P视频启用AI重命名
+    pub ai_rename_enable_multi_page: Option<bool>,
+    /// 是否对合集视频启用AI重命名
+    pub ai_rename_enable_collection: Option<bool>,
+    /// 是否对番剧启用AI重命名
+    pub ai_rename_enable_bangumi: Option<bool>,
 }
 
 // 更新投稿源选中视频列表的请求结构体
@@ -247,6 +259,9 @@ pub struct UpdateConfigRequest {
     pub ai_rename_timeout_seconds: Option<u64>,
     pub ai_rename_video_prompt_hint: Option<String>,
     pub ai_rename_audio_prompt_hint: Option<String>,
+    pub ai_rename_enable_multi_page: Option<bool>,
+    pub ai_rename_enable_collection: Option<bool>,
+    pub ai_rename_enable_bangumi: Option<bool>,
     // 服务器绑定地址
     pub bind_address: Option<String>,
 }

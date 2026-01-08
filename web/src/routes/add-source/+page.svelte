@@ -46,6 +46,11 @@
 	let aiRename = false; // AI重命名（默认关闭）
 	let aiRenameVideoPrompt = ''; // AI重命名视频提示词
 	let aiRenameAudioPrompt = ''; // AI重命名音频提示词
+	// AI重命名高级选项
+	let showAiRenameAdvanced = false;
+	let aiRenameEnableMultiPage = false;
+	let aiRenameEnableCollection = false;
+	let aiRenameEnableBangumi = false;
 
 	// 添加手动输入标志
 	let isManualInput = false;
@@ -616,7 +621,11 @@
 				download_subtitle: downloadSubtitle,
 				ai_rename: aiRename,
 				ai_rename_video_prompt: aiRenameVideoPrompt.trim() || undefined,
-				ai_rename_audio_prompt: aiRenameAudioPrompt.trim() || undefined
+				ai_rename_audio_prompt: aiRenameAudioPrompt.trim() || undefined,
+				// AI重命名高级选项（仅当开启高级选项时传递）
+				ai_rename_enable_multi_page: showAiRenameAdvanced ? aiRenameEnableMultiPage : undefined,
+				ai_rename_enable_collection: showAiRenameAdvanced ? aiRenameEnableCollection : undefined,
+				ai_rename_enable_bangumi: showAiRenameAdvanced ? aiRenameEnableBangumi : undefined
 			};
 
 			if (sourceType === 'collection') {
@@ -708,6 +717,10 @@
 				aiRename = false;
 				aiRenameVideoPrompt = '';
 				aiRenameAudioPrompt = '';
+				showAiRenameAdvanced = false;
+				aiRenameEnableMultiPage = false;
+				aiRenameEnableCollection = false;
+				aiRenameEnableBangumi = false;
 				// 跳转到视频源管理页面
 				goto('/video-sources');
 			} else {
@@ -2720,6 +2733,60 @@
 												💡 AI会严格按格式生成。示例：<code class="bg-amber-200 dark:bg-amber-800 px-0.5 rounded">BV号-歌手名-日期</code><br/>
 												可用字段：BV号、UP主、标题、歌手、分区、日期、排序位置等
 											</p>
+										</div>
+
+										<!-- 高级选项（默认关闭） -->
+										<div class="space-y-2 rounded border border-gray-300 bg-gray-50 p-2 dark:border-gray-600 dark:bg-gray-800">
+											<button
+												type="button"
+												onclick={() => (showAiRenameAdvanced = !showAiRenameAdvanced)}
+												class="flex w-full items-center justify-between text-left"
+											>
+												<span class="text-[10px] font-medium text-gray-700 dark:text-gray-300">高级选项（默认关闭，有风险）</span>
+												<svg
+													class="h-3 w-3 transform text-gray-500 transition-transform {showAiRenameAdvanced ? 'rotate-180' : ''}"
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+												</svg>
+											</button>
+
+											{#if showAiRenameAdvanced}
+												<div class="space-y-1.5 pt-1">
+													<label class="flex items-center space-x-2">
+														<input
+															type="checkbox"
+															bind:checked={aiRenameEnableMultiPage}
+															class="h-3 w-3 rounded border-gray-300"
+														/>
+														<span class="text-[10px] text-gray-700 dark:text-gray-300">对多P视频启用AI重命名</span>
+													</label>
+													<label class="flex items-center space-x-2">
+														<input
+															type="checkbox"
+															bind:checked={aiRenameEnableCollection}
+															class="h-3 w-3 rounded border-gray-300"
+														/>
+														<span class="text-[10px] text-gray-700 dark:text-gray-300">对合集视频启用AI重命名</span>
+													</label>
+													<label class="flex items-center space-x-2">
+														<input
+															type="checkbox"
+															bind:checked={aiRenameEnableBangumi}
+															class="h-3 w-3 rounded border-gray-300"
+														/>
+														<span class="text-[10px] text-gray-700 dark:text-gray-300">对番剧启用AI重命名</span>
+													</label>
+													<!-- 风险警告 -->
+													<div class="rounded border border-red-300 bg-red-50 p-1.5 dark:border-red-700 dark:bg-red-950">
+														<p class="text-[9px] text-red-700 dark:text-red-300">
+															⚠️ 以上选项为实验性功能，可能导致文件丢失。建议先小范围测试。
+														</p>
+													</div>
+												</div>
+											{/if}
 										</div>
 									</div>
 								{/if}

@@ -25,6 +25,9 @@ pub struct Model {
     pub ai_rename: bool,
     pub ai_rename_video_prompt: String,
     pub ai_rename_audio_prompt: String,
+    pub ai_rename_enable_multi_page: bool,
+    pub ai_rename_enable_collection: bool,
+    pub ai_rename_enable_bangumi: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

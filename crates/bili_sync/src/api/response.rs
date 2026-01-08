@@ -132,6 +132,9 @@ pub struct UpdateVideoSourceDownloadOptionsResponse {
     pub ai_rename: bool,
     pub ai_rename_video_prompt: String,
     pub ai_rename_audio_prompt: String,
+    pub ai_rename_enable_multi_page: bool,
+    pub ai_rename_enable_collection: bool,
+    pub ai_rename_enable_bangumi: bool,
     pub message: String,
 }
 
@@ -212,6 +215,9 @@ pub struct VideoSource {
     pub ai_rename: bool,            // 是否启用AI重命名
     pub ai_rename_video_prompt: String, // AI重命名视频提示词
     pub ai_rename_audio_prompt: String, // AI重命名音频提示词
+    pub ai_rename_enable_multi_page: bool,  // 对多P视频启用AI重命名
+    pub ai_rename_enable_collection: bool,  // 对合集视频启用AI重命名
+    pub ai_rename_enable_bangumi: bool,     // 对番剧启用AI重命名
 }
 
 #[derive(Serialize, ToSchema)]
@@ -882,6 +888,15 @@ pub struct BatchRenameRequest {
     /// 音频重命名提示词（可选，为空则使用视频源配置或全局配置）
     #[serde(default)]
     pub audio_prompt: String,
+    /// 对多P视频启用AI重命名（可选，为None则使用全局配置）
+    #[serde(default)]
+    pub enable_multi_page: Option<bool>,
+    /// 对合集视频启用AI重命名（可选，为None则使用全局配置）
+    #[serde(default)]
+    pub enable_collection: Option<bool>,
+    /// 对番剧启用AI重命名（可选，为None则使用全局配置）
+    #[serde(default)]
+    pub enable_bangumi: Option<bool>,
 }
 
 // AI批量重命名响应

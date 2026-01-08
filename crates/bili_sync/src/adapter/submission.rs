@@ -247,6 +247,18 @@ impl VideoSource for submission::Model {
         &self.ai_rename_audio_prompt
     }
 
+    fn ai_rename_enable_multi_page(&self) -> bool {
+        self.ai_rename_enable_multi_page
+    }
+
+    fn ai_rename_enable_collection(&self) -> bool {
+        self.ai_rename_enable_collection
+    }
+
+    fn ai_rename_enable_bangumi(&self) -> bool {
+        self.ai_rename_enable_bangumi
+    }
+
     fn source_key(&self) -> String {
         format!("submission_{}", self.id)
     }
@@ -308,6 +320,9 @@ pub async fn init_submission_sources(
                         ai_rename: Set(false),
                         ai_rename_video_prompt: Set(String::new()),
                         ai_rename_audio_prompt: Set(String::new()),
+                        ai_rename_enable_multi_page: Set(false),
+                        ai_rename_enable_collection: Set(false),
+                        ai_rename_enable_bangumi: Set(false),
                     };
 
                     // 插入数据库
@@ -344,6 +359,9 @@ pub async fn init_submission_sources(
                         ai_rename: Set(false),
                         ai_rename_video_prompt: Set(String::new()),
                         ai_rename_audio_prompt: Set(String::new()),
+                        ai_rename_enable_multi_page: Set(false),
+                        ai_rename_enable_collection: Set(false),
+                        ai_rename_enable_bangumi: Set(false),
                     };
 
                     let result = submission::Entity::insert(model)

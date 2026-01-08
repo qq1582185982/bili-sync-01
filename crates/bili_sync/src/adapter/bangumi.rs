@@ -43,6 +43,9 @@ pub struct BangumiSource {
     pub ai_rename: bool,
     pub ai_rename_video_prompt: String,
     pub ai_rename_audio_prompt: String,
+    pub ai_rename_enable_multi_page: bool,
+    pub ai_rename_enable_collection: bool,
+    pub ai_rename_enable_bangumi: bool,
 }
 
 impl BangumiSource {
@@ -548,6 +551,18 @@ impl VideoSource for BangumiSource {
 
     fn ai_rename_audio_prompt(&self) -> &str {
         &self.ai_rename_audio_prompt
+    }
+
+    fn ai_rename_enable_multi_page(&self) -> bool {
+        self.ai_rename_enable_multi_page
+    }
+
+    fn ai_rename_enable_collection(&self) -> bool {
+        self.ai_rename_enable_collection
+    }
+
+    fn ai_rename_enable_bangumi(&self) -> bool {
+        self.ai_rename_enable_bangumi
     }
 
     fn source_key(&self) -> String {

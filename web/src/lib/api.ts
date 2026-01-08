@@ -364,6 +364,9 @@ class ApiClient {
 			ai_rename?: boolean;
 			ai_rename_video_prompt?: string;
 			ai_rename_audio_prompt?: string;
+			ai_rename_enable_multi_page?: boolean;
+			ai_rename_enable_collection?: boolean;
+			ai_rename_enable_bangumi?: boolean;
 		}
 	): Promise<ApiResponse<{
 		success: boolean;
@@ -377,6 +380,9 @@ class ApiClient {
 		ai_rename: boolean;
 		ai_rename_video_prompt: string;
 		ai_rename_audio_prompt: string;
+		ai_rename_enable_multi_page: boolean;
+		ai_rename_enable_collection: boolean;
+		ai_rename_enable_bangumi: boolean;
 		message: string;
 	}>> {
 		return this.put<{
@@ -391,6 +397,9 @@ class ApiClient {
 			ai_rename: boolean;
 			ai_rename_video_prompt: string;
 			ai_rename_audio_prompt: string;
+			ai_rename_enable_multi_page: boolean;
+			ai_rename_enable_collection: boolean;
+			ai_rename_enable_bangumi: boolean;
 			message: string;
 		}>(`/video-sources/${sourceType}/${id}/download-options`, options);
 	}
@@ -501,12 +510,18 @@ class ApiClient {
 	 * @param id 视频源ID
 	 * @param videoPrompt 视频重命名提示词（可选）
 	 * @param audioPrompt 音频重命名提示词（可选）
+	 * @param enableMultiPage 对多P视频启用AI重命名（可选，为空则使用全局配置）
+	 * @param enableCollection 对合集视频启用AI重命名（可选，为空则使用全局配置）
+	 * @param enableBangumi 对番剧启用AI重命名（可选，为空则使用全局配置）
 	 */
 	async aiRenameHistory(
 		sourceType: string,
 		id: number,
 		videoPrompt?: string,
-		audioPrompt?: string
+		audioPrompt?: string,
+		enableMultiPage?: boolean,
+		enableCollection?: boolean,
+		enableBangumi?: boolean
 	): Promise<ApiResponse<{
 		success: boolean;
 		renamed_count: number;
@@ -522,7 +537,10 @@ class ApiClient {
 			message: string;
 		}>(`/${sourceType}/${id}/ai-rename-history`, {
 			video_prompt: videoPrompt || '',
-			audio_prompt: audioPrompt || ''
+			audio_prompt: audioPrompt || '',
+			enable_multi_page: enableMultiPage,
+			enable_collection: enableCollection,
+			enable_bangumi: enableBangumi
 		});
 	}
 
@@ -1016,6 +1034,9 @@ export const api = {
 			ai_rename?: boolean;
 			ai_rename_video_prompt?: string;
 			ai_rename_audio_prompt?: string;
+			ai_rename_enable_multi_page?: boolean;
+			ai_rename_enable_collection?: boolean;
+			ai_rename_enable_bangumi?: boolean;
 		}
 	) => apiClient.updateVideoSourceDownloadOptions(sourceType, id, options),
 
@@ -1074,8 +1095,8 @@ export const api = {
 	/**
 	 * 批量AI重命名视频源下的历史文件
 	 */
-	aiRenameHistory: (sourceType: string, id: number, videoPrompt?: string, audioPrompt?: string) =>
-		apiClient.aiRenameHistory(sourceType, id, videoPrompt, audioPrompt),
+	aiRenameHistory: (sourceType: string, id: number, videoPrompt?: string, audioPrompt?: string, enableMultiPage?: boolean, enableCollection?: boolean, enableBangumi?: boolean) =>
+		apiClient.aiRenameHistory(sourceType, id, videoPrompt, audioPrompt, enableMultiPage, enableCollection, enableBangumi),
 
 	/**
 	 * 检查是否需要初始设置

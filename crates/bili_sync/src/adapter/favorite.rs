@@ -136,6 +136,18 @@ impl VideoSource for favorite::Model {
         &self.ai_rename_audio_prompt
     }
 
+    fn ai_rename_enable_multi_page(&self) -> bool {
+        self.ai_rename_enable_multi_page
+    }
+
+    fn ai_rename_enable_collection(&self) -> bool {
+        self.ai_rename_enable_collection
+    }
+
+    fn ai_rename_enable_bangumi(&self) -> bool {
+        self.ai_rename_enable_bangumi
+    }
+
     fn source_key(&self) -> String {
         format!("favorite_{}", self.id)
     }
@@ -188,6 +200,9 @@ pub async fn init_favorite_sources(
                         ai_rename: Set(false),
                         ai_rename_video_prompt: Set(String::new()),
                         ai_rename_audio_prompt: Set(String::new()),
+                        ai_rename_enable_multi_page: Set(false),
+                        ai_rename_enable_collection: Set(false),
+                        ai_rename_enable_bangumi: Set(false),
                     };
 
                     let result = favorite::Entity::insert(model)
@@ -225,6 +240,9 @@ pub async fn init_favorite_sources(
                         ai_rename: Set(false),
                         ai_rename_video_prompt: Set(String::new()),
                         ai_rename_audio_prompt: Set(String::new()),
+                        ai_rename_enable_multi_page: Set(false),
+                        ai_rename_enable_collection: Set(false),
+                        ai_rename_enable_bangumi: Set(false),
                     };
 
                     let result = favorite::Entity::insert(model)

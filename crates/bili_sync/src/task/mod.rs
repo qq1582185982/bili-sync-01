@@ -1027,6 +1027,9 @@ impl AddTaskQueue {
                 ai_rename: None,       // 任务队列中使用默认值
                 ai_rename_video_prompt: None, // 任务队列中使用默认值
                 ai_rename_audio_prompt: None, // 任务队列中使用默认值
+                ai_rename_enable_multi_page: None, // 任务队列中使用默认值
+                ai_rename_enable_collection: None, // 任务队列中使用默认值
+                ai_rename_enable_bangumi: None, // 任务队列中使用默认值
                 audio_only_m4a_only: None, // 任务队列中使用默认值
                 flat_folder: None,     // 任务队列中使用默认值
             };
@@ -1504,6 +1507,9 @@ impl ConfigTaskQueue {
                 ai_rename_timeout_seconds: None,
                 ai_rename_video_prompt_hint: None,
                 ai_rename_audio_prompt_hint: None,
+                ai_rename_enable_multi_page: None,
+                ai_rename_enable_collection: None,
+                ai_rename_enable_bangumi: None,
                 // 服务器绑定地址，任务队列中不使用
                 bind_address: None,
             };

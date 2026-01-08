@@ -135,6 +135,18 @@ impl VideoSource for watch_later::Model {
         &self.ai_rename_audio_prompt
     }
 
+    fn ai_rename_enable_multi_page(&self) -> bool {
+        self.ai_rename_enable_multi_page
+    }
+
+    fn ai_rename_enable_collection(&self) -> bool {
+        self.ai_rename_enable_collection
+    }
+
+    fn ai_rename_enable_bangumi(&self) -> bool {
+        self.ai_rename_enable_bangumi
+    }
+
     fn source_key(&self) -> String {
         format!("watch_later_{}", self.id)
     }

@@ -15,9 +15,13 @@
 	export let initialVideoPrompt = '';
 	export let initialAudioPrompt = '';
 	export let initialAiRename = false;
+	// 高级选项初始值
+	export let initialEnableMultiPage = false;
+	export let initialEnableCollection = false;
+	export let initialEnableBangumi = false;
 
 	const dispatch = createEventDispatcher<{
-		save: { videoPrompt: string; audioPrompt: string; aiRename: boolean };
+		save: { videoPrompt: string; audioPrompt: string; aiRename: boolean; enableMultiPage: boolean; enableCollection: boolean; enableBangumi: boolean };
 		cancel: void;
 	}>();
 
@@ -27,11 +31,21 @@
 	let isSaving = false;
 	let isClearing = false;
 
+	// 高级选项
+	let showAdvancedOptions = false;
+	let enableMultiPage = false;
+	let enableCollection = false;
+	let enableBangumi = false;
+
 	// 重置状态
 	function resetState() {
 		videoPrompt = initialVideoPrompt;
 		audioPrompt = initialAudioPrompt;
 		aiRename = initialAiRename;
+		enableMultiPage = initialEnableMultiPage;
+		enableCollection = initialEnableCollection;
+		enableBangumi = initialEnableBangumi;
+		showAdvancedOptions = initialEnableMultiPage || initialEnableCollection || initialEnableBangumi;
 		isSaving = false;
 		isClearing = false;
 	}
@@ -78,7 +92,10 @@
 			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
 				ai_rename: aiRename,
 				ai_rename_video_prompt: videoPrompt.trim(),
-				ai_rename_audio_prompt: audioPrompt.trim()
+				ai_rename_audio_prompt: audioPrompt.trim(),
+				ai_rename_enable_multi_page: enableMultiPage,
+				ai_rename_enable_collection: enableCollection,
+				ai_rename_enable_bangumi: enableBangumi
 			});
 
 			if (result.data.success) {
@@ -86,7 +103,10 @@
 				dispatch('save', {
 					videoPrompt: videoPrompt.trim(),
 					audioPrompt: audioPrompt.trim(),
-					aiRename
+					aiRename,
+					enableMultiPage,
+					enableCollection,
+					enableBangumi
 				});
 				isOpen = false;
 			} else {
@@ -164,6 +184,70 @@
 						<span class="font-mono">示例：BV号-歌手名-日期</span>（歌手从标题《》前提取，日期用YYYYMMDD）<br/>
 						可用字段：BV号、UP主、标题、歌手、分区、日期、排序位置等
 					</p>
+				</div>
+
+				<!-- 高级选项（默认关闭） -->
+				<div class="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900">
+					<button
+						type="button"
+						onclick={() => (showAdvancedOptions = !showAdvancedOptions)}
+						class="flex w-full items-center justify-between text-left"
+					>
+						<span class="text-sm font-medium text-gray-700 dark:text-gray-300">高级选项（默认关闭，有风险）</span>
+						<svg
+							class="h-4 w-4 transform text-gray-500 transition-transform {showAdvancedOptions ? 'rotate-180' : ''}"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+						</svg>
+					</button>
+
+					{#if showAdvancedOptions}
+						<div class="space-y-2 pt-2">
+							<div class="flex items-center space-x-2">
+								<input
+									type="checkbox"
+									id="enable-multi-page-prompt"
+									bind:checked={enableMultiPage}
+									class="border-input h-4 w-4 rounded border"
+								/>
+								<Label for="enable-multi-page-prompt" class="text-sm leading-none font-medium">
+									对多P视频启用AI重命名
+								</Label>
+							</div>
+							<div class="flex items-center space-x-2">
+								<input
+									type="checkbox"
+									id="enable-collection-prompt"
+									bind:checked={enableCollection}
+									class="border-input h-4 w-4 rounded border"
+								/>
+								<Label for="enable-collection-prompt" class="text-sm leading-none font-medium">
+									对合集视频启用AI重命名
+								</Label>
+							</div>
+							<div class="flex items-center space-x-2">
+								<input
+									type="checkbox"
+									id="enable-bangumi-prompt"
+									bind:checked={enableBangumi}
+									class="border-input h-4 w-4 rounded border"
+								/>
+								<Label for="enable-bangumi-prompt" class="text-sm leading-none font-medium">
+									对番剧启用AI重命名
+								</Label>
+							</div>
+							<!-- 风险警告 -->
+							<div class="rounded border border-red-200 bg-red-50 p-2 dark:border-red-800 dark:bg-red-950">
+								<p class="text-xs text-red-700 dark:text-red-300">
+									<strong>⚠️ 风险警告：</strong>以上选项为实验性功能，可能存在命名Bug导致视频文件丢失或无法识别。
+									启用后果自负，建议先在小范围测试。
+								</p>
+							</div>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

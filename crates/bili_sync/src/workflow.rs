@@ -1368,9 +1368,20 @@ pub async fn batch_ai_rename_for_source(
 
     let cfg = crate::config::reload_config();
     let is_bangumi = matches!(video_source, VideoSourceEnum::BangumiSource(_));
+    let is_collection = matches!(video_source, VideoSourceEnum::Collection(_));
 
-    // 检查是否需要执行 AI 重命名
-    if is_bangumi || !video_source.ai_rename() || !cfg.ai_rename.enabled {
+    // 检查是否需要执行 AI 重命名（全局开关 + 视频源开关）
+    if !video_source.ai_rename() || !cfg.ai_rename.enabled {
+        return Ok(());
+    }
+
+    // 检查番剧/合集的独立开关（使用视频源自己的配置）
+    if is_bangumi && !video_source.ai_rename_enable_bangumi() {
+        debug!("[{}] 番剧AI重命名已禁用，跳过", video_source.source_key());
+        return Ok(());
+    }
+    if is_collection && !video_source.ai_rename_enable_collection() {
+        debug!("[{}] 合集AI重命名已禁用，跳过", video_source.source_key());
         return Ok(());
     }
 
@@ -1412,6 +1423,14 @@ pub async fn batch_ai_rename_for_source(
     let mut audio_files: Vec<FileToRename> = Vec::new();
 
     for (video_model, pages) in &videos_with_pages {
+        // 检查多P视频开关（使用视频源自己的配置）
+        let is_multi_page = video_model.single_page.unwrap_or(true) == false;
+        if is_multi_page && !video_source.ai_rename_enable_multi_page() {
+            debug!("[{}] 跳过多P视频: {} (多P视频AI重命名已禁用)", source_key, video_model.name);
+            skipped_count += pages.len();
+            continue;
+        }
+
         for page_model in pages {
             // 重新从数据库查询最新的 page 信息（可能被前面的迭代更新了路径）
             let latest_page = match page::Entity::find_by_id(page_model.id).one(connection).await {

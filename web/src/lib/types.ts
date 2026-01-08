@@ -59,6 +59,9 @@ export interface VideoSource {
 	ai_rename: boolean; // 是否启用AI重命名
 	ai_rename_video_prompt: string; // AI重命名视频提示词
 	ai_rename_audio_prompt: string; // AI重命名音频提示词
+	ai_rename_enable_multi_page: boolean; // 对多P视频启用AI重命名
+	ai_rename_enable_collection: boolean; // 对合集视频启用AI重命名
+	ai_rename_enable_bangumi: boolean; // 对番剧启用AI重命名
 }
 
 // 视频来源响应类型
@@ -196,6 +199,10 @@ export interface AddVideoSourceRequest {
 	ai_rename?: boolean; // 是否启用AI重命名（默认false）
 	ai_rename_video_prompt?: string; // AI重命名视频提示词
 	ai_rename_audio_prompt?: string; // AI重命名音频提示词
+	// AI重命名高级选项
+	ai_rename_enable_multi_page?: boolean; // 对多P视频启用AI重命名
+	ai_rename_enable_collection?: boolean; // 对合集视频启用AI重命名
+	ai_rename_enable_bangumi?: boolean; // 对番剧启用AI重命名
 }
 
 // 添加视频源响应类型

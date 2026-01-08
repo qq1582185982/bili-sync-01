@@ -89,7 +89,10 @@
 		name: '',
 		videoPrompt: '',
 		audioPrompt: '',
-		aiRename: false
+		aiRename: false,
+		enableMultiPage: false,
+		enableCollection: false,
+		enableBangumi: false
 	};
 
 	// AI批量重命名历史对话框状态
@@ -99,7 +102,10 @@
 		id: 0,
 		name: '',
 		videoPrompt: '',
-		audioPrompt: ''
+		audioPrompt: '',
+		enableMultiPage: false,
+		enableCollection: false,
+		enableBangumi: false
 	};
 
 	async function loadVideoSources() {
@@ -325,7 +331,10 @@
 		sourceName: string,
 		currentAiRename: boolean,
 		videoPrompt: string,
-		audioPrompt: string
+		audioPrompt: string,
+		enableMultiPage: boolean,
+		enableCollection: boolean,
+		enableBangumi: boolean
 	) {
 		aiPromptInfo = {
 			type: sourceType,
@@ -333,7 +342,10 @@
 			name: sourceName,
 			videoPrompt: videoPrompt || '',
 			audioPrompt: audioPrompt || '',
-			aiRename: currentAiRename
+			aiRename: currentAiRename,
+			enableMultiPage: enableMultiPage || false,
+			enableCollection: enableCollection || false,
+			enableBangumi: enableBangumi || false
 		};
 		showAiPromptDialog = true;
 	}
@@ -349,14 +361,20 @@
 		sourceId: number,
 		sourceName: string,
 		videoPrompt: string,
-		audioPrompt: string
+		audioPrompt: string,
+		enableMultiPage: boolean,
+		enableCollection: boolean,
+		enableBangumi: boolean
 	) {
 		aiRenameHistoryInfo = {
 			type: sourceType,
 			id: sourceId,
 			name: sourceName,
 			videoPrompt: videoPrompt || '',
-			audioPrompt: audioPrompt || ''
+			audioPrompt: audioPrompt || '',
+			enableMultiPage: enableMultiPage || false,
+			enableCollection: enableCollection || false,
+			enableBangumi: enableBangumi || false
 		};
 		showAiRenameHistoryDialog = true;
 	}
@@ -877,7 +895,10 @@
 															source.name,
 															source.ai_rename ?? false,
 															source.ai_rename_video_prompt ?? '',
-															source.ai_rename_audio_prompt ?? ''
+															source.ai_rename_audio_prompt ?? '',
+															source.ai_rename_enable_multi_page ?? false,
+															source.ai_rename_enable_collection ?? false,
+															source.ai_rename_enable_bangumi ?? false
 														)}
 													title="AI重命名设置"
 													class="h-8 w-8 p-0"
@@ -899,7 +920,10 @@
 															source.id,
 															source.name,
 															source.ai_rename_video_prompt ?? '',
-															source.ai_rename_audio_prompt ?? ''
+															source.ai_rename_audio_prompt ?? '',
+															source.ai_rename_enable_multi_page ?? false,
+															source.ai_rename_enable_collection ?? false,
+															source.ai_rename_enable_bangumi ?? false
 														)}
 													title="AI批量重命名历史文件"
 													class="h-8 w-8 p-0"
@@ -1004,6 +1028,9 @@
 	initialVideoPrompt={aiPromptInfo.videoPrompt}
 	initialAudioPrompt={aiPromptInfo.audioPrompt}
 	initialAiRename={aiPromptInfo.aiRename}
+	initialEnableMultiPage={aiPromptInfo.enableMultiPage}
+	initialEnableCollection={aiPromptInfo.enableCollection}
+	initialEnableBangumi={aiPromptInfo.enableBangumi}
 	on:save={handleAiPromptSave}
 />
 
@@ -1015,5 +1042,8 @@
 	sourceId={aiRenameHistoryInfo.id}
 	initialVideoPrompt={aiRenameHistoryInfo.videoPrompt}
 	initialAudioPrompt={aiRenameHistoryInfo.audioPrompt}
+	initialEnableMultiPage={aiRenameHistoryInfo.enableMultiPage}
+	initialEnableCollection={aiRenameHistoryInfo.enableCollection}
+	initialEnableBangumi={aiRenameHistoryInfo.enableBangumi}
 	on:complete={handleAiRenameHistoryComplete}
 />

@@ -351,6 +351,15 @@ pub struct AiRenameConfig {
     pub video_prompt_hint: String,
     /// 音频提示词（不含扩展名）
     pub audio_prompt_hint: String,
+    /// 是否启用多P视频AI重命名（默认关闭）
+    #[serde(default)]
+    pub enable_multi_page: bool,
+    /// 是否启用合集视频AI重命名（默认关闭）
+    #[serde(default)]
+    pub enable_collection: bool,
+    /// 是否启用番剧AI重命名（默认关闭）
+    #[serde(default)]
+    pub enable_bangumi: bool,
 }
 
 impl Default for AiRenameConfig {
@@ -370,6 +379,10 @@ impl Default for AiRenameConfig {
             // 音频命名规则
             audio_prompt_hint: "【命名结构】歌手-歌名-版本(如录音棚/现场)-时间(YYYYMMDD)；\
 【规则】去除表情/情绪文案，仅用英文连字符-连接".to_string(),
+            // 特殊类型默认关闭
+            enable_multi_page: false,
+            enable_collection: false,
+            enable_bangumi: false,
         }
     }
 }

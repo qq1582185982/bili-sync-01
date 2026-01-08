@@ -176,6 +176,21 @@ pub trait VideoSource {
         "" // 默认实现：空提示词，使用全局配置
     }
 
+    /// 获取是否对多P视频启用AI重命名（默认为 false）
+    fn ai_rename_enable_multi_page(&self) -> bool {
+        false // 默认实现：不对多P视频启用
+    }
+
+    /// 获取是否对合集视频启用AI重命名（默认为 false）
+    fn ai_rename_enable_collection(&self) -> bool {
+        false // 默认实现：不对合集视频启用
+    }
+
+    /// 获取是否对番剧启用AI重命名（默认为 false）
+    fn ai_rename_enable_bangumi(&self) -> bool {
+        false // 默认实现：不对番剧启用
+    }
+
     /// 获取视频源的唯一键（用于AI重命名缓存）
     /// 格式: "{source_type}_{id}"，例如 "collection_123"
     fn source_key(&self) -> String;
@@ -321,6 +336,9 @@ pub async fn bangumi_from<'a>(
             ai_rename: model.ai_rename,
             ai_rename_video_prompt: model.ai_rename_video_prompt,
             ai_rename_audio_prompt: model.ai_rename_audio_prompt,
+            ai_rename_enable_multi_page: model.ai_rename_enable_multi_page,
+            ai_rename_enable_collection: model.ai_rename_enable_collection,
+            ai_rename_enable_bangumi: model.ai_rename_enable_bangumi,
         }
     } else {
         // 如果数据库中不存在，使用默认值并发出警告
@@ -357,6 +375,9 @@ pub async fn bangumi_from<'a>(
             ai_rename: false,
             ai_rename_video_prompt: String::new(),
             ai_rename_audio_prompt: String::new(),
+            ai_rename_enable_multi_page: false,
+            ai_rename_enable_collection: false,
+            ai_rename_enable_bangumi: false,
         }
     };
 
