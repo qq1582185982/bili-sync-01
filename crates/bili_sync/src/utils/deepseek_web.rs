@@ -392,8 +392,15 @@ impl DeepSeekWebClient {
         let mut full_response = String::new();
         let mut message_id: Option<String> = None;
         let mut chunk_count = 0;
+        let mut current_event_type: Option<String> = None;
 
         for line in body.lines() {
+            // 解析 event 类型行
+            if line.starts_with("event:") {
+                current_event_type = Some(line[6..].trim().to_string());
+                continue;
+            }
+
             if !line.starts_with("data:") {
                 continue;
             }
@@ -402,6 +409,28 @@ impl DeepSeekWebClient {
             if data_str.is_empty() {
                 continue;
             }
+
+            // 检查 hint 事件（对话长度上限等错误）
+            if current_event_type.as_deref() == Some("hint") {
+                if let Ok(hint_data) = serde_json::from_str::<serde_json::Value>(data_str) {
+                    let hint_type = hint_data.get("type").and_then(|t| t.as_str());
+                    let content = hint_data.get("content").and_then(|c| c.as_str()).unwrap_or("");
+
+                    if hint_type == Some("error") && content.contains("达到对话长度上限") {
+                        return Err(anyhow!("SESSION_LIMIT_REACHED: {}", content));
+                    }
+
+                    // 其他 hint 错误也记录
+                    if hint_type == Some("error") {
+                        warn!("DeepSeek hint 错误: {}", content);
+                    }
+                }
+                current_event_type = None;
+                continue;
+            }
+
+            // 重置事件类型（data 处理完后）
+            current_event_type = None;
 
             chunk_count += 1;
 

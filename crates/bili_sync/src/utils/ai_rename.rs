@@ -543,12 +543,90 @@ async fn ai_generate_filename_deepseek_web(
     };
 
     // 调用 DeepSeek Web API
-    let (name, new_session) = deepseek_web_generate(
+    let result = deepseek_web_generate(
         &token,
         cached_session,
         &full_prompt,
         cfg.timeout_seconds,
-    ).await?;
+    ).await;
+
+    // 检查是否是会话长度上限错误，需要重建会话
+    let (name, new_session) = match result {
+        Ok(res) => res,
+        Err(e) if e.to_string().contains("SESSION_LIMIT_REACHED") => {
+            warn!("[{}] DeepSeek 会话达到长度上限，正在重建会话并带上历史...", source_key);
+
+            // 清除旧会话缓存
+            {
+                let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
+                cache.remove(source_key);
+            }
+
+            // 获取历史记录作为上下文（重新获取，因为之前的变量已被使用）
+            let history_for_retry = get_conversation_history(db.as_ref(), source_key).await;
+            let history_context = if !history_for_retry.is_empty() {
+                let mut ctx = String::from("【之前的命名风格参考】\n");
+                for msg in &history_for_retry {
+                    if msg.role == "assistant" {
+                        ctx.push_str(&format!("{}\n", msg.content));
+                    }
+                }
+                ctx.push_str("\n请严格遵循以上命名风格。\n\n");
+                ctx
+            } else {
+                String::new()
+            };
+
+            // 构建带历史上下文的新 prompt
+            let new_prompt = format!("{}{}", history_context, full_prompt);
+
+            // 用新会话重试（session = None 会创建新会话）
+            info!("[{}] 使用新会话重试，带上 {} 条历史记录", source_key, history_for_retry.len());
+            deepseek_web_generate(
+                &token,
+                None, // 创建新会话
+                &new_prompt,
+                cfg.timeout_seconds,
+            ).await?
+        }
+        Err(e) if e.to_string().contains("读取响应体失败") || e.to_string().contains("error decoding response body") => {
+            warn!("[{}] DeepSeek 响应体解码失败，正在重建会话并带上历史...", source_key);
+
+            // 清除旧会话缓存
+            {
+                let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
+                cache.remove(source_key);
+            }
+
+            // 获取历史记录作为上下文
+            let history_for_retry = get_conversation_history(db.as_ref(), source_key).await;
+            let history_context = if !history_for_retry.is_empty() {
+                let mut ctx = String::from("【之前的命名风格参考】\n");
+                for msg in &history_for_retry {
+                    if msg.role == "assistant" {
+                        ctx.push_str(&format!("{}\n", msg.content));
+                    }
+                }
+                ctx.push_str("\n请严格遵循以上命名风格。\n\n");
+                ctx
+            } else {
+                String::new()
+            };
+
+            // 构建带历史上下文的新 prompt
+            let new_prompt = format!("{}{}", history_context, full_prompt);
+
+            // 用新会话重试
+            info!("[{}] 使用新会话重试（响应体错误），带上 {} 条历史记录", source_key, history_for_retry.len());
+            deepseek_web_generate(
+                &token,
+                None,
+                &new_prompt,
+                cfg.timeout_seconds,
+            ).await?
+        }
+        Err(e) => return Err(e),
+    };
 
     // 更新会话缓存（内存 + 数据库）
     {
@@ -1262,12 +1340,91 @@ async fn ai_generate_filenames_batch_deepseek_web(
     };
 
     // 调用 DeepSeek Web API（使用原始响应，不清洗）
-    let (response, new_session) = super::deepseek_web::deepseek_web_generate_raw(
+    let result = super::deepseek_web::deepseek_web_generate_raw(
         &token,
         cached_session,
         prompt,
         cfg.timeout_seconds,
-    ).await?;
+    ).await;
+
+    // 检查是否是会话长度上限错误，需要重建会话
+    let (response, new_session) = match result {
+        Ok(res) => res,
+        Err(e) if e.to_string().contains("SESSION_LIMIT_REACHED") => {
+            warn!("[{}] DeepSeek 会话达到长度上限，正在重建会话并带上历史...", source_key);
+
+            // 清除旧会话缓存
+            {
+                let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
+                cache.remove(source_key);
+            }
+
+            // 获取历史记录作为上下文
+            let history = get_conversation_history(db.as_ref(), source_key).await;
+            let history_context = if !history.is_empty() {
+                let mut ctx = String::from("【之前的命名风格参考】\n");
+                for msg in &history {
+                    if msg.role == "assistant" {
+                        // 只保留 assistant 的回复作为命名风格参考
+                        ctx.push_str(&format!("{}\n", msg.content));
+                    }
+                }
+                ctx.push_str("\n请严格遵循以上命名风格。\n\n");
+                ctx
+            } else {
+                String::new()
+            };
+
+            // 构建带历史上下文的新 prompt
+            let new_prompt = format!("{}{}", history_context, prompt);
+
+            // 用新会话重试（session = None 会创建新会话）
+            info!("[{}] 使用新会话重试，带上 {} 条历史记录", source_key, history.len());
+            super::deepseek_web::deepseek_web_generate_raw(
+                &token,
+                None, // 创建新会话
+                &new_prompt,
+                cfg.timeout_seconds,
+            ).await?
+        }
+        Err(e) if e.to_string().contains("读取响应体失败") || e.to_string().contains("error decoding response body") => {
+            warn!("[{}] DeepSeek 响应体解码失败，正在重建会话并带上历史...", source_key);
+
+            // 清除旧会话缓存
+            {
+                let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
+                cache.remove(source_key);
+            }
+
+            // 获取历史记录作为上下文
+            let history = get_conversation_history(db.as_ref(), source_key).await;
+            let history_context = if !history.is_empty() {
+                let mut ctx = String::from("【之前的命名风格参考】\n");
+                for msg in &history {
+                    if msg.role == "assistant" {
+                        ctx.push_str(&format!("{}\n", msg.content));
+                    }
+                }
+                ctx.push_str("\n请严格遵循以上命名风格。\n\n");
+                ctx
+            } else {
+                String::new()
+            };
+
+            // 构建带历史上下文的新 prompt
+            let new_prompt = format!("{}{}", history_context, prompt);
+
+            // 用新会话重试
+            info!("[{}] 使用新会话重试（响应体错误），带上 {} 条历史记录", source_key, history.len());
+            super::deepseek_web::deepseek_web_generate_raw(
+                &token,
+                None,
+                &new_prompt,
+                cfg.timeout_seconds,
+            ).await?
+        }
+        Err(e) => return Err(e),
+    };
 
     // 更新会话缓存
     {
