@@ -12235,6 +12235,20 @@ pub async fn ai_rename_history(
     Json(req): Json<crate::api::response::BatchRenameRequest>,
 ) -> Result<ApiResponse<crate::api::response::BatchRenameResponse>, ApiError> {
     use crate::utils::ai_rename::{batch_rename_history_files, AiRenameConfig};
+    use crate::task::{pause_scanning, resume_scanning};
+
+    // 扫描恢复守卫，确保函数退出时恢复扫描
+    struct ScanResumeGuard {
+        paused: bool,
+    }
+    impl Drop for ScanResumeGuard {
+        fn drop(&mut self) {
+            if self.paused {
+                info!("AI批量重命名结束，恢复扫描任务...");
+                resume_scanning();
+            }
+        }
+    }
 
     // 获取全局配置
     let config = crate::config::reload_config();
@@ -12251,11 +12265,16 @@ pub async fn ai_rename_history(
         }));
     }
 
+    // 暂停扫描任务，避免重命名过程中发生冲突
+    info!("AI批量重命名开始，暂停扫描任务...");
+    pause_scanning().await;
+    let _guard = ScanResumeGuard { paused: true };
+
     // 构建 source_key
     let source_key = format!("{}_{}", source_type, id);
 
     // 根据 source_type 获取视频源配置和视频列表
-    let (video_prompt, audio_prompt, videos) = match source_type.as_str() {
+    let (video_prompt, audio_prompt, videos, flat_folder) = match source_type.as_str() {
         "collection" => {
             let source = collection::Entity::find_by_id(id)
                 .one(db.as_ref())
@@ -12273,6 +12292,7 @@ pub async fn ai_rename_history(
                 source.ai_rename_video_prompt,
                 source.ai_rename_audio_prompt,
                 videos_with_pages,
+                source.flat_folder,
             )
         }
         "favorite" => {
@@ -12291,6 +12311,7 @@ pub async fn ai_rename_history(
                 source.ai_rename_video_prompt,
                 source.ai_rename_audio_prompt,
                 videos_with_pages,
+                source.flat_folder,
             )
         }
         "submission" => {
@@ -12309,6 +12330,7 @@ pub async fn ai_rename_history(
                 source.ai_rename_video_prompt,
                 source.ai_rename_audio_prompt,
                 videos_with_pages,
+                source.flat_folder,
             )
         }
         "watch_later" => {
@@ -12327,6 +12349,7 @@ pub async fn ai_rename_history(
                 source.ai_rename_video_prompt,
                 source.ai_rename_audio_prompt,
                 videos_with_pages,
+                source.flat_folder,
             )
         }
         "bangumi" => {
@@ -12345,6 +12368,7 @@ pub async fn ai_rename_history(
                 source.ai_rename_video_prompt,
                 source.ai_rename_audio_prompt,
                 videos_with_pages,
+                source.flat_folder,
             )
         }
         _ => {
@@ -12414,6 +12438,7 @@ pub async fn ai_rename_history(
         &ai_config,
         &video_prompt,
         &audio_prompt,
+        flat_folder,
     ).await;
 
     match result {

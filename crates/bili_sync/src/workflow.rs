@@ -1522,6 +1522,7 @@ pub async fn batch_ai_rename_for_source(
                 video_id: video_model.id,
                 bvid: video_model.bvid.clone(),
                 single_page: video_model.single_page.unwrap_or(false),
+                flat_folder: video_source.flat_folder(),
             };
 
             if is_audio {

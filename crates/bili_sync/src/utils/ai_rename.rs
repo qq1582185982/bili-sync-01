@@ -1250,6 +1250,8 @@ pub struct FileToRename {
     pub bvid: String,
     /// 是否为单P视频
     pub single_page: bool,
+    /// 是否为平铺目录模式（启用时不重命名子文件夹）
+    pub flat_folder: bool,
 }
 
 /// 批量生成文件名（一次请求处理多个文件）
@@ -1589,6 +1591,7 @@ fn parse_batch_response(response: &str, expected_count: usize) -> Result<Vec<Str
 /// - `config`: AI 重命名配置
 /// - `video_prompt`: 视频自定义提示词
 /// - `audio_prompt`: 音频自定义提示词
+/// - `flat_folder`: 是否为平铺目录模式
 ///
 /// # 返回
 /// - 批量重命名结果（renamed_count, skipped_count, failed_count）
@@ -1599,6 +1602,7 @@ pub async fn batch_rename_history_files(
     config: &AiRenameConfig,
     video_prompt: &str,
     audio_prompt: &str,
+    flat_folder: bool,
 ) -> Result<BatchRenameResult> {
     let mut result = BatchRenameResult::default();
 
@@ -1693,6 +1697,7 @@ pub async fn batch_rename_history_files(
                 video_id: video.id,
                 bvid: video.bvid.clone(),
                 single_page: video.single_page.unwrap_or(true),
+                flat_folder,
             };
 
             if is_audio {
@@ -1785,7 +1790,7 @@ async fn apply_rename(
     new_stem: &str,
     result: &mut BatchRenameResult,
 ) {
-    use bili_sync_entity::page;
+    use bili_sync_entity::{page, video};
 
     // 文件名相同则跳过
     if new_stem == file.current_stem {
@@ -1859,12 +1864,116 @@ async fn apply_rename(
         warn!("[{}] 更新NFO内容失败: {}", source_key, e);
     }
 
-    // 更新数据库中的 page.path
-    let new_path_str = new_path.to_string_lossy().to_string();
+    // 重命名子文件夹（单P视频 且 非平铺目录模式）
+    let should_rename_folder = !file.flat_folder && file.single_page;
+
+    let final_path = if should_rename_folder {
+        if let Some(old_dir) = new_path.parent() {
+            if let Some(parent_dir) = old_dir.parent() {
+                let mut target_dir = parent_dir.join(&final_stem);
+                // 如果目标目录已存在且不是当前目录，追加 bvid 避免冲突
+                if target_dir.exists() && target_dir != old_dir {
+                    target_dir = parent_dir.join(format!("{}-{}", &final_stem, file.bvid));
+                }
+
+                if target_dir != old_dir {
+                    match std::fs::rename(old_dir, &target_dir) {
+                        Ok(_) => {
+                            let moved_path = target_dir.join(
+                                new_path.file_name().expect("new_path should have file name"),
+                            );
+                            info!(
+                                "[{}] AI 重命名子文件夹成功: {} -> {}",
+                                source_key,
+                                old_dir.display(),
+                                target_dir.display()
+                            );
+
+                            // 更新当前 video.path
+                            let new_video_path = target_dir.to_string_lossy().to_string();
+                            if let Ok(Some(current_video)) = video::Entity::find_by_id(file.video_id).one(connection).await {
+                                let mut active_video: video::ActiveModel = current_video.into();
+                                active_video.path = Set(new_video_path.clone());
+                                if let Err(e) = active_video.update(connection).await {
+                                    warn!("[{}] 更新 video.path 失败: {}", source_key, e);
+                                }
+                            }
+
+                            // 更新同一文件夹中其他视频的路径
+                            let old_dir_str = old_dir.to_string_lossy().to_string();
+                            let old_dir_str_alt = old_dir_str.replace('/', "\\");
+
+                            if let Ok(other_videos) = video::Entity::find()
+                                .filter(video::Column::Id.ne(file.video_id))
+                                .filter(
+                                    video::Column::Path.eq(&old_dir_str)
+                                        .or(video::Column::Path.eq(&old_dir_str_alt))
+                                )
+                                .all(connection)
+                                .await
+                            {
+                                for other_video in other_videos {
+                                    let mut active_other: video::ActiveModel = other_video.clone().into();
+                                    active_other.path = Set(new_video_path.clone());
+                                    if let Err(e) = active_other.update(connection).await {
+                                        warn!("[{}] 更新同文件夹其他视频 video.path 失败: {}", source_key, e);
+                                    }
+
+                                    // 更新其他视频的 page 路径
+                                    if let Ok(other_pages) = page::Entity::find()
+                                        .filter(page::Column::VideoId.eq(other_video.id))
+                                        .all(connection)
+                                        .await
+                                    {
+                                        for other_page in other_pages {
+                                            if let Some(page_path_str) = other_page.path.clone() {
+                                                if page_path_str.starts_with(&old_dir_str) || page_path_str.starts_with(&old_dir_str_alt) {
+                                                    let new_page_path = if page_path_str.starts_with(&old_dir_str) {
+                                                        page_path_str.replacen(&old_dir_str, &new_video_path, 1)
+                                                    } else {
+                                                        page_path_str.replacen(&old_dir_str_alt, &new_video_path, 1)
+                                                    };
+                                                    let mut active_page: page::ActiveModel = other_page.into();
+                                                    active_page.path = Set(Some(new_page_path.clone()));
+                                                    if let Err(e) = active_page.update(connection).await {
+                                                        warn!("[{}] 更新同文件夹其他视频 page.path 失败: {}", source_key, e);
+                                                    } else {
+                                                        info!("[{}] 同步更新同文件夹页面路径: {} -> {}", source_key, page_path_str, new_page_path);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            moved_path
+                        }
+                        Err(e) => {
+                            warn!("[{}] AI 重命名子文件夹失败: {}", source_key, e);
+                            new_path.clone()
+                        }
+                    }
+                } else {
+                    new_path.clone()
+                }
+            } else {
+                new_path.clone()
+            }
+        } else {
+            new_path.clone()
+        }
+    } else {
+        new_path.clone()
+    };
+
+    // 更新数据库中的 page.path 和 ai_renamed 标记
+    let new_path_str = final_path.to_string_lossy().to_string();
     if let Ok(page_model) = page::Entity::find_by_id(file.page_id).one(connection).await {
         if let Some(page_model) = page_model {
             let mut active_page: page::ActiveModel = page_model.into();
             active_page.path = Set(Some(new_path_str));
+            active_page.ai_renamed = Set(Some(1)); // 标记为已 AI 重命名，防止重复处理
             if let Err(e) = active_page.update(connection).await {
                 warn!("[{}] 更新数据库 page.path 失败: {}", source_key, e);
             }
