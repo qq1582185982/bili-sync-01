@@ -3275,7 +3275,11 @@
 															</span>
 														{/if}
 													</div>
-													<p class="text-muted-foreground truncate text-xs">{result.author}</p>
+													<p class="text-muted-foreground truncate text-xs">
+														{result.author}{#if result.result_type === 'bili_user' && result.follower !== undefined && result.follower !== null}
+															<span class="ml-2">· 粉丝: {formatSubmissionPlayCount(result.follower)}</span>
+														{/if}
+													</p>
 													{#if result.description}
 														<p class="text-muted-foreground/70 mt-1 line-clamp-2 text-xs">
 															{result.description}
@@ -3414,7 +3418,9 @@
 														{/if}
 													</div>
 													<p class="text-muted-foreground mb-1 truncate text-xs">
-														UID: {following.mid}
+														UID: {following.mid}{#if following.follower !== undefined && following.follower !== null}
+															<span class="ml-2">· 粉丝: {formatSubmissionPlayCount(following.follower)}</span>
+														{/if}
 													</p>
 													{#if following.sign}
 														<p class="text-muted-foreground line-clamp-1 text-xs">

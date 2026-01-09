@@ -458,6 +458,7 @@ export interface SearchResultItem {
 	pubdate?: number;
 	play?: number;
 	danmaku?: number;
+	follower?: number;  // 粉丝数（UP主搜索结果）
 }
 
 // 搜索响应类型
@@ -553,6 +554,7 @@ export interface UserFollowing {
 	face: string;
 	sign: string;
 	official_verify?: OfficialVerify;
+	follower?: number;  // 粉丝数
 }
 
 // 官方认证信息类型

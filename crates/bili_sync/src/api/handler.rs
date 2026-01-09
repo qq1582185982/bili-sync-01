@@ -7467,6 +7467,7 @@ pub async fn search_bilibili(
             pubdate: r.pubdate,
             play: r.play,
             danmaku: r.danmaku,
+            follower: r.follower,
         })
         .collect();
 
@@ -7607,6 +7608,7 @@ pub async fn get_user_followings() -> Result<ApiResponse<Vec<crate::api::respons
                             type_: verify.type_,
                             desc: verify.desc,
                         }),
+                    follower: following.follower,
                 })
                 .collect();
             Ok(ApiResponse::ok(response_followings))

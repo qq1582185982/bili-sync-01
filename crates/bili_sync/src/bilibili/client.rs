@@ -20,6 +20,7 @@ pub struct UserFollowingInfo {
     pub face: String,
     pub sign: String,
     pub official_verify: Option<UserOfficialVerify>,
+    pub follower: Option<i64>,  // 粉丝数（关注列表API不返回此字段，需单独获取）
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +54,7 @@ pub struct SearchResult {
     pub pubdate: Option<i64>,      // 发布时间
     pub play: Option<i64>,         // 播放量
     pub danmaku: Option<i64>,      // 弹幕数
+    pub follower: Option<i64>,     // 粉丝数（UP主搜索结果）
 }
 
 /// bilibili搜索响应
@@ -408,6 +410,7 @@ impl BiliClient {
                     pubdate: item["pubdate"].as_i64(),
                     play: item["play"].as_i64(),
                     danmaku: item["video_review"].as_i64(),
+                    follower: None,
                 })
             }
             "bili_user" => {
@@ -427,6 +430,7 @@ impl BiliClient {
                     pubdate: None,
                     play: None,
                     danmaku: None,
+                    follower: item["fans"].as_i64(),
                 })
             }
             "media_bangumi" => {
@@ -452,6 +456,7 @@ impl BiliClient {
                     pubdate: None,
                     play: None,
                     danmaku: None,
+                    follower: None,
                 })
             }
             "media_ft" => {
@@ -477,6 +482,7 @@ impl BiliClient {
                     pubdate: None,
                     play: None,
                     danmaku: None,
+                    follower: None,
                 })
             }
             _ => Err(anyhow!("不支持的搜索类型: {}", search_type)),
@@ -845,6 +851,7 @@ impl BiliClient {
                         face,
                         sign,
                         official_verify,
+                        follower: None, // 关注列表API不返回粉丝数
                     })
                 })
                 .collect();

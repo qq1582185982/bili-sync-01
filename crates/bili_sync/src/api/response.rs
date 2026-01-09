@@ -478,6 +478,7 @@ pub struct SearchResult {
     pub pubdate: Option<i64>,      // 发布时间
     pub play: Option<i64>,         // 播放量
     pub danmaku: Option<i64>,      // 弹幕数
+    pub follower: Option<i64>,     // 粉丝数（UP主搜索结果）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -567,6 +568,7 @@ pub struct UserFollowing {
     pub face: String,
     pub sign: String,
     pub official_verify: Option<OfficialVerify>,
+    pub follower: Option<i64>,  // 粉丝数
 }
 
 #[derive(Serialize, ToSchema)]
