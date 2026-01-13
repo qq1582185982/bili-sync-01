@@ -785,68 +785,21 @@ impl<'a> Video<'a> {
             }
         }
 
-        // 检查是否有可用的视频流 (只接受dash格式，durl是试看片段)
+        // 检查是否有可用的视频流 (dash格式或durl格式都是有效的)
+        // 注意：durl格式不一定是试看视频，可能是旧版视频格式或某些特定编码
+        // 充电视频检测应该在获取视频详情时通过 is_upower_exclusive 字段进行，而不是基于视频格式推断
         let has_dash_video = res["data"]["dash"]["video"].as_array().is_some_and(|v| !v.is_empty());
-        let has_durl_only = res["data"]["durl"].as_array().is_some_and(|v| !v.is_empty()) && !has_dash_video;
+        let has_durl = res["data"]["durl"].as_array().is_some_and(|v| !v.is_empty());
 
-        if has_durl_only {
-            // 只在debug级别记录试看视频详情，避免日志过多
+        // 如果只有durl格式，记录日志但不报错（durl是有效的视频格式）
+        if has_durl && !has_dash_video {
             tracing::debug!(
-                "试看视频data字段: {}",
-                serde_json::to_string_pretty(&res["data"]).unwrap_or_else(|_| "无法序列化".to_string())
+                "视频使用durl格式（非dash格式），这是正常的视频格式，不是试看视频"
             );
-            // 返回充电视频错误，触发自动删除
-            return Err(crate::bilibili::BiliError::RequestFailed(
-                87008,
-                "试看视频，需要充电才能观看完整版".to_string(),
-            )
-            .into());
         }
 
-        // 检查是否为可疑的充电视频：API返回成功但可能是试看片段
-        if has_dash_video {
-            // 检查视频时长是否异常短（可能是试看片段）
-            if let Some(timelength) = res["data"]["timelength"].as_u64() {
-                // 如果视频时长小于30秒且同时存在durl字段，可能是试看视频
-                if timelength < 30000 && res["data"]["durl"].as_array().is_some_and(|v| !v.is_empty()) {
-                    tracing::debug!(
-                        "检测到可疑的短视频片段，时长: {}ms，可能为充电专享视频的试看片段",
-                        timelength
-                    );
-                    tracing::debug!(
-                        "可疑试看视频data字段: {}",
-                        serde_json::to_string_pretty(&res["data"]).unwrap_or_else(|_| "无法序列化".to_string())
-                    );
-                    return Err(crate::bilibili::BiliError::RequestFailed(
-                        87008,
-                        "检测到试看片段，可能为充电专享视频".to_string(),
-                    )
-                    .into());
-                }
-            }
-
-            // 检查是否存在特定的充电专享视频标识字段
-            if let Some(result) = res["data"]["result"].as_str() {
-                if result == "suee" {
-                    // "suee" 可能是试看片段的标识，结合其他字段进一步判断
-                    let has_limited_content = res["data"]["durl"].as_array().is_some_and(|v| !v.is_empty());
-                    if has_limited_content {
-                        tracing::debug!("检测到result=suee且存在durl，可能为充电专享视频的试看模式");
-                        tracing::debug!(
-                            "疑似充电专享视频data字段: {}",
-                            serde_json::to_string_pretty(&res["data"]).unwrap_or_else(|_| "无法序列化".to_string())
-                        );
-                        return Err(crate::bilibili::BiliError::RequestFailed(
-                            87008,
-                            "检测到试看模式，可能为充电专享视频".to_string(),
-                        )
-                        .into());
-                    }
-                }
-            }
-        }
-
-        if !has_dash_video {
+        // 只有当dash和durl都没有时才报错
+        if !has_dash_video && !has_durl {
             tracing::error!(
                 "视频流为空，完整的data字段: {}",
                 serde_json::to_string_pretty(&res["data"]).unwrap_or_else(|_| "无法序列化".to_string())

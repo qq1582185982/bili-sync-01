@@ -237,8 +237,10 @@
 
 	// 推送通知配置
 	let notificationEnabled = false;
-	let activeNotificationChannel: 'none' | 'serverchan' | 'wecom' = 'none';
+	let activeNotificationChannel: 'none' | 'serverchan' | 'serverchan3' | 'wecom' = 'none';
 	let serverchanKey = '';
+	let serverchan3Uid = '';
+	let serverchan3Sendkey = '';
 	let wecomWebhookUrl = '';
 	let wecomMsgtype = 'markdown';
 	let wecomMentionAll = false;
@@ -922,6 +924,13 @@
 				if (serverchanKey.trim()) {
 					config.serverchan_key = serverchanKey.trim();
 				}
+			} else if (activeNotificationChannel === 'serverchan3') {
+				if (serverchan3Uid.trim()) {
+					config.serverchan3_uid = serverchan3Uid.trim();
+				}
+				if (serverchan3Sendkey.trim()) {
+					config.serverchan3_sendkey = serverchan3Sendkey.trim();
+				}
 			} else if (activeNotificationChannel === 'wecom') {
 				if (wecomWebhookUrl.trim()) {
 					config.wecom_webhook_url = wecomWebhookUrl.trim();
@@ -1047,6 +1056,7 @@
 				activeNotificationChannel = (response.data.active_channel || 'none') as
 					| 'none'
 					| 'serverchan'
+					| 'serverchan3'
 					| 'wecom';
 
 				notificationEnabled = response.data.enable_scan_notifications;
@@ -1054,6 +1064,10 @@
 
 				// 加载Server酱配置（如果有）
 				serverchanKey = response.data.serverchan_key || '';
+
+				// 加载Server酱3配置（如果有）
+				serverchan3Uid = response.data.serverchan3_uid || '';
+				serverchan3Sendkey = response.data.serverchan3_sendkey || '';
 
 				// 加载企业微信配置（如果有）
 				wecomWebhookUrl = response.data.wecom_webhook_url || '';
@@ -3431,7 +3445,7 @@
 									{#if activeNotificationChannel !== 'none'}
 										<Badge variant="default" class="bg-green-500">已配置</Badge>
 										<span class="text-sm text-green-700 dark:text-green-400">
-											{activeNotificationChannel === 'serverchan' ? 'Server酱' : '企业微信'}已配置
+											{activeNotificationChannel === 'serverchan' ? 'Server酱' : activeNotificationChannel === 'serverchan3' ? 'Server酱3' : '企业微信'}已配置
 										</span>
 									{:else}
 										<Badge variant="secondary">未配置</Badge>
@@ -3475,6 +3489,7 @@
 								>
 									<option value="none">无</option>
 									<option value="serverchan">Server酱</option>
+									<option value="serverchan3">Server酱3</option>
 									<option value="wecom">企业微信群机器人</option>
 								</select>
 								<p class="text-muted-foreground text-sm">
@@ -3505,6 +3520,47 @@
 											href="https://sct.ftqq.com/"
 											target="_blank"
 											class="text-primary hover:underline">sct.ftqq.com</a
+										> 获取您的SendKey
+									</p>
+								</div>
+							</div>
+						{/if}
+
+						<!-- Server酱3配置 -->
+						{#if activeNotificationChannel === 'serverchan3'}
+							<div
+								class="space-y-4 rounded-lg border border-cyan-200 bg-cyan-50/50 p-4 dark:border-cyan-800 dark:bg-cyan-950/10"
+							>
+								<h3 class="text-base font-semibold">Server酱3配置</h3>
+
+								<div class="space-y-2">
+									<Label for="serverchan3-uid">UID</Label>
+									<Input
+										id="serverchan3-uid"
+										type="text"
+										bind:value={serverchan3Uid}
+										placeholder="请输入您的UID"
+									/>
+									<p class="text-muted-foreground text-sm">
+										您的Server酱3用户UID
+									</p>
+								</div>
+
+								<div class="space-y-2">
+									<Label for="serverchan3-sendkey">SendKey</Label>
+									<Input
+										id="serverchan3-sendkey"
+										type="password"
+										bind:value={serverchan3Sendkey}
+										placeholder={notificationStatus?.configured
+											? '已配置（留空保持不变）'
+											: '请输入Server酱3密钥'}
+									/>
+									<p class="text-muted-foreground text-sm">
+										从 <a
+											href="https://sc3.ft07.com/sendkey"
+											target="_blank"
+											class="text-primary hover:underline">sc3.ft07.com/sendkey</a
 										> 获取您的SendKey
 									</p>
 								</div>
@@ -3638,6 +3694,33 @@
 										<li>将密钥填入上方输入框并保存</li>
 										<li>使用测试按钮验证推送是否正常</li>
 									</ol>
+								</div>
+
+								<!-- Server酱3说明 -->
+								<div>
+									<p class="mb-2 font-medium text-gray-700 dark:text-gray-300">📲 Server酱3配置</p>
+									<ol
+										class="list-inside list-decimal space-y-2 text-sm text-gray-600 dark:text-gray-400"
+									>
+										<li>
+											访问 <a
+												href="https://sc3.ft07.com/"
+												target="_blank"
+												class="text-primary hover:underline">Server酱3官网</a
+											> 注册账号
+										</li>
+										<li>登录后在 <a
+												href="https://sc3.ft07.com/sendkey"
+												target="_blank"
+												class="text-primary hover:underline">SendKey页面</a
+											> 获取您的UID和SendKey
+										</li>
+										<li>将UID和SendKey填入上方输入框并保存</li>
+										<li>使用测试按钮验证推送是否正常</li>
+									</ol>
+									<p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+										⚠️ Server酱3与Server酱使用不同的用户系统，两者不通用
+									</p>
 								</div>
 
 								<!-- 企业微信说明 -->

@@ -194,6 +194,31 @@ impl NotificationClient {
                 }
                 error!("Server酱推送发送失败，已达最大重试次数");
             }
+            "serverchan3" => {
+                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                    warn!("Server酱3渠道已激活但未配置UID或SendKey");
+                    return Ok(());
+                };
+
+                for attempt in 1..=self.config.notification_retry_count {
+                    match self.send_to_serverchan3(uid, sendkey, &title, &content).await {
+                        Ok(_) => {
+                            info!("Server酱3推送发送成功");
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Server酱3推送发送失败 (尝试 {}/{}): {}",
+                                attempt, self.config.notification_retry_count, e
+                            );
+                            if attempt < self.config.notification_retry_count {
+                                tokio::time::sleep(Duration::from_secs(2)).await;
+                            }
+                        }
+                    }
+                }
+                error!("Server酱3推送发送失败，已达最大重试次数");
+            }
             "wecom" => {
                 for attempt in 1..=self.config.notification_retry_count {
                     let wecom_content = self.format_wecom_content(&content);
@@ -241,6 +266,27 @@ impl NotificationClient {
             Ok(())
         } else {
             Err(anyhow!("Server酱返回错误: {}", server_response.message))
+        }
+    }
+
+    /// 发送Server酱3通知
+    async fn send_to_serverchan3(&self, uid: &str, sendkey: &str, title: &str, content: &str) -> Result<()> {
+        let url = format!("https://{}.push.ft07.com/send/{}.send", uid, sendkey);
+        let request = ServerChanRequest {
+            title: title.to_string(),
+            desp: content.to_string(),
+        };
+
+        let response = self.client.post(&url).json(&request).send().await?;
+
+        let response_text = response.text().await?;
+        let server_response: ServerChanResponse = serde_json::from_str(&response_text)
+            .map_err(|e| anyhow!("解析Server酱3响应失败: {}, 响应内容: {}", e, response_text))?;
+
+        if server_response.code == 0 {
+            Ok(())
+        } else {
+            Err(anyhow!("Server酱3返回错误: {}", server_response.message))
         }
     }
 
@@ -493,6 +539,18 @@ impl NotificationClient {
                 info!("Server酱测试推送发送成功");
                 Ok(())
             }
+            "serverchan3" => {
+                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                    return Err(anyhow!("Server酱3渠道已选择但未配置UID或SendKey"));
+                };
+
+                let title = "Bili Sync 测试推送";
+                let content = "这是一条测试推送消息。\n\n如果您收到此消息，说明Server酱3推送配置正确。\n\n🎉 推送功能工作正常！";
+
+                self.send_to_serverchan3(uid, sendkey, title, content).await?;
+                info!("Server酱3测试推送发送成功");
+                Ok(())
+            }
             "wecom" => {
                 let title = "Bili Sync 测试推送";
                 let content = "这是一条企业微信测试推送消息。\n\n如果您收到此消息，说明企业微信推送配置正确。\n\n🎉 推送功能工作正常！";
@@ -523,6 +581,15 @@ impl NotificationClient {
 
                 self.send_to_serverchan(key, title, &content).await?;
                 info!("Server酱自定义测试推送发送成功");
+                Ok(())
+            }
+            "serverchan3" => {
+                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                    return Err(anyhow!("Server酱3渠道已选择但未配置UID或SendKey"));
+                };
+
+                self.send_to_serverchan3(uid, sendkey, title, &content).await?;
+                info!("Server酱3自定义测试推送发送成功");
                 Ok(())
             }
             "wecom" => {
@@ -564,6 +631,21 @@ impl NotificationClient {
                     }
                     Err(e) => {
                         warn!("风控通知推送失败 (Server酱): {}", e);
+                    }
+                }
+            }
+            "serverchan3" => {
+                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                    warn!("Server酱3渠道已激活但未配置UID或SendKey，跳过风控通知");
+                    return Ok(());
+                };
+
+                match self.send_to_serverchan3(uid, sendkey, title, &content).await {
+                    Ok(_) => {
+                        info!("风控通知推送成功 (Server酱3)");
+                    }
+                    Err(e) => {
+                        warn!("风控通知推送失败 (Server酱3): {}", e);
                     }
                 }
             }
@@ -634,6 +716,21 @@ impl NotificationClient {
                     }
                 }
             }
+            "serverchan3" => {
+                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                    warn!("Server酱3渠道已激活但未配置UID或SendKey，跳过单P变多P通知");
+                    return Ok(());
+                };
+
+                match self.send_to_serverchan3(uid, sendkey, title, &content).await {
+                    Ok(_) => {
+                        info!("单P变多P通知推送成功 (Server酱3)");
+                    }
+                    Err(e) => {
+                        warn!("单P变多P通知推送失败 (Server酱3): {}", e);
+                    }
+                }
+            }
             "wecom" => {
                 let wecom_content = self.format_wecom_content(&content);
                 match self.send_to_wecom(title, &wecom_content).await {
@@ -698,6 +795,21 @@ impl NotificationClient {
                     }
                     Err(e) => {
                         warn!("错误通知推送失败 (Server酱): {}", e);
+                    }
+                }
+            }
+            "serverchan3" => {
+                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                    warn!("Server酱3渠道已激活但未配置UID或SendKey，跳过错误通知");
+                    return Ok(());
+                };
+
+                match self.send_to_serverchan3(uid, sendkey, &title, &content).await {
+                    Ok(_) => {
+                        info!("错误通知推送成功 (Server酱3)");
+                    }
+                    Err(e) => {
+                        warn!("错误通知推送失败 (Server酱3): {}", e);
                     }
                 }
             }

@@ -252,11 +252,17 @@ fn default_cdn_sorting() -> bool {
 pub struct NotificationConfig {
     // === 当前激活的通知渠道 ===
     #[serde(default = "default_active_channel")]
-    pub active_channel: String,  // "none", "serverchan", "wecom"
+    pub active_channel: String,  // "none", "serverchan", "serverchan3", "wecom"
 
     // === Server酱配置 ===
     #[serde(default)]
     pub serverchan_key: Option<String>,
+
+    // === Server酱3配置 ===
+    #[serde(default)]
+    pub serverchan3_uid: Option<String>,
+    #[serde(default)]
+    pub serverchan3_sendkey: Option<String>,
 
     // === 企业微信群机器人配置 ===
     #[serde(default)]
@@ -304,6 +310,8 @@ impl Default for NotificationConfig {
         Self {
             active_channel: default_active_channel(),
             serverchan_key: None,
+            serverchan3_uid: None,
+            serverchan3_sendkey: None,
             wecom_webhook_url: None,
             wecom_msgtype: default_wecom_msgtype(),
             wecom_mention_all: false,
@@ -327,7 +335,14 @@ impl NotificationConfig {
         if self.serverchan_key.is_some() && !self.serverchan_key.as_ref().unwrap().is_empty() {
             self.active_channel = "serverchan".to_string();
         }
-        // 其次选择企业微信
+        // 其次选择 Server酱3
+        else if self.serverchan3_uid.is_some() && self.serverchan3_sendkey.is_some()
+            && !self.serverchan3_uid.as_ref().unwrap().is_empty()
+            && !self.serverchan3_sendkey.as_ref().unwrap().is_empty()
+        {
+            self.active_channel = "serverchan3".to_string();
+        }
+        // 最后选择企业微信
         else if self.wecom_webhook_url.is_some() && !self.wecom_webhook_url.as_ref().unwrap().is_empty() {
             self.active_channel = "wecom".to_string();
         }
@@ -336,7 +351,7 @@ impl NotificationConfig {
     #[allow(dead_code)]
     pub fn validate(&self) -> Result<(), String> {
         // 验证 active_channel 的有效性
-        if !["none", "serverchan", "wecom"].contains(&self.active_channel.as_str()) {
+        if !["none", "serverchan", "serverchan3", "wecom"].contains(&self.active_channel.as_str()) {
             return Err(format!("无效的通知渠道: {}", self.active_channel));
         }
 
@@ -351,6 +366,14 @@ impl NotificationConfig {
                 "serverchan" => {
                     if self.serverchan_key.is_none() || self.serverchan_key.as_ref().unwrap().is_empty() {
                         return Err("已选择Server酱但未配置密钥".to_string());
+                    }
+                }
+                "serverchan3" => {
+                    if self.serverchan3_uid.is_none() || self.serverchan3_uid.as_ref().unwrap().is_empty() {
+                        return Err("已选择Server酱3但未配置UID".to_string());
+                    }
+                    if self.serverchan3_sendkey.is_none() || self.serverchan3_sendkey.as_ref().unwrap().is_empty() {
+                        return Err("已选择Server酱3但未配置SendKey".to_string());
                     }
                 }
                 "wecom" => {

@@ -4981,6 +4981,8 @@ pub async fn get_config() -> Result<ApiResponse<crate::api::response::ConfigResp
         notification: crate::api::response::NotificationConfigResponse {
             active_channel: config.notification.active_channel.clone(),
             serverchan_key: config.notification.serverchan_key.clone(),
+            serverchan3_uid: config.notification.serverchan3_uid.clone(),
+            serverchan3_sendkey: config.notification.serverchan3_sendkey.clone(),
             wecom_webhook_url: config.notification.wecom_webhook_url.clone(),
             wecom_msgtype: config.notification.wecom_msgtype.clone(),
             wecom_mention_all: config.notification.wecom_mention_all,
@@ -11368,6 +11370,8 @@ pub async fn get_notification_config() -> Result<ApiResponse<crate::api::respons
     Ok(ApiResponse::ok(crate::api::response::NotificationConfigResponse {
         active_channel: config.active_channel,
         serverchan_key: config.serverchan_key,
+        serverchan3_uid: config.serverchan3_uid,
+        serverchan3_sendkey: config.serverchan3_sendkey,
         wecom_webhook_url: config.wecom_webhook_url,
         wecom_msgtype: config.wecom_msgtype,
         wecom_mention_all: config.wecom_mention_all,
@@ -11415,6 +11419,25 @@ pub async fn update_notification_config(
             notification_config.serverchan_key = None;
         } else {
             notification_config.serverchan_key = Some(key.trim().to_string());
+        }
+        updated = true;
+    }
+
+    // Server酱3配置
+    if let Some(ref uid) = request.serverchan3_uid {
+        if uid.trim().is_empty() {
+            notification_config.serverchan3_uid = None;
+        } else {
+            notification_config.serverchan3_uid = Some(uid.trim().to_string());
+        }
+        updated = true;
+    }
+
+    if let Some(ref sendkey) = request.serverchan3_sendkey {
+        if sendkey.trim().is_empty() {
+            notification_config.serverchan3_sendkey = None;
+        } else {
+            notification_config.serverchan3_sendkey = Some(sendkey.trim().to_string());
         }
         updated = true;
     }

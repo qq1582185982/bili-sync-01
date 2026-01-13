@@ -296,6 +296,8 @@ pub struct StatusUpdate {
 pub struct UpdateNotificationConfigRequest {
     pub active_channel: Option<String>,
     pub serverchan_key: Option<String>,
+    pub serverchan3_uid: Option<String>,
+    pub serverchan3_sendkey: Option<String>,
     pub wecom_webhook_url: Option<String>,
     pub wecom_msgtype: Option<String>,
     pub wecom_mention_all: Option<bool>,

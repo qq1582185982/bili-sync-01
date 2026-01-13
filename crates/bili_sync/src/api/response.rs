@@ -751,6 +751,8 @@ pub struct SysInfo {
 pub struct NotificationConfigResponse {
     pub active_channel: String,
     pub serverchan_key: Option<String>,
+    pub serverchan3_uid: Option<String>,
+    pub serverchan3_sendkey: Option<String>,
     pub wecom_webhook_url: Option<String>,
     pub wecom_msgtype: String,
     pub wecom_mention_all: bool,

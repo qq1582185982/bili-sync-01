@@ -150,10 +150,11 @@ impl ErrorClassifier {
         }
 
         // 检查是否为充电专享视频相关错误（扩展检测，优先级最高）
-        if error_msg.contains("Request too frequently")
-            || error_msg.contains("检测到试看视频，需要充电才能观看完整版")
+        // 注意：只检测明确的充电视频错误消息，不再将"所有质量级别都获取失败"误判为充电视频
+        // 充电视频检测应该在获取视频详情时通过 is_upower_exclusive 字段进行
+        if error_msg.contains("充电专享视频")
+            || error_msg.contains("需要为UP主充电才能观看")
             || error_msg.contains("视频需要充电才能观看")
-            || error_msg.contains("所有质量级别都获取失败")
         {
             return ClassifiedError::new(ErrorType::Permission, "充电专享视频，需要为UP主充电才能观看".to_string())
                 .with_retry_policy(false, true) // 不重试，可忽略
@@ -161,11 +162,10 @@ impl ErrorClassifier {
         }
 
         for cause in err.chain() {
-            // DownloadAbortError（"Request too frequently"）特殊处理
+            // DownloadAbortError 用于风控/请求频率过高，不是充电视频
             if cause.downcast_ref::<DownloadAbortError>().is_some() {
-                return ClassifiedError::new(ErrorType::Permission, "充电专享视频，需要为UP主充电才能观看".to_string())
-                    .with_retry_policy(false, true) // 不重试，可忽略
-                    .with_auto_delete(true); // 需要自动删除
+                return ClassifiedError::new(ErrorType::RiskControl, "请求过于频繁，可能触发风控".to_string())
+                    .with_retry_policy(false, false); // 不重试，不可忽略（需要处理风控）
             }
 
             // HTTP 状态码错误
