@@ -3090,12 +3090,25 @@ pub async fn download_video_pages(
         .collect::<Vec<_>>();
     status.update_status(&main_results);
 
-    // 额外的结果单独处理（季度NFO、季度图片、根目录Emby兼容封面）
+    // 下载联合投稿中其他UP主的头像（在主UP主头像下载之后）
+    let staff_faces_result = if !is_bangumi && should_download_upper {
+        fetch_staff_faces(
+            separate_status[2],
+            &final_video_model,
+            downloader,
+            token.clone(),
+        ).await
+    } else {
+        Ok(ExecutionStatus::Skipped)
+    };
+
+    // 额外的结果单独处理（季度NFO、季度图片、根目录Emby兼容封面、staff头像）
     let extra_results = [
         Ok(season_nfo_result.unwrap_or(ExecutionStatus::Skipped)),
         Ok(season_images_result.unwrap_or(ExecutionStatus::Skipped)),
         res_2, // 番剧/多P/合集根目录 poster.jpg 的结果（Emby兼容）
         res_folder, // 番剧/多P/合集根目录 folder.jpg 的结果（Emby优先识别）
+        staff_faces_result, // staff成员头像下载结果
     ]
     .into_iter()
     .map(Into::into)
@@ -4518,6 +4531,111 @@ pub async fn fetch_upper_face(
         res = downloader.fetch_with_fallback(&urls, &upper_face_path) => res,
     }?;
     Ok(ExecutionStatus::Succeeded)
+}
+
+/// 下载联合投稿中所有staff成员的头像
+pub async fn fetch_staff_faces(
+    should_run: bool,
+    video_model: &video::Model,
+    downloader: &UnifiedDownloader,
+    token: CancellationToken,
+) -> Result<ExecutionStatus> {
+    if !should_run {
+        return Ok(ExecutionStatus::Skipped);
+    }
+
+    // 检查是否有staff信息
+    let staff_info = match &video_model.staff_info {
+        Some(info) => info,
+        None => {
+            debug!("视频 {} 没有staff信息，跳过下载staff头像", video_model.bvid);
+            return Ok(ExecutionStatus::Skipped);
+        }
+    };
+
+    // 解析staff信息
+    let staff_list: Vec<crate::bilibili::StaffInfo> = match serde_json::from_value(staff_info.clone()) {
+        Ok(list) => list,
+        Err(e) => {
+            warn!("解析staff信息失败: {}", e);
+            return Ok(ExecutionStatus::Ignored(anyhow::anyhow!("解析staff信息失败")));
+        }
+    };
+
+    // 如果只有一个成员，不需要下载（主UP主的头像已经通过fetch_upper_face下载了）
+    if staff_list.len() <= 1 {
+        debug!("视频 {} staff列表只有{}个成员，跳过下载staff头像", video_model.bvid, staff_list.len());
+        return Ok(ExecutionStatus::Skipped);
+    }
+
+    debug!("开始下载视频 {} 的{}个staff成员头像", video_model.bvid, staff_list.len());
+
+    // 获取配置
+    let current_config = crate::config::reload_config();
+    let mut success_count = 0;
+    let mut failed_count = 0;
+
+    // 为每个staff成员下载头像
+    for staff in &staff_list {
+        // 跳过主UP主（已经通过fetch_upper_face下载了）
+        if staff.mid == video_model.upper_id {
+            continue;
+        }
+
+        // 检查头像URL是否有效
+        if staff.face.is_empty() || !staff.face.starts_with("http") {
+            debug!("跳过无效的staff头像URL: {} ({})", staff.name, staff.face);
+            continue;
+        }
+
+        // 构建staff成员的头像路径（类似主UP主的路径结构）
+        let staff_name = crate::utils::filenamify::filenamify(&staff.name);
+        let first_char = staff_name.chars().next().unwrap_or('_').to_string();
+        let staff_upper_path = current_config
+            .upper_path
+            .join(&first_char)
+            .join(&staff_name);
+        let staff_face_path = staff_upper_path.join("folder.jpg");
+
+        // 下载头像
+        let urls = vec![staff.face.as_str()];
+        match tokio::select! {
+            biased;
+            _ = token.cancelled() => {
+                debug!("取消下载staff头像: {}", staff.name);
+                Ok(ExecutionStatus::Skipped)
+            },
+            res = downloader.fetch_with_fallback(&urls, &staff_face_path) => {
+                match res {
+                    Ok(_) => {
+                        debug!("成功下载staff头像: {} -> {:?}", staff.name, staff_face_path);
+                        success_count += 1;
+                        Ok(ExecutionStatus::Succeeded)
+                    },
+                    Err(e) => {
+                        warn!("下载staff头像失败: {} - {}", staff.name, e);
+                        failed_count += 1;
+                        Err(e)
+                    }
+                }
+            }
+        } {
+            Ok(_) => {},
+            Err(e) => {
+                // 继续处理其他staff成员，不中断整个流程
+                debug!("下载staff头像时出错（继续处理其他成员）: {}", e);
+            }
+        }
+    }
+
+    if success_count > 0 {
+        info!("成功下载{}个staff成员头像，失败{}个", success_count, failed_count);
+        Ok(ExecutionStatus::Succeeded)
+    } else if failed_count > 0 {
+        Ok(ExecutionStatus::Ignored(anyhow::anyhow!("所有staff头像下载失败")))
+    } else {
+        Ok(ExecutionStatus::Skipped)
+    }
 }
 
 pub async fn generate_upper_nfo(
