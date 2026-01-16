@@ -232,12 +232,11 @@ impl QRLoginService {
 
                 // 如果还是没有 buvid3 或 buvid4，尝试从之前访问主页时获取的cookie中查找
                 if buvid3.is_empty() || buvid4.is_none() {
-                    if buvid3.is_empty() {
-                        tracing::warn!("登录响应中未找到 buvid3");
-                    }
-                    if buvid4.is_none() {
-                        tracing::warn!("登录响应中未找到 buvid4");
-                    }
+                    tracing::debug!(
+                        "登录响应未包含 buvid3/buvid4（buvid3_missing={}, buvid4_missing={}），将尝试从现有配置或 spi 接口获取",
+                        buvid3.is_empty(),
+                        buvid4.is_none()
+                    );
 
                     // 从当前配置中获取（如果有的话）
                     let current_config = crate::config::reload_config();

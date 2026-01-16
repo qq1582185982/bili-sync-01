@@ -8925,9 +8925,13 @@ pub async fn get_current_user() -> Result<ApiResponse<crate::api::response::QRUs
     // 调用B站API获取用户信息
     let request_url = "https://api.bilibili.com/x/web-interface/nav";
     tracing::debug!("发起用户信息请求: {} - User ID: {}", request_url, cred.dedeuserid);
-    tracing::debug!("用户信息Cookie: SESSDATA={}..., bili_jct={}...",
-        &cred.sessdata[..std::cmp::min(cred.sessdata.len(), 20)],
-        &cred.bili_jct[..std::cmp::min(cred.bili_jct.len(), 20)]);
+    tracing::debug!(
+        "用户信息请求将携带凭证（sessdata_len={}, bili_jct_len={}, buvid3_len={}, has_buvid4={}）",
+        cred.sessdata.len(),
+        cred.bili_jct.len(),
+        cred.buvid3.len(),
+        cred.buvid4.is_some()
+    );
 
     let request = client
         .get(request_url)
@@ -9602,10 +9606,12 @@ pub async fn proxy_video_stream(
     debug!("当前认证信息是否存在: {}", credential.is_some());
     if let Some(cred) = credential.as_ref() {
         debug!(
-            "认证信息详情: SESSDATA={}, bili_jct={}, DedeUserID={}",
-            &cred.sessdata[..10],
-            &cred.bili_jct[..10],
-            cred.dedeuserid
+            "认证信息已加载: DedeUserID={}, sessdata_len={}, bili_jct_len={}, buvid3_len={}, has_buvid4={}",
+            cred.dedeuserid,
+            cred.sessdata.len(),
+            cred.bili_jct.len(),
+            cred.buvid3.len(),
+            cred.buvid4.is_some()
         );
     }
 

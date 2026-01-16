@@ -138,10 +138,18 @@ impl Client {
 
             let cookie_str = cookie_parts.join("; ");
 
-            // 调试日志：记录Cookie发送信息
-            tracing::debug!("发送Cookie字段数量: {}", cookie_parts.len());
-            tracing::debug!("是否包含DedeUserID__ckMd5: {}", credential.dedeuserid_ckmd5.is_some());
-            tracing::debug!("Cookie完整内容: {}", cookie_str);
+            // 调试日志：不要输出敏感Cookie内容（SESSDATA/bili_jct等）
+            tracing::debug!(
+                "发送Cookie字段: count={}, has_buvid4={}, has_ckmd5={}, sessdata_len={}, bili_jct_len={}, buvid3_len={}, dedeuserid_len={}, ac_time_value_len={}",
+                cookie_parts.len(),
+                credential.buvid4.is_some(),
+                credential.dedeuserid_ckmd5.is_some(),
+                credential.sessdata.len(),
+                credential.bili_jct.len(),
+                credential.buvid3.len(),
+                credential.dedeuserid.len(),
+                credential.ac_time_value.len(),
+            );
 
             req = req.header(header::COOKIE, cookie_str);
         }
@@ -149,7 +157,7 @@ impl Client {
         // 如果有gaia_vtoken，添加到请求头中
         if let Some(token) = gaia_vtoken {
             req = req.header("x-gaia-vtoken", token);
-            tracing::debug!("添加gaia_vtoken到请求头: {}", token);
+            tracing::debug!("已添加gaia_vtoken到请求头 (len={})", token.len());
         }
 
         req

@@ -385,40 +385,14 @@ pub async fn refresh_video_source<'a>(
         .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc())
         .and_utc();
     let mut max_datetime = latest_row_at;
-    let mut error = Ok(());
-    let mut video_streams = video_streams
-        .take_while(|res| {
-            if token.is_cancelled() {
-                return futures::future::ready(false);
-            }
-            match res {
-                Err(e) => {
-                    error = Err(anyhow!(e.to_string()));
-                    futures::future::ready(false)
-                }
-                Ok(v) => {
-                    // 虽然 video_streams 是从新到旧的，但由于此处是分页请求，极端情况下可能发生访问完第一页时插入了两整页视频的情况
-                    // 此时获取到的第二页视频比第一页的还要新，因此为了确保正确，理应对每一页的第一个视频进行时间比较
-                    // 但在 streams 的抽象下，无法判断具体是在哪里分页的，所以暂且对每个视频都进行比较，应该不会有太大性能损失
-                    let release_datetime = v.release_datetime();
-                    if release_datetime > &max_datetime {
-                        max_datetime = *release_datetime;
-                    }
-                    futures::future::ready(video_source.should_take(release_datetime, latest_row_at_string.as_str()))
-                }
-            }
-        })
-        .filter_map(|res| futures::future::ready(res.ok()))
-        .chunks(10);
-    let mut count = 0;
-    let mut new_videos = Vec::new();
 
-    while let Some(videos_info) = video_streams.next().await {
-        // 在处理每批视频前检查取消状态
-        if token.is_cancelled() || crate::task::TASK_CONTROLLER.is_paused() {
-            warn!("视频源处理过程中检测到取消/暂停信号，停止处理");
-            break;
-        }
+    async fn ingest_batch(
+        video_source: &VideoSourceEnum,
+        connection: &DatabaseConnection,
+        videos_info: Vec<VideoInfo>,
+        count: &mut usize,
+        new_videos: &mut Vec<NewVideoInfo>,
+    ) -> Result<()> {
         // 获取插入前的视频数量
         let before_count = get_video_count_for_source(video_source, connection).await?;
 
@@ -486,7 +460,7 @@ pub async fn refresh_video_source<'a>(
         // 获取插入后的视频数量，计算实际新增数量
         let after_count = get_video_count_for_source(video_source, connection).await?;
         let new_count = after_count - before_count;
-        count += new_count;
+        *count += new_count;
 
         // 如果有新增视频，通过查询数据库来确定哪些是新增的
         if new_count > 0 {
@@ -551,9 +525,58 @@ pub async fn refresh_video_source<'a>(
 
             debug!("实际收集到 {} 个新视频信息用于推送", new_videos.len());
         }
+
+        Ok(())
     }
-    // 如果获取视频分页过程中发生了错误，直接在此处返回，不更新 latest_row_at
-    error?;
+
+    let mut count = 0;
+    let mut new_videos = Vec::new();
+    let mut buffer: Vec<VideoInfo> = Vec::with_capacity(10);
+    let mut video_streams = video_streams;
+
+    while let Some(res) = video_streams.next().await {
+        // 在处理每条视频前检查取消状态
+        if token.is_cancelled() || crate::task::TASK_CONTROLLER.is_paused() {
+            warn!("视频源处理过程中检测到取消/暂停信号，停止处理");
+            break;
+        }
+
+        let video_info = match res {
+            Ok(v) => v,
+            Err(e) => {
+                // 尽量保留已拉取到的内容，避免因为后续分页失败而完全丢弃本轮进度
+                if !buffer.is_empty() {
+                    let videos_info = std::mem::take(&mut buffer);
+                    ingest_batch(video_source, connection, videos_info, &mut count, &mut new_videos).await?;
+                }
+                return Err(e);
+            }
+        };
+
+        // 虽然 video_streams 是从新到旧的，但由于此处是分页请求，极端情况下可能发生访问完第一页时插入了两整页视频的情况
+        // 此时获取到的第二页视频比第一页的还要新，因此为了确保正确，理应对每一页的第一个视频进行时间比较
+        // 但在 streams 的抽象下，无法判断具体是在哪里分页的，所以暂且对每个视频都进行比较，应该不会有太大性能损失
+        let release_datetime = video_info.release_datetime();
+        if release_datetime > &max_datetime {
+            max_datetime = *release_datetime;
+        }
+
+        // 增量截断：遇到旧视频则结束扫描
+        if !video_source.should_take(release_datetime, latest_row_at_string.as_str()) {
+            break;
+        }
+
+        buffer.push(video_info);
+        if buffer.len() >= 10 {
+            let videos_info = std::mem::take(&mut buffer);
+            ingest_batch(video_source, connection, videos_info, &mut count, &mut new_videos).await?;
+        }
+    }
+
+    if !buffer.is_empty() && !(token.is_cancelled() || crate::task::TASK_CONTROLLER.is_paused()) {
+        let videos_info = std::mem::take(&mut buffer);
+        ingest_batch(video_source, connection, videos_info, &mut count, &mut new_videos).await?;
+    }
     if max_datetime != latest_row_at {
         // 转换为北京时间的标准字符串格式
         let beijing_datetime = max_datetime.with_timezone(&crate::utils::time_format::beijing_timezone());

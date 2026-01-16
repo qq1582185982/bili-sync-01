@@ -40,8 +40,22 @@ impl VideoSource for favorite::Model {
         })
     }
 
-    fn should_take(&self, _release_datetime: &chrono::DateTime<Utc>, _latest_row_at_string: &str) -> bool {
-        true
+    fn should_take(&self, release_datetime: &chrono::DateTime<Utc>, latest_row_at_string: &str) -> bool {
+        // 收藏夹接口按收藏时间（fav_time）从新到旧排序，可以做增量截断。
+        // 但当开启“扫描已删除视频”时，需要全量拉取以确保正确性。
+        if self.scan_deleted_videos {
+            return true;
+        }
+
+        // 首次扫描或时间戳缺失：不做截断
+        if latest_row_at_string.is_empty() || latest_row_at_string == "1970-01-01 00:00:00" {
+            return true;
+        }
+
+        let beijing_tz = crate::utils::time_format::beijing_timezone();
+        let release_beijing = release_datetime.with_timezone(&beijing_tz);
+        let release_beijing_str = release_beijing.format("%Y-%m-%d %H:%M:%S").to_string();
+        release_beijing_str.as_str() > latest_row_at_string
     }
 
     fn log_refresh_video_start(&self) {

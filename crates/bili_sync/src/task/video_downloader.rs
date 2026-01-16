@@ -543,36 +543,9 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
                         // mmap自动处理数据持久化，不需要手动同步
                     }
                     Err(e) => {
-                        // 检查是否为风控错误，如果是则停止所有后续扫描
-                        let mut is_risk_control = false;
-
-                        // 检查DownloadAbortError
-                        if e.downcast_ref::<crate::error::DownloadAbortError>().is_some() {
-                            is_risk_control = true;
-                        }
-
-                        // 检查错误链中的BiliError
-                        for cause in e.chain() {
-                            if let Some(bili_err) = cause.downcast_ref::<crate::bilibili::BiliError>() {
-                                match bili_err {
-                                    crate::bilibili::BiliError::RiskControlOccurred => {
-                                        is_risk_control = true;
-                                        break;
-                                    }
-                                    crate::bilibili::BiliError::RequestFailed(code, _) => {
-                                        // -352和-412都是风控错误码
-                                        if *code == -352 || *code == -412 {
-                                            is_risk_control = true;
-                                            break;
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-
-                        if is_risk_control {
-                            error!("检测到风控，停止所有后续视频源的扫描");
+                        let classified_error = crate::error::ErrorClassifier::classify_error(&e);
+                        if classified_error.error_type == crate::error::ErrorType::RiskControl {
+                            error!("检测到风控，停止所有后续视频源的扫描: {}", classified_error.message);
                             info!("触发风控的源(ID: {})未完成处理，下次扫描将重新处理该源", source.id);
                             is_interrupted = true;
                             break; // 跳出循环，停止处理剩余的视频源
