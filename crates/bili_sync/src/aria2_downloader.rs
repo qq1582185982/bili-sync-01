@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use reqwest::Client as ReqwestClient;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -100,6 +101,7 @@ impl Aria2Instance {
 
 pub struct Aria2Downloader {
     client: Client,
+    rpc_client: ReqwestClient,
     aria2_instances: Arc<Mutex<Vec<Aria2Instance>>>,
     aria2_binary_path: PathBuf,
     instance_count: usize,
@@ -108,6 +110,15 @@ pub struct Aria2Downloader {
 }
 
 impl Aria2Downloader {
+    fn build_rpc_client() -> Result<ReqwestClient> {
+        ReqwestClient::builder()
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(2))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .context("failed to build aria2 RPC client")
+    }
+
     /// 创建新的aria2下载器实例，支持多进程
     pub async fn new(client: Client) -> Result<Self> {
         tracing::info!("初始化aria2下载器...");
@@ -126,6 +137,7 @@ impl Aria2Downloader {
 
         let mut downloader = Self {
             client,
+            rpc_client: Self::build_rpc_client()?,
             aria2_instances: Arc::new(Mutex::new(Vec::new())),
             aria2_binary_path,
             instance_count,
@@ -147,8 +159,8 @@ impl Aria2Downloader {
             let instances = Arc::clone(&downloader.aria2_instances);
             let instance_count = downloader.instance_count;
 
-            // 为健康检查任务创建独立的client
-            let health_check_client = crate::bilibili::Client::new();
+            // 为健康检查任务创建独立的RPC client（避免B站Client的read_timeout影响本地RPC）
+            let health_check_client = downloader.rpc_client.clone();
 
             tokio::spawn(async move {
                 // 获取用户配置
@@ -857,7 +869,7 @@ impl Aria2Downloader {
             Duration::from_secs(1), // 增加重试间隔，给RPC更多时间
             Duration::from_secs(8), // 适度增加单次超时
             || async {
-                let response = self.client.post(&url).json(&payload).send().await?;
+                let response = self.rpc_client.post(&url).json(&payload).send().await?;
                 if response.status().is_success() {
                     Ok(())
                 } else {
@@ -1078,13 +1090,13 @@ impl Aria2Downloader {
                 "添加下载任务",
                 3,
                 Duration::from_millis(1000),
-                Duration::from_secs(10),
+                Duration::from_secs(20),
                 || async {
                     tracing::debug!("发送aria2 API请求 - URL: {}", url);
                     tracing::debug!("aria2 API请求载荷: {}", serde_json::to_string_pretty(&payload).unwrap_or_default());
 
                     let response = self
-                        .client
+                        .rpc_client
                         .post(&url)
                         .json(&payload)
                         .send()
@@ -1167,10 +1179,10 @@ impl Aria2Downloader {
                     "状态检查",
                     2, // 减少重试次数，提高响应速度
                     Duration::from_millis(500),
-                    Duration::from_secs(15), // 进一步增加超时时间到15秒，完全避免误报
+                    Duration::from_secs(20), // 进一步增加超时时间，降低在慢系统/卡盘场景下的误报
                     || async {
                         let response = self
-                            .client
+                            .rpc_client
                             .post(&url)
                             .json(&payload)
                             .send()
@@ -1379,7 +1391,7 @@ impl Aria2Downloader {
         for (i, instance) in instances.iter_mut().enumerate() {
             let rpc_port = instance.rpc_port;
             let rpc_secret = instance.rpc_secret.clone();
-            let client = self.client.clone();
+            let rpc_client = self.rpc_client.clone();
 
             // 尝试优雅关闭aria2实例
             let shutdown_future = async move {
@@ -1391,7 +1403,7 @@ impl Aria2Downloader {
                     "params": [format!("token:{}", rpc_secret)]
                 });
 
-                let _ = client.post(&url).json(&payload).send().await;
+                let _ = rpc_client.post(&url).json(&payload).send().await;
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             };
 
@@ -1454,7 +1466,7 @@ impl Aria2Downloader {
 
     /// 智能健康检查调度器：只在合适时机执行健康检查
     pub async fn smart_health_check(
-        client: &crate::bilibili::Client,
+        client: &ReqwestClient,
         instances: &Arc<Mutex<Vec<Aria2Instance>>>,
         instance_count: usize,
     ) -> Result<()> {
@@ -1481,7 +1493,7 @@ impl Aria2Downloader {
 
     /// 健康检查：移除不健康的实例并重新启动（增强版）
     pub async fn health_check(
-        client: &crate::bilibili::Client,
+        client: &ReqwestClient,
         instances: &Arc<Mutex<Vec<Aria2Instance>>>,
         instance_count: usize,
     ) -> Result<()> {
@@ -1556,7 +1568,7 @@ impl Aria2Downloader {
     }
 
     /// 检查实例的RPC健康状态
-    async fn check_instance_rpc_health(client: &crate::bilibili::Client, rpc_port: u16, rpc_secret: &str) -> bool {
+    async fn check_instance_rpc_health(client: &ReqwestClient, rpc_port: u16, rpc_secret: &str) -> bool {
         let client_clone = client.clone();
         let rpc_secret_clone = rpc_secret.to_string();
 
@@ -1622,6 +1634,7 @@ impl Aria2Downloader {
         let client = crate::bilibili::Client::new();
         Ok(Self {
             client,
+            rpc_client: Self::build_rpc_client()?,
             aria2_instances: Arc::new(Mutex::new(Vec::new())),
             aria2_binary_path,
             instance_count: 1,
@@ -1791,7 +1804,7 @@ impl Aria2Downloader {
 
     /// 静态版本的重试方法，用于健康检查
     async fn retry_with_backoff_static<F, Fut, T>(
-        _client: &crate::bilibili::Client,
+        _client: &ReqwestClient,
         operation_name: &str,
         max_retries: u32,
         initial_delay: Duration,
