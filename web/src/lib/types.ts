@@ -239,6 +239,7 @@ export interface ConfigResponse {
 	nfo_time_type: string;
 	parallel_download_enabled: boolean;
 	parallel_download_threads: number;
+	parallel_download_use_aria2: boolean;
 	// 新增视频质量设置
 	video_max_quality?: string;
 	video_min_quality?: string;
@@ -344,6 +345,7 @@ export interface UpdateConfigRequest {
 	nfo_time_type?: string;
 	parallel_download_enabled?: boolean;
 	parallel_download_threads?: number;
+	parallel_download_use_aria2?: boolean;
 	// 新增视频质量设置
 	video_max_quality?: string;
 	video_min_quality?: string;

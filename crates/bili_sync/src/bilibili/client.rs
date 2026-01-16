@@ -162,6 +162,7 @@ impl Client {
     }
 
     /// POST request wrapper
+    #[allow(dead_code)]
     pub fn post(&self, url: &str) -> reqwest::RequestBuilder {
         self.0.post(url)
     }

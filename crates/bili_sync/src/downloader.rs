@@ -3,11 +3,11 @@ use std::path::Path;
 
 use anyhow::{bail, ensure, Context, Result};
 use futures::TryStreamExt;
-use reqwest::Method;
-use tokio::fs::{self, File};
-use tokio::io::AsyncWriteExt;
+use reqwest::{header, Method, StatusCode};
+use tokio::fs::{self, File, OpenOptions};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio_util::io::StreamReader;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::bilibili::Client;
 pub struct Downloader {
@@ -23,6 +23,22 @@ impl Downloader {
     }
 
     pub async fn fetch(&self, url: &str, path: &Path) -> Result<()> {
+        let config = crate::config::reload_config();
+        let parallel = &config.concurrent_limit.parallel_download;
+
+        if parallel.enabled && parallel.threads > 1 {
+            match self.fetch_parallel(url, path, parallel.threads).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    debug!("原生多线程下载不可用，回退到单线程下载: {:#}", e);
+                }
+            }
+        }
+
+        self.fetch_single(url, path).await
+    }
+
+    async fn fetch_single(&self, url: &str, path: &Path) -> Result<()> {
         // 创建父目录
         if let Some(parent) = path.parent() {
             if !parent.exists() {
@@ -73,6 +89,130 @@ impl Downloader {
         );
 
         Ok(())
+    }
+
+    async fn fetch_parallel(&self, url: &str, path: &Path, threads: usize) -> Result<()> {
+        const MIN_PARALLEL_SIZE: u64 = 4 * 1024 * 1024; // 4MB 以下不分片，避免小文件开销
+        const MIN_SEGMENT_SIZE: u64 = 1 * 1024 * 1024; // 每片至少 1MB，避免过多分片
+
+        // 创建父目录
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent).await?;
+            }
+        }
+
+        let (total_size, range_supported) = self.get_size_and_range_support(url).await?;
+        ensure!(total_size > 0, "无法获取文件大小");
+        ensure!(total_size >= MIN_PARALLEL_SIZE, "文件过小({} bytes)，不启用分片下载", total_size);
+        ensure!(range_supported, "服务器不支持Range分片下载");
+
+        // 计算分片数（按最小分片大小限制）
+        let max_segments = ((total_size + MIN_SEGMENT_SIZE - 1) / MIN_SEGMENT_SIZE) as usize;
+        let segment_count = threads.min(max_segments).max(1);
+        ensure!(segment_count > 1, "分片数不足，跳过多线程下载");
+
+        // 预创建并设置目标文件大小，便于随机写入
+        {
+            let file = File::create(path).await?;
+            file.set_len(total_size).await?;
+        }
+
+        let url_owned = url.to_string();
+        let path_owned = path.to_path_buf();
+        let mut tasks = Vec::with_capacity(segment_count);
+
+        let base = total_size / segment_count as u64;
+        let mut start = 0u64;
+        for i in 0..segment_count {
+            let end = if i == segment_count - 1 {
+                total_size - 1
+            } else {
+                start + base - 1
+            };
+
+            let client = self.client.clone();
+            let url = url_owned.clone();
+            let path = path_owned.clone();
+            let part_start = start;
+            let part_end = end;
+
+            tasks.push(async move { download_range_to_file(client, &url, &path, part_start, part_end).await });
+
+            start = end + 1;
+        }
+
+        let results = futures::future::try_join_all(tasks).await?;
+        let downloaded: u64 = results.into_iter().sum();
+        ensure!(downloaded == total_size, "分片下载大小不一致: {} != {}", downloaded, total_size);
+
+        Ok(())
+    }
+
+    async fn get_size_and_range_support(&self, url: &str) -> Result<(u64, bool)> {
+        let mut total_size = None;
+        let mut range_supported = false;
+
+        let head_resp = self
+            .client
+            .request(Method::HEAD, url, None)
+            .header(header::ACCEPT_ENCODING, "identity")
+            .send()
+            .await;
+
+        if let Ok(resp) = head_resp {
+            if let Ok(resp) = resp.error_for_status() {
+                total_size = resp.content_length();
+
+                let accept_ranges = resp
+                    .headers()
+                    .get(header::ACCEPT_RANGES)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+                range_supported = accept_ranges.to_ascii_lowercase().contains("bytes");
+            }
+        }
+
+        if !range_supported || total_size.is_none() {
+            let (probe_supported, probe_size) = self.probe_range_support_and_size(url).await?;
+            range_supported = range_supported || probe_supported;
+            if total_size.is_none() {
+                total_size = probe_size;
+            }
+        }
+
+        Ok((total_size.unwrap_or(0), range_supported))
+    }
+
+    fn parse_total_size_from_content_range(value: &str) -> Option<u64> {
+        // 常见格式: bytes 0-0/12345
+        let (_, total) = value.rsplit_once('/')?;
+        total.parse::<u64>().ok()
+    }
+
+    async fn probe_range_support_and_size(&self, url: &str) -> Result<(bool, Option<u64>)> {
+        let resp = self
+            .client
+            .request(Method::GET, url, None)
+            .header(header::RANGE, "bytes=0-0")
+            .header(header::ACCEPT_ENCODING, "identity")
+            .send()
+            .await
+            .context("Range探测请求失败")?;
+
+        let status = resp.status();
+        if status == StatusCode::PARTIAL_CONTENT {
+            let total_size = resp
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(Self::parse_total_size_from_content_range);
+            // 只会有 1 byte，读取后立刻释放连接
+            let _ = resp.bytes().await;
+            Ok((true, total_size))
+        } else {
+            Ok((false, None))
+        }
     }
 
     pub async fn fetch_with_fallback(&self, urls: &[&str], path: &Path) -> Result<()> {
@@ -218,4 +358,41 @@ impl Downloader {
 
         Ok(())
     }
+}
+
+async fn download_range_to_file(client: Client, url: &str, path: &Path, start: u64, end: u64) -> Result<u64> {
+    let expected = end.saturating_sub(start) + 1;
+
+    let mut file = OpenOptions::new().write(true).open(path).await?;
+    file.seek(std::io::SeekFrom::Start(start)).await?;
+
+    let range_value = format!("bytes={}-{}", start, end);
+    let resp = client
+        .request(Method::GET, url, None)
+        .header(header::RANGE, range_value)
+        .header(header::ACCEPT_ENCODING, "identity")
+        .send()
+        .await
+        .context("Range下载请求失败")?;
+
+    ensure!(
+        resp.status() == StatusCode::PARTIAL_CONTENT,
+        "Range响应异常: {}",
+        resp.status()
+    );
+
+    let resp = resp.error_for_status().context("Range状态码错误")?;
+
+    let mut stream_reader = StreamReader::new(resp.bytes_stream().map_err(std::io::Error::other));
+    let received = tokio::io::copy(&mut stream_reader, &mut file).await?;
+    file.flush().await?;
+
+    ensure!(
+        received == expected,
+        "Range分片下载不完整: received {} bytes, expected {} bytes",
+        received,
+        expected
+    );
+
+    Ok(received)
 }

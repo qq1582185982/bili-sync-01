@@ -144,6 +144,9 @@ pub struct ParallelDownloadConfig {
     /// 每个文件的下载线程数
     #[serde(default = "default_parallel_download_threads")]
     pub threads: usize,
+    /// 是否优先使用 aria2（关闭后将使用原生多线程分片下载）
+    #[serde(default = "default_parallel_download_use_aria2")]
+    pub use_aria2: bool,
 }
 
 fn default_parallel_download_enabled() -> bool {
@@ -154,11 +157,16 @@ fn default_parallel_download_threads() -> usize {
     4
 }
 
+fn default_parallel_download_use_aria2() -> bool {
+    false
+}
+
 impl Default for ParallelDownloadConfig {
     fn default() -> Self {
         Self {
             enabled: default_parallel_download_enabled(),
             threads: default_parallel_download_threads(),
+            use_aria2: default_parallel_download_use_aria2(),
         }
     }
 }

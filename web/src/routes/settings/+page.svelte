@@ -144,6 +144,7 @@
 	let bindAddress = '0.0.0.0:12345';
 	let parallelDownloadEnabled = false;
 	let parallelDownloadThreads = 4;
+	let parallelDownloadUseAria2 = false;
 
 	// 视频质量设置
 	let videoMaxQuality = 'Quality8k';
@@ -477,6 +478,7 @@
 			bindAddress = config.bind_address || '0.0.0.0:12345';
 			parallelDownloadEnabled = config.parallel_download_enabled || false;
 			parallelDownloadThreads = config.parallel_download_threads || 4;
+			parallelDownloadUseAria2 = config.parallel_download_use_aria2 ?? false;
 
 			// 视频质量设置
 			videoMaxQuality = config.video_max_quality || 'Quality8k';
@@ -734,6 +736,7 @@
 				bind_address: bindAddress,
 				parallel_download_enabled: parallelDownloadEnabled,
 				parallel_download_threads: parallelDownloadThreads,
+				parallel_download_use_aria2: parallelDownloadUseAria2,
 				// 视频质量设置
 				video_max_quality: videoMaxQuality,
 				video_min_quality: videoMinQuality,
@@ -1930,7 +1933,7 @@
 							</div>
 
 							{#if parallelDownloadEnabled}
-								<div class="ml-6 space-y-2">
+								<div class="ml-6 space-y-4">
 									<Label for="threads">下载线程数</Label>
 									<Input
 										id="threads"
@@ -1940,6 +1943,21 @@
 										max="16"
 										placeholder="4"
 									/>
+
+									<div class="flex items-center space-x-2">
+										<input
+											type="checkbox"
+											id="use-aria2"
+											bind:checked={parallelDownloadUseAria2}
+											class="text-primary focus:ring-primary h-4 w-4 rounded border-gray-300"
+										/>
+										<Label for="use-aria2" class="text-sm leading-none font-medium">
+											优先使用aria2
+										</Label>
+									</div>
+									<p class="text-muted-foreground text-xs">
+										关闭后将使用原生分片多线程下载（不依赖aria2 RPC）。
+									</p>
 								</div>
 							{/if}
 						</div>

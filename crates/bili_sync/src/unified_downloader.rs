@@ -30,10 +30,17 @@ impl UnifiedDownloader {
     pub async fn new_smart(client: Client) -> Self {
         // 获取最新配置
         let config = crate::config::reload_config();
+        let parallel = &config.concurrent_limit.parallel_download;
 
         // 检查是否启用了多线程下载
-        if !config.concurrent_limit.parallel_download.enabled {
+        if !parallel.enabled {
             info!("多线程下载已禁用，使用原生下载器");
+            return Self::Native(Downloader::new(client));
+        }
+
+        // 如果用户关闭了 aria2，则直接使用原生多线程分片下载
+        if !parallel.use_aria2 {
+            info!("已关闭aria2，使用原生多线程下载");
             return Self::Native(Downloader::new(client));
         }
 
@@ -71,8 +78,8 @@ impl UnifiedDownloader {
     pub async fn smart_fetch(&self, url: &str, path: &Path) -> Result<()> {
         match self {
             Self::Native(downloader) => {
-                // 原生下载器现在只使用单线程下载
-                info!("原生下载器使用单线程下载");
+                // 原生下载器会根据配置决定是否启用分片多线程下载
+                info!("原生下载器开始下载");
                 downloader.fetch(url, path).await
             }
             Self::Aria2(downloader) => {

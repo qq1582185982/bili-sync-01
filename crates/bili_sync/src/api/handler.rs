@@ -4905,6 +4905,7 @@ pub async fn get_config() -> Result<ApiResponse<crate::api::response::ConfigResp
         nfo_time_type: nfo_time_type.to_string(),
         parallel_download_enabled: config.concurrent_limit.parallel_download.enabled,
         parallel_download_threads: config.concurrent_limit.parallel_download.threads,
+        parallel_download_use_aria2: config.concurrent_limit.parallel_download.use_aria2,
         // 视频质量设置
         video_max_quality: format!("{:?}", config.filter_option.video_max_quality),
         video_min_quality: format!("{:?}", config.filter_option.video_min_quality),
@@ -5055,6 +5056,7 @@ pub async fn update_config(
             nfo_time_type: params.nfo_time_type.clone(),
             parallel_download_enabled: params.parallel_download_enabled,
             parallel_download_threads: params.parallel_download_threads,
+            parallel_download_use_aria2: params.parallel_download_use_aria2,
             // 视频质量设置
             video_max_quality: params.video_max_quality.clone(),
             video_min_quality: params.video_min_quality.clone(),
@@ -5256,6 +5258,13 @@ pub async fn update_config_internal(
         if threads > 0 && threads != config.concurrent_limit.parallel_download.threads {
             config.concurrent_limit.parallel_download.threads = threads;
             updated_fields.push("parallel_download_threads");
+        }
+    }
+
+    if let Some(use_aria2) = params.parallel_download_use_aria2 {
+        if use_aria2 != config.concurrent_limit.parallel_download.use_aria2 {
+            config.concurrent_limit.parallel_download.use_aria2 = use_aria2;
+            updated_fields.push("parallel_download_use_aria2");
         }
     }
 
@@ -6038,6 +6047,7 @@ pub async fn update_config_internal(
                 | "rate_duration"
                 | "parallel_download_enabled"
                 | "parallel_download_threads"
+                | "parallel_download_use_aria2"
                 | "concurrent_video"
                 | "concurrent_page" => {
                     manager
