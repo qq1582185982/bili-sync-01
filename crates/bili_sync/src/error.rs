@@ -311,8 +311,8 @@ impl ErrorClassifier {
                 };
 
                 let should_ignore = match *code {
-                    -404 => true,             // 404错误忽略，仅显示警告
-                    _ => false,               // 其他错误不忽略
+                    -404 => true, // 404错误忽略，仅显示警告
+                    _ => false,   // 其他错误不忽略
                 };
 
                 let message = format!("B站API错误: {}", msg);

@@ -15,7 +15,8 @@ use crate::bilibili::{Credential, DanmakuOption, FilterOption};
 pub use crate::config::bundle::ConfigBundle;
 pub use crate::config::clap::version;
 pub use crate::config::global::{
-    get_config_manager, init_config_with_database, reload_config, reload_config_bundle, with_config, ARGS, CONFIG_BUNDLE, CONFIG_DIR,
+    get_config_manager, init_config_with_database, reload_config, reload_config_bundle, with_config, ARGS,
+    CONFIG_BUNDLE, CONFIG_DIR,
 };
 use crate::config::item::ConcurrentLimit;
 pub use crate::config::item::{
@@ -252,7 +253,7 @@ fn default_cdn_sorting() -> bool {
 pub struct NotificationConfig {
     // === 当前激活的通知渠道 ===
     #[serde(default = "default_active_channel")]
-    pub active_channel: String,  // "none", "serverchan", "serverchan3", "wecom"
+    pub active_channel: String, // "none", "serverchan", "serverchan3", "wecom"
 
     // === Server酱配置 ===
     #[serde(default)]
@@ -336,7 +337,8 @@ impl NotificationConfig {
             self.active_channel = "serverchan".to_string();
         }
         // 其次选择 Server酱3
-        else if self.serverchan3_uid.is_some() && self.serverchan3_sendkey.is_some()
+        else if self.serverchan3_uid.is_some()
+            && self.serverchan3_sendkey.is_some()
             && !self.serverchan3_uid.as_ref().unwrap().is_empty()
             && !self.serverchan3_sendkey.as_ref().unwrap().is_empty()
         {

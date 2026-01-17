@@ -146,7 +146,7 @@ pub fn bangumi_page_format_args(
         if let Some(series_title) = api_title {
             let (_, extracted_season_number) =
                 crate::utils::bangumi_name_extractor::BangumiNameExtractor::extract_series_name_and_season(
-                    series_title,  // 使用番剧系列标题，如"名侦探柯南"
+                    series_title, // 使用番剧系列标题，如"名侦探柯南"
                     None,
                 );
             extracted_season_number

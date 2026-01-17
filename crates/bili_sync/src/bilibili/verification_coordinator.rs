@@ -224,7 +224,9 @@ impl VerificationCoordinator {
         let solver = CaptchaSolver::new(auto_solve_config.clone());
 
         // 解决验证码
-        let result = solver.solve_geetest(&geetest_info, &captcha_info.token, page_url).await?;
+        let result = solver
+            .solve_geetest(&geetest_info, &captcha_info.token, page_url)
+            .await?;
 
         tracing::info!("验证码自动解决成功");
         Ok(result)

@@ -65,7 +65,7 @@ pub struct SeasonInfo {
     pub total_views: Option<i64>,              // 总播放量
     pub total_favorites: Option<i64>,          // 总收藏数
     #[allow(dead_code)]
-    pub total_seasons: Option<i32>,            // 总季数（从API的seasons数组计算）
+    pub total_seasons: Option<i32>, // 总季数（从API的seasons数组计算）
     pub show_season_type: Option<i32>,         // 番剧季度类型
 }
 
@@ -167,9 +167,15 @@ pub async fn process_video_source(
         return Ok((new_video_count, new_videos));
     }
     if new_video_count == 0 {
-        let has_unfilled = !filter_unfilled_videos(video_source.filter_expr(), connection).await?.is_empty();
-        let has_unhandled = !filter_unhandled_video_pages(video_source.filter_expr(), connection).await?.is_empty();
-        let has_failed = !get_failed_videos_in_current_cycle(video_source.filter_expr(), connection).await?.is_empty();
+        let has_unfilled = !filter_unfilled_videos(video_source.filter_expr(), connection)
+            .await?
+            .is_empty();
+        let has_unhandled = !filter_unhandled_video_pages(video_source.filter_expr(), connection)
+            .await?
+            .is_empty();
+        let has_failed = !get_failed_videos_in_current_cycle(video_source.filter_expr(), connection)
+            .await?
+            .is_empty();
         if !(has_unfilled || has_unhandled || has_failed) {
             info!("本轮未发现新视频，且无待处理任务，跳过详情与下载阶段");
             return Ok((new_video_count, new_videos));
@@ -850,7 +856,9 @@ pub async fn fetch_video_details(
                                         "API请求失败",
                                         &format!("获取视频详细信息失败"),
                                         Some(&format!("视频: {}\nBVID: {}\n错误: {}", video_name, bvid, error_msg)),
-                                    ).await {
+                                    )
+                                    .await
+                                    {
                                         tracing::warn!("发送API错误通知失败: {}", notify_err);
                                     }
                                 });
@@ -946,9 +954,7 @@ pub async fn fetch_video_details(
                                     if let Some(source_submission_id) = video_model.source_submission_id {
                                         debug!("submission来源视频，source_submission_id: {}", source_submission_id);
                                         if let Ok(Some(submission)) =
-                                            submission::Entity::find_by_id(source_submission_id)
-                                                .one(&txn)
-                                                .await
+                                            submission::Entity::find_by_id(source_submission_id).one(&txn).await
                                         {
                                             debug!(
                                                 "找到来源submission: {} ({})",
@@ -1134,8 +1140,10 @@ pub async fn download_unprocessed_videos(
                 let season_key = format!("season_{}", season_id);
                 let should_download = !assigned_bangumi_seasons.contains(&season_key);
                 assigned_bangumi_seasons.insert(season_key);
-                debug!("番剧视频「{}」season_id={}, should_download_upper={}",
-                       video_model.name, season_id, should_download);
+                debug!(
+                    "番剧视频「{}」season_id={}, should_download_upper={}",
+                    video_model.name, season_id, should_download
+                );
                 should_download
             } else {
                 // 普通视频：基于upper_id判断
@@ -1187,7 +1195,9 @@ pub async fn download_unprocessed_videos(
                             "数据库错误",
                             &error_msg,
                             Some(&format!("视频: {}\nBVID: {}", video_name, video_bvid)),
-                        ).await {
+                        )
+                        .await
+                        {
                             tracing::warn!("发送数据库错误通知失败: {}", e);
                         }
                     });
@@ -1362,12 +1372,7 @@ async fn check_and_fix_naming_consistency(
                     );
                 }
                 Err(e) => {
-                    warn!(
-                        "[{}] 一致性修复失败 {}: {}",
-                        source_key,
-                        file_path.display(),
-                        e
-                    );
+                    warn!("[{}] 一致性修复失败 {}: {}", source_key, file_path.display(), e);
                 }
             }
         }
@@ -1383,10 +1388,7 @@ async fn check_and_fix_naming_consistency(
 /// 文件夹路径冲突问题（例如两个视频在同一子文件夹中，第一个重命名后第二个找不到文件）
 ///
 /// 使用批量 API 调用（每次 10 个文件），减少 API 请求次数
-pub async fn batch_ai_rename_for_source(
-    video_source: &VideoSourceEnum,
-    connection: &DatabaseConnection,
-) -> Result<()> {
+pub async fn batch_ai_rename_for_source(video_source: &VideoSourceEnum, connection: &DatabaseConnection) -> Result<()> {
     use crate::utils::ai_rename::{self, AiRenameContext, FileToRename};
 
     let cfg = crate::config::reload_config();
@@ -1449,7 +1451,10 @@ pub async fn batch_ai_rename_for_source(
         // 检查多P视频开关（使用视频源自己的配置）
         let is_multi_page = video_model.single_page.unwrap_or(true) == false;
         if is_multi_page && !video_source.ai_rename_enable_multi_page() {
-            debug!("[{}] 跳过多P视频: {} (多P视频AI重命名已禁用)", source_key, video_model.name);
+            debug!(
+                "[{}] 跳过多P视频: {} (多P视频AI重命名已禁用)",
+                source_key, video_model.name
+            );
             skipped_count += pages.len();
             continue;
         }
@@ -1681,7 +1686,10 @@ async fn apply_ai_rename(
 
     // 重新检查文件是否存在（可能在批量处理期间被移动）
     if !page_path.exists() {
-        debug!("[{}] 跳过(文件已不存在): {} -> {:?}", source_key, file.current_stem, page_path);
+        debug!(
+            "[{}] 跳过(文件已不存在): {} -> {:?}",
+            source_key, file.current_stem, page_path
+        );
         return Ok(false);
     }
 
@@ -1703,7 +1711,10 @@ async fn apply_ai_rename(
     if new_path.exists() && new_path != page_path {
         final_stem = format!("{}-{}", new_stem, file.bvid);
         new_path = page_path.with_file_name(format!("{}.{}", final_stem, file.ext));
-        info!("[{}] AI 重命名检测到文件冲突，追加BV号: {} -> {}", source_key, new_stem, final_stem);
+        info!(
+            "[{}] AI 重命名检测到文件冲突，追加BV号: {} -> {}",
+            source_key, new_stem, final_stem
+        );
     }
 
     // 执行文件重命名
@@ -1741,9 +1752,8 @@ async fn apply_ai_rename(
                 if target_dir != old_dir {
                     match std::fs::rename(old_dir, &target_dir) {
                         Ok(_) => {
-                            let moved_path = target_dir.join(
-                                new_path.file_name().expect("new_path should have file name"),
-                            );
+                            let moved_path =
+                                target_dir.join(new_path.file_name().expect("new_path should have file name"));
                             info!(
                                 "[{}] AI 重命名子文件夹成功: {} -> {}",
                                 source_key,
@@ -1753,7 +1763,9 @@ async fn apply_ai_rename(
 
                             // 更新当前 video.path
                             let new_video_path = target_dir.to_string_lossy().to_string();
-                            if let Ok(Some(current_video)) = video::Entity::find_by_id(file.video_id).one(connection).await {
+                            if let Ok(Some(current_video)) =
+                                video::Entity::find_by_id(file.video_id).one(connection).await
+                            {
                                 let mut active_video: video::ActiveModel = current_video.into();
                                 active_video.path = Set(new_video_path.clone());
                                 if let Err(e) = active_video.update(connection).await {
@@ -1769,8 +1781,9 @@ async fn apply_ai_rename(
                                 .filter(video_source.filter_expr())
                                 .filter(video::Column::Id.ne(file.video_id))
                                 .filter(
-                                    video::Column::Path.eq(&old_dir_str)
-                                        .or(video::Column::Path.eq(&old_dir_str_alt))
+                                    video::Column::Path
+                                        .eq(&old_dir_str)
+                                        .or(video::Column::Path.eq(&old_dir_str_alt)),
                                 )
                                 .all(connection)
                                 .await
@@ -1789,7 +1802,9 @@ async fn apply_ai_rename(
                                     {
                                         for other_page in other_pages {
                                             if let Some(page_path_str) = other_page.path.clone() {
-                                                if page_path_str.starts_with(&old_dir_str) || page_path_str.starts_with(&old_dir_str_alt) {
+                                                if page_path_str.starts_with(&old_dir_str)
+                                                    || page_path_str.starts_with(&old_dir_str_alt)
+                                                {
                                                     let new_page_path = if page_path_str.starts_with(&old_dir_str) {
                                                         page_path_str.replacen(&old_dir_str, &new_video_path, 1)
                                                     } else {
@@ -1798,9 +1813,15 @@ async fn apply_ai_rename(
                                                     let mut active_page: page::ActiveModel = other_page.into();
                                                     active_page.path = Set(Some(new_page_path.clone()));
                                                     if let Err(e) = active_page.update(connection).await {
-                                                        warn!("[{}] 更新同文件夹其他视频 page.path 失败: {}", source_key, e);
+                                                        warn!(
+                                                            "[{}] 更新同文件夹其他视频 page.path 失败: {}",
+                                                            source_key, e
+                                                        );
                                                     } else {
-                                                        info!("[{}] 同步更新同文件夹页面路径: {} -> {}", source_key, page_path_str, new_page_path);
+                                                        info!(
+                                                            "[{}] 同步更新同文件夹页面路径: {} -> {}",
+                                                            source_key, page_path_str, new_page_path
+                                                        );
                                                     }
                                                 }
                                             }
@@ -1842,7 +1863,9 @@ async fn apply_ai_rename(
 
     info!(
         "[{}] AI 重命名成功: {} -> {}",
-        source_key, file.current_stem, final_path.display()
+        source_key,
+        file.current_stem,
+        final_path.display()
     );
 
     Ok(true)
@@ -1883,8 +1906,10 @@ pub async fn retry_failed_videos_once(
                 let season_key = format!("season_{}", season_id);
                 let should_download = !assigned_bangumi_seasons.contains(&season_key);
                 assigned_bangumi_seasons.insert(season_key);
-                debug!("重试番剧视频「{}」season_id={}, should_download_upper={}",
-                       video_model.name, season_id, should_download);
+                debug!(
+                    "重试番剧视频「{}」season_id={}, should_download_upper={}",
+                    video_model.name, season_id, should_download
+                );
                 should_download
             } else {
                 // 普通视频：基于upper_id判断
@@ -1937,8 +1962,13 @@ pub async fn retry_failed_videos_once(
                         if let Err(e) = send_error_notification(
                             "数据库错误",
                             &error_msg,
-                            Some(&format!("视频: {}\nBVID: {}\n（重试后更新失败）", video_name, video_bvid)),
-                        ).await {
+                            Some(&format!(
+                                "视频: {}\nBVID: {}\n（重试后更新失败）",
+                                video_name, video_bvid
+                            )),
+                        )
+                        .await
+                        {
                             tracing::warn!("发送数据库错误通知失败: {}", e);
                         }
                     });
@@ -2387,10 +2417,7 @@ pub async fn download_video_pages(
     // 使用UP主昵称作为文件夹名，并使用首字进行分类
     let upper_name = crate::utils::filenamify::filenamify(&final_video_model.upper_name);
     let first_char = upper_name.chars().next().context("upper_name is empty")?.to_string();
-    let base_upper_path = &current_config
-        .upper_path
-        .join(&first_char)
-        .join(&upper_name);
+    let base_upper_path = &current_config.upper_path.join(&first_char).join(&upper_name);
     let is_single_page = final_video_model.single_page.context("single_page is null")?;
 
     // 为多P视频生成基于视频名称的文件名
@@ -2760,7 +2787,10 @@ pub async fn download_video_pages(
             // 依赖数据库状态决定是否下载季度级图片（不检查文件存在性，以支持重置状态后重新下载）
             let should_download_season_images = separate_status[0];
 
-            info!("准备下载季度级图片到: {:?}, {:?}, {:?}, {:?} 和 {:?}", poster_path, fanart_path, season_poster_path, folder_path, generic_poster_path);
+            info!(
+                "准备下载季度级图片到: {:?}, {:?}, {:?}, {:?} 和 {:?}",
+                poster_path, fanart_path, season_poster_path, folder_path, generic_poster_path
+            );
 
             // 季度级图片：thumb使用横版封面，fanart使用竖版封面
             let season_info_ref = season_info.as_ref().unwrap();
@@ -2775,10 +2805,7 @@ pub async fn download_video_pages(
                     .filter(|s| !s.is_empty()))
                 .or(season_info_ref.bkg_cover.as_deref().filter(|s| !s.is_empty()))
                 .or(season_info_ref.cover.as_deref().filter(|s| !s.is_empty()))
-                .or(season_info_ref
-                    .new_ep_cover
-                    .as_deref()
-                    .filter(|s| !s.is_empty()));
+                .or(season_info_ref.new_ep_cover.as_deref().filter(|s| !s.is_empty()));
             // fanart使用竖版封面
             let season_fanart_url = season_info_ref.cover.as_deref().filter(|s| !s.is_empty());
 
@@ -2793,11 +2820,11 @@ pub async fn download_video_pages(
                     should_download_season_images,
                     &video_model,
                     downloader,
-                    poster_path.clone(), // 这里实际是thumb路径
+                    poster_path.clone(),                   // 这里实际是thumb路径
                     std::path::PathBuf::from("/dev/null"), // 占位，因为我们只下载一个文件
                     token.clone(),
-                    season_thumb_url,  // 使用横版封面作为thumb
-                    None, // 不使用fanart URL
+                    season_thumb_url, // 使用横版封面作为thumb
+                    None,             // 不使用fanart URL
                 ),
                 // Season01-fanart.jpg (竖版封面)
                 fetch_video_poster(
@@ -2808,7 +2835,7 @@ pub async fn download_video_pages(
                     std::path::PathBuf::from("/dev/null"), // 占位，因为我们只下载一个文件
                     token.clone(),
                     season_fanart_url, // 使用竖版封面作为fanart
-                    None, // 不使用fanart URL
+                    None,              // 不使用fanart URL
                 ),
                 // Season01-poster.jpg (竖版封面)
                 fetch_bangumi_poster(
@@ -2840,18 +2867,32 @@ pub async fn download_video_pages(
             );
 
             // 返回综合结果
-            Some(match (thumb_result, fanart_result, poster_result, folder_result, generic_poster_result) {
-                // 只要都是Ok且至少有一个Succeeded，就算成功
-                (Ok(ExecutionStatus::Succeeded), _, _, _, _)
-                | (_, Ok(ExecutionStatus::Succeeded), _, _, _)
-                | (_, _, Ok(ExecutionStatus::Succeeded), _, _)
-                | (_, _, _, Ok(ExecutionStatus::Succeeded), _)
-                | (_, _, _, _, Ok(ExecutionStatus::Succeeded)) => ExecutionStatus::Succeeded,
-                // 都是Ok但都是Skipped
-                (Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped), Ok(ExecutionStatus::Skipped)) => ExecutionStatus::Skipped,
-                // 有任何错误才报Failed
-                _ => ExecutionStatus::Failed(anyhow::anyhow!("Season级别图片下载失败")),
-            })
+            Some(
+                match (
+                    thumb_result,
+                    fanart_result,
+                    poster_result,
+                    folder_result,
+                    generic_poster_result,
+                ) {
+                    // 只要都是Ok且至少有一个Succeeded，就算成功
+                    (Ok(ExecutionStatus::Succeeded), _, _, _, _)
+                    | (_, Ok(ExecutionStatus::Succeeded), _, _, _)
+                    | (_, _, Ok(ExecutionStatus::Succeeded), _, _)
+                    | (_, _, _, Ok(ExecutionStatus::Succeeded), _)
+                    | (_, _, _, _, Ok(ExecutionStatus::Succeeded)) => ExecutionStatus::Succeeded,
+                    // 都是Ok但都是Skipped
+                    (
+                        Ok(ExecutionStatus::Skipped),
+                        Ok(ExecutionStatus::Skipped),
+                        Ok(ExecutionStatus::Skipped),
+                        Ok(ExecutionStatus::Skipped),
+                        Ok(ExecutionStatus::Skipped),
+                    ) => ExecutionStatus::Skipped,
+                    // 有任何错误才报Failed
+                    _ => ExecutionStatus::Failed(anyhow::anyhow!("Season级别图片下载失败")),
+                },
+            )
         } else {
             Some(ExecutionStatus::Skipped)
         }
@@ -3115,12 +3156,7 @@ pub async fn download_video_pages(
 
     // 下载联合投稿中其他UP主的头像（在主UP主头像下载之后）
     let staff_faces_result = if !is_bangumi && should_download_upper {
-        fetch_staff_faces(
-            separate_status[2],
-            &final_video_model,
-            downloader,
-            token.clone(),
-        ).await
+        fetch_staff_faces(separate_status[2], &final_video_model, downloader, token.clone()).await
     } else {
         Ok(ExecutionStatus::Skipped)
     };
@@ -3129,8 +3165,8 @@ pub async fn download_video_pages(
     let extra_results = [
         Ok(season_nfo_result.unwrap_or(ExecutionStatus::Skipped)),
         Ok(season_images_result.unwrap_or(ExecutionStatus::Skipped)),
-        res_2, // 番剧/多P/合集根目录 poster.jpg 的结果（Emby兼容）
-        res_folder, // 番剧/多P/合集根目录 folder.jpg 的结果（Emby优先识别）
+        res_2,              // 番剧/多P/合集根目录 poster.jpg 的结果（Emby兼容）
+        res_folder,         // 番剧/多P/合集根目录 folder.jpg 的结果（Emby优先识别）
         staff_faces_result, // staff成员头像下载结果
     ]
     .into_iter()
@@ -3502,7 +3538,9 @@ pub async fn dispatch_download_page(args: DownloadPageArgs<'_>, token: Cancellat
                 "下载失败",
                 &format!("视频「{}」分页下载失败，状态码: {}", video_name, target_status),
                 Some(&format!("BVID: {}\n{}", bvid, details_clone)),
-            ).await {
+            )
+            .await
+            {
                 tracing::warn!("发送下载失败通知失败: {}", e);
             }
         });
@@ -3957,12 +3995,7 @@ pub async fn fetch_page_poster(
 /// 下载单个流文件并返回文件大小（使用UnifiedDownloader智能选择下载方式）
 ///
 /// 同时会把本次下载的 bytes 与耗时写入内存「入库事件」统计，用于首页展示平均下载速度。
-async fn download_stream(
-    downloader: &UnifiedDownloader,
-    video_id: i32,
-    urls: &[&str],
-    path: &Path,
-) -> Result<u64> {
+async fn download_stream(downloader: &UnifiedDownloader, video_id: i32, urls: &[&str], path: &Path) -> Result<u64> {
     // 直接使用UnifiedDownloader，它会智能选择aria2或原生下载器
     // aria2本身就支持多线程，原生下载器作为备选方案使用单线程
     let start = std::time::Instant::now();
@@ -4166,12 +4199,18 @@ pub async fn fetch_page_video(
                 let urls = mix_stream.urls();
                 download_stream(downloader, video_model.id, &urls, page_path).await?
             }
-            BestStream::VideoAudio { audio: Some(audio_stream), .. } => {
+            BestStream::VideoAudio {
+                audio: Some(audio_stream),
+                ..
+            } => {
                 // 直接下载音频流
                 let audio_urls = audio_stream.urls();
                 download_stream(downloader, video_model.id, &audio_urls, page_path).await?
             }
-            BestStream::VideoAudio { audio: None, video: video_stream } => {
+            BestStream::VideoAudio {
+                audio: None,
+                video: video_stream,
+            } => {
                 // 没有独立音频流，警告并使用视频流（可能包含音频）
                 warn!("未找到独立音频流，将下载视频流");
                 let urls = video_stream.urls();
@@ -4423,7 +4462,9 @@ pub async fn generate_page_nfo(
                     // 对于合集视频，如果数据库中尚未带有 episode_number，按合集顺序编号
                     if video_model.collection_id.is_some() && video_model.episode_number.is_none() {
                         if let Some(col_id) = video_model.collection_id {
-                            if let Ok(ep_no) = get_collection_video_episode_number(_connection, col_id, &video_model.bvid).await {
+                            if let Ok(ep_no) =
+                                get_collection_video_episode_number(_connection, col_id, &video_model.bvid).await
+                            {
                                 episode.episode_number = ep_no;
                             }
                         }
@@ -4447,7 +4488,9 @@ pub async fn generate_page_nfo(
             if video_model.category != 1 {
                 if let Some(col_id) = video_model.collection_id {
                     if video_model.episode_number.is_none() {
-                        if let Ok(ep_no) = get_collection_video_episode_number(_connection, col_id, &video_model.bvid).await {
+                        if let Ok(ep_no) =
+                            get_collection_video_episode_number(_connection, col_id, &video_model.bvid).await
+                        {
                             episode.episode_number = ep_no;
                         }
                     }
@@ -4587,11 +4630,19 @@ pub async fn fetch_staff_faces(
 
     // 如果只有一个成员，不需要下载（主UP主的头像已经通过fetch_upper_face下载了）
     if staff_list.len() <= 1 {
-        debug!("视频 {} staff列表只有{}个成员，跳过下载staff头像", video_model.bvid, staff_list.len());
+        debug!(
+            "视频 {} staff列表只有{}个成员，跳过下载staff头像",
+            video_model.bvid,
+            staff_list.len()
+        );
         return Ok(ExecutionStatus::Skipped);
     }
 
-    debug!("开始下载视频 {} 的{}个staff成员头像", video_model.bvid, staff_list.len());
+    debug!(
+        "开始下载视频 {} 的{}个staff成员头像",
+        video_model.bvid,
+        staff_list.len()
+    );
 
     // 获取配置
     let current_config = crate::config::reload_config();
@@ -4614,10 +4665,7 @@ pub async fn fetch_staff_faces(
         // 构建staff成员的头像路径（类似主UP主的路径结构）
         let staff_name = crate::utils::filenamify::filenamify(&staff.name);
         let first_char = staff_name.chars().next().unwrap_or('_').to_string();
-        let staff_upper_path = current_config
-            .upper_path
-            .join(&first_char)
-            .join(&staff_name);
+        let staff_upper_path = current_config.upper_path.join(&first_char).join(&staff_name);
         let staff_face_path = staff_upper_path.join("folder.jpg");
 
         // 下载头像
@@ -4643,7 +4691,7 @@ pub async fn fetch_staff_faces(
                 }
             }
         } {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 // 继续处理其他staff成员，不中断整个流程
                 debug!("下载staff头像时出错（继续处理其他成员）: {}", e);
@@ -4870,10 +4918,7 @@ async fn get_season_title_from_api(
                             } else {
                                 let error_msg = json["message"].as_str().unwrap_or("未知错误");
                                 // API返回错误码通常不是临时性问题，记录一次警告后直接返回
-                                warn!(
-                                    "获取季度信息失败，API返回错误: {} (season_id={})",
-                                    error_msg, season_id
-                                );
+                                warn!("获取季度信息失败，API返回错误: {} (season_id={})", error_msg, season_id);
                                 return None;
                             }
                         }
@@ -4895,7 +4940,12 @@ async fn get_season_title_from_api(
             }
             Err(e) => {
                 // 重试过程中的网络错误使用 debug
-                debug!("发送季度信息请求失败: {} (尝试次数: {}/{})", e, retry_count + 1, max_retries + 1);
+                debug!(
+                    "发送季度信息请求失败: {} (尝试次数: {}/{})",
+                    e,
+                    retry_count + 1,
+                    max_retries + 1
+                );
             }
         }
 
@@ -5687,7 +5737,11 @@ async fn get_collection_video_episode_number(
 
     // 获取正确的视频顺序
     let order_map = collection.get_video_order_map().await?;
-    debug!("从API获取合集 {} 的视频顺序，共 {} 个视频", collection_id, order_map.len());
+    debug!(
+        "从API获取合集 {} 的视频顺序，共 {} 个视频",
+        collection_id,
+        order_map.len()
+    );
 
     // 3. 更新数据库中所有视频的episode_number
     for (video_bvid, episode_num) in &order_map {

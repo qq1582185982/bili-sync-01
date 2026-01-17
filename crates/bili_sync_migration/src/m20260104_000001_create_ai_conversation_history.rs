@@ -19,26 +19,10 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(AiConversationHistory::SourceKey)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(AiConversationHistory::Role)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(AiConversationHistory::Content)
-                            .text()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(AiConversationHistory::OrderIndex)
-                            .integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(AiConversationHistory::SourceKey).string().not_null())
+                    .col(ColumnDef::new(AiConversationHistory::Role).string().not_null())
+                    .col(ColumnDef::new(AiConversationHistory::Content).text().not_null())
+                    .col(ColumnDef::new(AiConversationHistory::OrderIndex).integer().not_null())
                     .col(
                         ColumnDef::new(AiConversationHistory::CreatedAt)
                             .timestamp()

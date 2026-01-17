@@ -11,7 +11,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Collection::Table)
-                    .add_column(ColumnDef::new(Collection::AudioOnlyM4aOnly).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(Collection::AudioOnlyM4aOnly)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -21,7 +26,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Collection::Table)
-                    .add_column(ColumnDef::new(Collection::FlatFolder).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(Collection::FlatFolder)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -31,7 +41,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Favorite::Table)
-                    .add_column(ColumnDef::new(Favorite::AudioOnlyM4aOnly).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(Favorite::AudioOnlyM4aOnly)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -51,7 +66,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Submission::Table)
-                    .add_column(ColumnDef::new(Submission::AudioOnlyM4aOnly).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(Submission::AudioOnlyM4aOnly)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -61,7 +81,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Submission::Table)
-                    .add_column(ColumnDef::new(Submission::FlatFolder).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(Submission::FlatFolder)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -71,7 +96,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(WatchLater::Table)
-                    .add_column(ColumnDef::new(WatchLater::AudioOnlyM4aOnly).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(WatchLater::AudioOnlyM4aOnly)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -81,7 +111,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(WatchLater::Table)
-                    .add_column(ColumnDef::new(WatchLater::FlatFolder).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(WatchLater::FlatFolder)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -91,7 +126,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(VideoSource::Table)
-                    .add_column(ColumnDef::new(VideoSource::AudioOnlyM4aOnly).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(VideoSource::AudioOnlyM4aOnly)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -101,7 +141,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(VideoSource::Table)
-                    .add_column(ColumnDef::new(VideoSource::FlatFolder).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(VideoSource::FlatFolder)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -112,42 +157,92 @@ impl MigrationTrait for Migration {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // Collection
         manager
-            .alter_table(Table::alter().table(Collection::Table).drop_column(Collection::AudioOnlyM4aOnly).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(Collection::Table)
+                    .drop_column(Collection::AudioOnlyM4aOnly)
+                    .to_owned(),
+            )
             .await?;
         manager
-            .alter_table(Table::alter().table(Collection::Table).drop_column(Collection::FlatFolder).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(Collection::Table)
+                    .drop_column(Collection::FlatFolder)
+                    .to_owned(),
+            )
             .await?;
 
         // Favorite
         manager
-            .alter_table(Table::alter().table(Favorite::Table).drop_column(Favorite::AudioOnlyM4aOnly).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(Favorite::Table)
+                    .drop_column(Favorite::AudioOnlyM4aOnly)
+                    .to_owned(),
+            )
             .await?;
         manager
-            .alter_table(Table::alter().table(Favorite::Table).drop_column(Favorite::FlatFolder).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(Favorite::Table)
+                    .drop_column(Favorite::FlatFolder)
+                    .to_owned(),
+            )
             .await?;
 
         // Submission
         manager
-            .alter_table(Table::alter().table(Submission::Table).drop_column(Submission::AudioOnlyM4aOnly).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(Submission::Table)
+                    .drop_column(Submission::AudioOnlyM4aOnly)
+                    .to_owned(),
+            )
             .await?;
         manager
-            .alter_table(Table::alter().table(Submission::Table).drop_column(Submission::FlatFolder).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(Submission::Table)
+                    .drop_column(Submission::FlatFolder)
+                    .to_owned(),
+            )
             .await?;
 
         // WatchLater
         manager
-            .alter_table(Table::alter().table(WatchLater::Table).drop_column(WatchLater::AudioOnlyM4aOnly).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(WatchLater::Table)
+                    .drop_column(WatchLater::AudioOnlyM4aOnly)
+                    .to_owned(),
+            )
             .await?;
         manager
-            .alter_table(Table::alter().table(WatchLater::Table).drop_column(WatchLater::FlatFolder).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(WatchLater::Table)
+                    .drop_column(WatchLater::FlatFolder)
+                    .to_owned(),
+            )
             .await?;
 
         // VideoSource
         manager
-            .alter_table(Table::alter().table(VideoSource::Table).drop_column(VideoSource::AudioOnlyM4aOnly).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(VideoSource::Table)
+                    .drop_column(VideoSource::AudioOnlyM4aOnly)
+                    .to_owned(),
+            )
             .await?;
         manager
-            .alter_table(Table::alter().table(VideoSource::Table).drop_column(VideoSource::FlatFolder).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(VideoSource::Table)
+                    .drop_column(VideoSource::FlatFolder)
+                    .to_owned(),
+            )
             .await?;
 
         Ok(())

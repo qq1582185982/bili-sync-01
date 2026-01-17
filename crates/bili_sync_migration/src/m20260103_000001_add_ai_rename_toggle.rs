@@ -49,7 +49,12 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(VideoSource::Table)
-                    .add_column(ColumnDef::new(VideoSource::AiRename).boolean().not_null().default(false))
+                    .add_column(
+                        ColumnDef::new(VideoSource::AiRename)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;

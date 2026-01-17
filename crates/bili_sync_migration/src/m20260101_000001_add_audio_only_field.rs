@@ -28,12 +28,7 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Favorite::Table)
-                    .add_column(
-                        ColumnDef::new(Favorite::AudioOnly)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
+                    .add_column(ColumnDef::new(Favorite::AudioOnly).boolean().not_null().default(false))
                     .to_owned(),
             )
             .await?;

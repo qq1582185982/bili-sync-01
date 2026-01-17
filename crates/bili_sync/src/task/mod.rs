@@ -305,7 +305,9 @@ impl DeleteTaskQueue {
                             "删除任务失败",
                             &error_msg,
                             Some(&format!("类型: {}\nID: {}", source_type, source_id)),
-                        ).await {
+                        )
+                        .await
+                        {
                             tracing::warn!("发送删除任务失败通知失败: {}", notify_err);
                         }
                     });
@@ -537,7 +539,9 @@ impl VideoDeleteTaskQueue {
                                 "视频删除失败",
                                 &error_msg,
                                 Some(&format!("视频ID: {}", video_id)),
-                            ).await {
+                            )
+                            .await
+                            {
                                 tracing::warn!("发送视频删除失败通知失败: {}", notify_err);
                             }
                         });
@@ -1017,22 +1021,22 @@ impl AddTaskQueue {
                 ep_id: task.ep_id.clone(),
                 download_all_seasons: task.download_all_seasons,
                 selected_seasons: task.selected_seasons.clone(),
-                selected_videos: None, // 任务队列中暂时不支持选择性视频
-                cover: None,           // 任务队列中暂时不支持封面，等前端传递
-                merge_to_source_id: None, // 任务队列中暂时不支持合并功能
-                keyword_filters: None, // 任务队列中暂时不支持关键词过滤器
-                keyword_filter_mode: None, // 任务队列中暂时不支持过滤模式
-                audio_only: None,      // 任务队列中使用默认值
-                download_danmaku: None, // 任务队列中使用默认值
-                download_subtitle: None, // 任务队列中使用默认值
-                ai_rename: None,       // 任务队列中使用默认值
-                ai_rename_video_prompt: None, // 任务队列中使用默认值
-                ai_rename_audio_prompt: None, // 任务队列中使用默认值
+                selected_videos: None,             // 任务队列中暂时不支持选择性视频
+                cover: None,                       // 任务队列中暂时不支持封面，等前端传递
+                merge_to_source_id: None,          // 任务队列中暂时不支持合并功能
+                keyword_filters: None,             // 任务队列中暂时不支持关键词过滤器
+                keyword_filter_mode: None,         // 任务队列中暂时不支持过滤模式
+                audio_only: None,                  // 任务队列中使用默认值
+                download_danmaku: None,            // 任务队列中使用默认值
+                download_subtitle: None,           // 任务队列中使用默认值
+                ai_rename: None,                   // 任务队列中使用默认值
+                ai_rename_video_prompt: None,      // 任务队列中使用默认值
+                ai_rename_audio_prompt: None,      // 任务队列中使用默认值
                 ai_rename_enable_multi_page: None, // 任务队列中使用默认值
                 ai_rename_enable_collection: None, // 任务队列中使用默认值
-                ai_rename_enable_bangumi: None, // 任务队列中使用默认值
-                audio_only_m4a_only: None, // 任务队列中使用默认值
-                flat_folder: None,     // 任务队列中使用默认值
+                ai_rename_enable_bangumi: None,    // 任务队列中使用默认值
+                audio_only_m4a_only: None,         // 任务队列中使用默认值
+                flat_folder: None,                 // 任务队列中使用默认值
             };
 
             match add_video_source_internal(db.clone(), request).await {

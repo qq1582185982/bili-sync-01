@@ -40,7 +40,12 @@ impl CaptchaSolver {
     }
 
     /// 解决极验验证码
-    pub async fn solve_geetest(&self, geetest_info: &GeetestInfo, captcha_token: &str, page_url: &str) -> Result<CaptchaResult> {
+    pub async fn solve_geetest(
+        &self,
+        geetest_info: &GeetestInfo,
+        captcha_token: &str,
+        page_url: &str,
+    ) -> Result<CaptchaResult> {
         let service = CaptchaService::from(self.config.service.as_str());
 
         let mut last_error = None;
@@ -77,7 +82,12 @@ impl CaptchaSolver {
     }
 
     /// 使用2Captcha服务
-    async fn solve_with_2captcha(&self, geetest_info: &GeetestInfo, captcha_token: &str, page_url: &str) -> Result<CaptchaResult> {
+    async fn solve_with_2captcha(
+        &self,
+        geetest_info: &GeetestInfo,
+        captcha_token: &str,
+        page_url: &str,
+    ) -> Result<CaptchaResult> {
         tracing::info!("使用2Captcha服务解决GeeTest验证码");
 
         // 1. 提交验证码任务
@@ -171,7 +181,10 @@ impl CaptchaSolver {
                     let parts: Vec<&str> = request_str.split(':').collect();
                     tracing::debug!("解析后的parts: {:?}, 长度: {}", parts, parts.len());
                     if parts.len() != 3 {
-                        anyhow::bail!("验证结果格式错误，期望 challenge:validate:seccode，实际: {}", request_str);
+                        anyhow::bail!(
+                            "验证结果格式错误，期望 challenge:validate:seccode，实际: {}",
+                            request_str
+                        );
                     }
 
                     CaptchaResult {
@@ -184,8 +197,13 @@ impl CaptchaSolver {
                     anyhow::bail!("无法解析验证结果，request字段既不是对象也不是字符串");
                 };
 
-                tracing::info!("构造CaptchaResult: challenge={}, validate={}, seccode={}, token={}",
-                    result.challenge, result.validate, result.seccode, result.token);
+                tracing::info!(
+                    "构造CaptchaResult: challenge={}, validate={}, seccode={}, token={}",
+                    result.challenge,
+                    result.validate,
+                    result.seccode,
+                    result.token
+                );
 
                 return Ok(result);
             } else if result_response["request"].as_str() == Some("CAPCHA_NOT_READY") {
@@ -203,7 +221,12 @@ impl CaptchaSolver {
     }
 
     /// 使用AntiCaptcha服务
-    async fn solve_with_anticaptcha(&self, geetest_info: &GeetestInfo, captcha_token: &str, page_url: &str) -> Result<CaptchaResult> {
+    async fn solve_with_anticaptcha(
+        &self,
+        geetest_info: &GeetestInfo,
+        captcha_token: &str,
+        page_url: &str,
+    ) -> Result<CaptchaResult> {
         tracing::info!("使用AntiCaptcha服务解决GeeTest验证码");
 
         // 1. 创建任务
@@ -283,7 +306,6 @@ impl CaptchaSolver {
             }
         }
     }
-
 }
 
 #[cfg(test)]

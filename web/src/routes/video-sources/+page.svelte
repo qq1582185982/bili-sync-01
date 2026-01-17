@@ -796,9 +796,7 @@
 													class="h-8 w-8 p-0"
 												>
 													<MusicIcon
-														class="h-4 w-4 {source.audio_only
-															? 'text-amber-600'
-															: 'text-gray-400'}"
+														class="h-4 w-4 {source.audio_only ? 'text-amber-600' : 'text-gray-400'}"
 													/>
 												</Button>
 
@@ -854,7 +852,9 @@
 															source.id,
 															source.download_danmaku ?? true
 														)}
-													title={source.download_danmaku !== false ? '禁用弹幕下载' : '启用弹幕下载'}
+													title={source.download_danmaku !== false
+														? '禁用弹幕下载'
+														: '启用弹幕下载'}
 													class="h-8 w-8 p-0"
 												>
 													<MessageSquareTextIcon
@@ -874,7 +874,9 @@
 															source.id,
 															source.download_subtitle ?? true
 														)}
-													title={source.download_subtitle !== false ? '禁用字幕下载' : '启用字幕下载'}
+													title={source.download_subtitle !== false
+														? '禁用字幕下载'
+														: '启用字幕下载'}
 													class="h-8 w-8 p-0"
 												>
 													<SubtitlesIcon
@@ -904,9 +906,7 @@
 													class="h-8 w-8 p-0"
 												>
 													<SparklesIcon
-														class="h-4 w-4 {source.ai_rename
-															? 'text-blue-600'
-															: 'text-gray-400'}"
+														class="h-4 w-4 {source.ai_rename ? 'text-blue-600' : 'text-gray-400'}"
 													/>
 												</Button>
 
@@ -929,9 +929,7 @@
 													class="h-8 w-8 p-0"
 												>
 													<HistoryIcon
-														class="h-4 w-4 {source.ai_rename
-															? 'text-cyan-600'
-															: 'text-gray-400'}"
+														class="h-4 w-4 {source.ai_rename ? 'text-cyan-600' : 'text-gray-400'}"
 													/>
 												</Button>
 

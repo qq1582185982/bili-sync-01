@@ -197,27 +197,27 @@ pub struct VideoSource {
     pub selected_seasons: Option<Vec<String>>,
     // 新的双列表模式关键词过滤
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub blacklist_keywords: Option<Vec<String>>,  // 黑名单关键词列表
+    pub blacklist_keywords: Option<Vec<String>>, // 黑名单关键词列表
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub whitelist_keywords: Option<Vec<String>>,  // 白名单关键词列表
-    pub case_sensitive: bool,  // 是否区分大小写
+    pub whitelist_keywords: Option<Vec<String>>, // 白名单关键词列表
+    pub case_sensitive: bool, // 是否区分大小写
     // 向后兼容的旧字段
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub keyword_filters: Option<Vec<String>>,  // 【已废弃】关键词过滤器列表
+    pub keyword_filters: Option<Vec<String>>, // 【已废弃】关键词过滤器列表
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub keyword_filter_mode: Option<String>,   // 【已废弃】关键词过滤模式
+    pub keyword_filter_mode: Option<String>, // 【已废弃】关键词过滤模式
     // 音频和下载选项
-    pub audio_only: bool,           // 是否仅下载音频（输出m4a）
-    pub audio_only_m4a_only: bool,  // 仅音频时只保留m4a（不下载封面/nfo/弹幕/字幕）
-    pub flat_folder: bool,          // 是否启用平铺目录模式
-    pub download_danmaku: bool,     // 是否下载弹幕文件
-    pub download_subtitle: bool,    // 是否下载字幕文件
-    pub ai_rename: bool,            // 是否启用AI重命名
-    pub ai_rename_video_prompt: String, // AI重命名视频提示词
-    pub ai_rename_audio_prompt: String, // AI重命名音频提示词
-    pub ai_rename_enable_multi_page: bool,  // 对多P视频启用AI重命名
-    pub ai_rename_enable_collection: bool,  // 对合集视频启用AI重命名
-    pub ai_rename_enable_bangumi: bool,     // 对番剧启用AI重命名
+    pub audio_only: bool,                  // 是否仅下载音频（输出m4a）
+    pub audio_only_m4a_only: bool,         // 仅音频时只保留m4a（不下载封面/nfo/弹幕/字幕）
+    pub flat_folder: bool,                 // 是否启用平铺目录模式
+    pub download_danmaku: bool,            // 是否下载弹幕文件
+    pub download_subtitle: bool,           // 是否下载字幕文件
+    pub ai_rename: bool,                   // 是否启用AI重命名
+    pub ai_rename_video_prompt: String,    // AI重命名视频提示词
+    pub ai_rename_audio_prompt: String,    // AI重命名音频提示词
+    pub ai_rename_enable_multi_page: bool, // 对多P视频启用AI重命名
+    pub ai_rename_enable_collection: bool, // 对合集视频启用AI重命名
+    pub ai_rename_enable_bangumi: bool,    // 对番剧启用AI重命名
 }
 
 #[derive(Serialize, ToSchema)]
@@ -269,7 +269,16 @@ pub struct VideoInfo {
 
 impl From<(i32, String, String, String, String, i32, u32, String)> for VideoInfo {
     fn from(
-        (id, bvid, name, upper_name, path, category, download_status, cover): (i32, String, String, String, String, i32, u32, String),
+        (id, bvid, name, upper_name, path, category, download_status, cover): (
+            i32,
+            String,
+            String,
+            String,
+            String,
+            i32,
+            u32,
+            String,
+        ),
     ) -> Self {
         Self {
             id,
@@ -569,7 +578,7 @@ pub struct UserFollowing {
     pub face: String,
     pub sign: String,
     pub official_verify: Option<OfficialVerify>,
-    pub follower: Option<i64>,  // 粉丝数
+    pub follower: Option<i64>, // 粉丝数
 }
 
 #[derive(Serialize, ToSchema)]
@@ -827,8 +836,8 @@ pub struct UpdateKeywordFiltersResponse {
     pub success: bool,
     pub source_id: i32,
     pub source_type: String,
-    pub blacklist_count: usize,   // 黑名单关键词数量
-    pub whitelist_count: usize,   // 白名单关键词数量
+    pub blacklist_count: usize, // 黑名单关键词数量
+    pub whitelist_count: usize, // 白名单关键词数量
     pub message: String,
 }
 
@@ -838,11 +847,11 @@ pub struct GetKeywordFiltersResponse {
     pub success: bool,
     pub source_id: i32,
     pub source_type: String,
-    pub blacklist_keywords: Vec<String>,  // 黑名单关键词列表
-    pub whitelist_keywords: Vec<String>,  // 白名单关键词列表
-    pub case_sensitive: bool,             // 是否区分大小写
+    pub blacklist_keywords: Vec<String>, // 黑名单关键词列表
+    pub whitelist_keywords: Vec<String>, // 白名单关键词列表
+    pub case_sensitive: bool,            // 是否区分大小写
     // 向后兼容的旧字段
-    pub keyword_filters: Vec<String>,     // 【已废弃】关键词过滤器列表
+    pub keyword_filters: Vec<String>,        // 【已废弃】关键词过滤器列表
     pub keyword_filter_mode: Option<String>, // 【已废弃】关键词过滤模式
 }
 

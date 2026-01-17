@@ -453,7 +453,8 @@ impl PageAnalyzer {
                             );
                             let quality = AudioQuality::from_repr(quality as usize)
                                 .context(format!("invalid dolby audio stream quality: {}", quality))?;
-                            if quality >= filter_option.audio_min_quality && quality <= filter_option.audio_max_quality {
+                            if quality >= filter_option.audio_min_quality && quality <= filter_option.audio_max_quality
+                            {
                                 streams.push(Stream::DashAudio {
                                     url: url.to_string(),
                                     backup_url: serde_json::from_value(dolby_audio["backup_url"].take())

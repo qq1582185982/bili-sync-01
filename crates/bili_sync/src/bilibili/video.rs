@@ -104,11 +104,19 @@ impl<'a> Video<'a> {
 
         let res = match response {
             Ok(resp) => {
-                tracing::debug!("视频存在性检查请求成功 - 状态码: {}, BVID: {}", resp.status(), self.bvid);
+                tracing::debug!(
+                    "视频存在性检查请求成功 - 状态码: {}, BVID: {}",
+                    resp.status(),
+                    self.bvid
+                );
                 resp
             }
             Err(e) => {
-                tracing::warn!("视频存在性检查网络错误，假设视频存在 - BVID: {}, 错误: {}", self.bvid, e);
+                tracing::warn!(
+                    "视频存在性检查网络错误，假设视频存在 - BVID: {}, 错误: {}",
+                    self.bvid,
+                    e
+                );
                 return Ok(true);
             }
         };
@@ -119,7 +127,11 @@ impl<'a> Video<'a> {
                 json
             }
             Err(e) => {
-                tracing::warn!("视频存在性检查JSON解析错误，假设视频存在 - BVID: {}, 错误: {}", self.bvid, e);
+                tracing::warn!(
+                    "视频存在性检查JSON解析错误，假设视频存在 - BVID: {}, 错误: {}",
+                    self.bvid,
+                    e
+                );
                 return Ok(true);
             }
         };
@@ -673,16 +685,16 @@ impl<'a> Video<'a> {
             ("cid", cid_string.as_str()),
             ("qn", qn), // 使用指定的质量参数
             ("otype", "json"),
-            ("fnval", "4048"), // 恢复原始fnval值
-            ("fourk", "1"),    // 启用4K支持
-            ("voice_balance", "1"), // 音频平衡
-            ("gaia_source", "pre-load"), // Gaia预加载
-            ("isGaiaAvoided", "true"), // Gaia避免策略
-            ("web_location", "1315873"), // 网页位置标识
-            ("dm_img_str", dm_img_str.as_str()), // WebGL信息
+            ("fnval", "4048"),                               // 恢复原始fnval值
+            ("fourk", "1"),                                  // 启用4K支持
+            ("voice_balance", "1"),                          // 音频平衡
+            ("gaia_source", "pre-load"),                     // Gaia预加载
+            ("isGaiaAvoided", "true"),                       // Gaia避免策略
+            ("web_location", "1315873"),                     // 网页位置标识
+            ("dm_img_str", dm_img_str.as_str()),             // WebGL信息
             ("dm_cover_img_str", dm_cover_img_str.as_str()), // GPU信息
-            ("dm_img_list", dm_img_list.as_str()), // 弹幕交互数据
-            ("dm_img_inter", dm_img_inter.as_str()), // 弹幕交互统计
+            ("dm_img_list", dm_img_list.as_str()),           // 弹幕交互数据
+            ("dm_img_inter", dm_img_inter.as_str()),         // 弹幕交互统计
         ];
 
         let encoded_params = encoded_query(params.clone(), MIXIN_KEY.load().as_deref());
@@ -690,7 +702,12 @@ impl<'a> Video<'a> {
         tracing::debug!("编码后参数: {:?}", encoded_params);
 
         let request_url = "https://api.bilibili.com/x/player/wbi/playurl";
-        tracing::debug!("发起playurl请求: {} - BVID: {}, CID: {}", request_url, self.bvid, page.cid);
+        tracing::debug!(
+            "发起playurl请求: {} - BVID: {}, CID: {}",
+            request_url,
+            self.bvid,
+            page.cid
+        );
 
         let request = self
             .client
@@ -712,12 +729,12 @@ impl<'a> Video<'a> {
             }
         }
 
-        let res = response?
-            .error_for_status()?
-            .json::<serde_json::Value>()
-            .await?;
+        let res = response?.error_for_status()?.json::<serde_json::Value>().await?;
 
-        tracing::debug!("playurl响应数据大小: {} bytes", serde_json::to_string(&res).unwrap_or_default().len());
+        tracing::debug!(
+            "playurl响应数据大小: {} bytes",
+            serde_json::to_string(&res).unwrap_or_default().len()
+        );
 
         // 添加详细的API响应日志
         tracing::debug!(
@@ -793,9 +810,7 @@ impl<'a> Video<'a> {
 
         // 如果只有durl格式，记录日志但不报错（durl是有效的视频格式）
         if has_durl && !has_dash_video {
-            tracing::debug!(
-                "视频使用durl格式（非dash格式），这是正常的视频格式，不是试看视频"
-            );
+            tracing::debug!("视频使用durl格式（非dash格式），这是正常的视频格式，不是试看视频");
         }
 
         // 只有当dash和durl都没有时才报错
@@ -840,16 +855,16 @@ impl<'a> Video<'a> {
             ("cid", cid_string.as_str()),
             ("qn", "127"), // 恢复原始qn=127请求8K质量
             ("otype", "json"),
-            ("fnval", "4048"), // 恢复原始fnval值
-            ("fourk", "1"),    // 启用4K支持
-            ("voice_balance", "1"), // 音频平衡
-            ("gaia_source", "pre-load"), // Gaia预加载
-            ("isGaiaAvoided", "true"), // Gaia避免策略
-            ("web_location", "1315873"), // 网页位置标识
-            ("dm_img_str", dm_img_str.as_str()), // WebGL信息
+            ("fnval", "4048"),                               // 恢复原始fnval值
+            ("fourk", "1"),                                  // 启用4K支持
+            ("voice_balance", "1"),                          // 音频平衡
+            ("gaia_source", "pre-load"),                     // Gaia预加载
+            ("isGaiaAvoided", "true"),                       // Gaia避免策略
+            ("web_location", "1315873"),                     // 网页位置标识
+            ("dm_img_str", dm_img_str.as_str()),             // WebGL信息
             ("dm_cover_img_str", dm_cover_img_str.as_str()), // GPU信息
-            ("dm_img_list", dm_img_list.as_str()), // 弹幕交互数据
-            ("dm_img_inter", dm_img_inter.as_str()), // 弹幕交互统计
+            ("dm_img_list", dm_img_list.as_str()),           // 弹幕交互数据
+            ("dm_img_inter", dm_img_inter.as_str()),         // 弹幕交互统计
         ];
 
         tracing::debug!("=== API参数调试 ===");
@@ -860,7 +875,12 @@ impl<'a> Video<'a> {
         tracing::debug!("编码后参数: {:?}", encoded_params);
 
         let request_url = "https://api.bilibili.com/x/player/wbi/playurl";
-        tracing::debug!("发起playurl请求(分页): {} - BVID: {}, CID: {}", request_url, self.bvid, page.cid);
+        tracing::debug!(
+            "发起playurl请求(分页): {} - BVID: {}, CID: {}",
+            request_url,
+            self.bvid,
+            page.cid
+        );
 
         let request = self
             .client
@@ -878,16 +898,21 @@ impl<'a> Video<'a> {
                 tracing::debug!("响应头: {:?}", resp.headers());
             }
             Err(e) => {
-                tracing::error!("playurl请求失败(分页) - BVID: {}, CID: {}, 错误: {}", self.bvid, page.cid, e);
+                tracing::error!(
+                    "playurl请求失败(分页) - BVID: {}, CID: {}, 错误: {}",
+                    self.bvid,
+                    page.cid,
+                    e
+                );
             }
         }
 
-        let res = response?
-            .error_for_status()?
-            .json::<serde_json::Value>()
-            .await?;
+        let res = response?.error_for_status()?.json::<serde_json::Value>().await?;
 
-        tracing::debug!("playurl响应数据大小(分页): {} bytes", serde_json::to_string(&res).unwrap_or_default().len());
+        tracing::debug!(
+            "playurl响应数据大小(分页): {} bytes",
+            serde_json::to_string(&res).unwrap_or_default().len()
+        );
 
         // 增强的API响应调试信息
         tracing::debug!("=== API响应调试 ===");
@@ -1092,22 +1117,28 @@ impl<'a> Video<'a> {
             ("cid", cid_string.as_str()),
             ("qn", qn), // 使用指定的质量参数
             ("otype", "json"),
-            ("fnval", "4048"), // 恢复原始fnval值
-            ("fourk", "1"),    // 启用4K支持
-            ("voice_balance", "1"), // 音频平衡
-            ("gaia_source", "pre-load"), // Gaia预加载
-            ("isGaiaAvoided", "true"), // Gaia避免策略
-            ("web_location", "1315873"), // 网页位置标识
-            ("dm_img_str", dm_img_str.as_str()), // WebGL信息
+            ("fnval", "4048"),                               // 恢复原始fnval值
+            ("fourk", "1"),                                  // 启用4K支持
+            ("voice_balance", "1"),                          // 音频平衡
+            ("gaia_source", "pre-load"),                     // Gaia预加载
+            ("isGaiaAvoided", "true"),                       // Gaia避免策略
+            ("web_location", "1315873"),                     // 网页位置标识
+            ("dm_img_str", dm_img_str.as_str()),             // WebGL信息
             ("dm_cover_img_str", dm_cover_img_str.as_str()), // GPU信息
-            ("dm_img_list", dm_img_list.as_str()), // 弹幕交互数据
-            ("dm_img_inter", dm_img_inter.as_str()), // 弹幕交互统计
+            ("dm_img_list", dm_img_list.as_str()),           // 弹幕交互数据
+            ("dm_img_inter", dm_img_inter.as_str()),         // 弹幕交互统计
         ];
 
         tracing::debug!("番剧API参数: {:?}", params);
 
         let request_url = "https://api.bilibili.com/pgc/player/web/playurl";
-        tracing::debug!("发起番剧playurl请求: {} - Episode ID: {}, CID: {}, 质量: {}", request_url, ep_id, page.cid, qn);
+        tracing::debug!(
+            "发起番剧playurl请求: {} - Episode ID: {}, CID: {}, 质量: {}",
+            request_url,
+            ep_id,
+            page.cid,
+            qn
+        );
 
         let request = self
             .client
@@ -1125,16 +1156,21 @@ impl<'a> Video<'a> {
                 tracing::debug!("番剧响应头: {:?}", resp.headers());
             }
             Err(e) => {
-                tracing::error!("番剧playurl请求失败 - Episode ID: {}, CID: {}, 错误: {}", ep_id, page.cid, e);
+                tracing::error!(
+                    "番剧playurl请求失败 - Episode ID: {}, CID: {}, 错误: {}",
+                    ep_id,
+                    page.cid,
+                    e
+                );
             }
         }
 
-        let res = response?
-            .error_for_status()?
-            .json::<serde_json::Value>()
-            .await?;
+        let res = response?.error_for_status()?.json::<serde_json::Value>().await?;
 
-        tracing::debug!("番剧playurl响应数据大小: {} bytes", serde_json::to_string(&res).unwrap_or_default().len());
+        tracing::debug!(
+            "番剧playurl响应数据大小: {} bytes",
+            serde_json::to_string(&res).unwrap_or_default().len()
+        );
 
         // 添加详细的番剧API响应日志
         tracing::debug!(
@@ -1223,16 +1259,16 @@ impl<'a> Video<'a> {
             ("cid", cid_string.as_str()),
             ("qn", "127"), // 恢复原始qn=127请求8K质量
             ("otype", "json"),
-            ("fnval", "4048"), // 恢复原始fnval值
-            ("fourk", "1"),    // 启用4K支持
-            ("voice_balance", "1"), // 音频平衡
-            ("gaia_source", "pre-load"), // Gaia预加载
-            ("isGaiaAvoided", "true"), // Gaia避免策略
-            ("web_location", "1315873"), // 网页位置标识
-            ("dm_img_str", dm_img_str.as_str()), // WebGL信息
+            ("fnval", "4048"),                               // 恢复原始fnval值
+            ("fourk", "1"),                                  // 启用4K支持
+            ("voice_balance", "1"),                          // 音频平衡
+            ("gaia_source", "pre-load"),                     // Gaia预加载
+            ("isGaiaAvoided", "true"),                       // Gaia避免策略
+            ("web_location", "1315873"),                     // 网页位置标识
+            ("dm_img_str", dm_img_str.as_str()),             // WebGL信息
             ("dm_cover_img_str", dm_cover_img_str.as_str()), // GPU信息
-            ("dm_img_list", dm_img_list.as_str()), // 弹幕交互数据
-            ("dm_img_inter", dm_img_inter.as_str()), // 弹幕交互统计
+            ("dm_img_list", dm_img_list.as_str()),           // 弹幕交互数据
+            ("dm_img_inter", dm_img_inter.as_str()),         // 弹幕交互统计
         ];
 
         tracing::debug!("=== 番剧API参数调试 ===");
@@ -1251,7 +1287,12 @@ impl<'a> Video<'a> {
             full_url.push_str(&format!("{}={}", key, value));
         }
 
-        tracing::debug!("发起番剧playurl请求(分页): {} - EP ID: {}, CID: {}", request_url, ep_id, page.cid);
+        tracing::debug!(
+            "发起番剧playurl请求(分页): {} - EP ID: {}, CID: {}",
+            request_url,
+            ep_id,
+            page.cid
+        );
         tracing::debug!("完整请求URL: {}", full_url);
 
         let request = self
@@ -1266,20 +1307,29 @@ impl<'a> Video<'a> {
         let response = request.send().await;
         match &response {
             Ok(resp) => {
-                tracing::debug!("番剧playurl请求成功(分页) - 状态码: {}, URL: {}", resp.status(), resp.url());
+                tracing::debug!(
+                    "番剧playurl请求成功(分页) - 状态码: {}, URL: {}",
+                    resp.status(),
+                    resp.url()
+                );
                 tracing::debug!("番剧响应头(分页): {:?}", resp.headers());
             }
             Err(e) => {
-                tracing::error!("番剧playurl请求失败(分页) - EP ID: {}, CID: {}, 错误: {}", ep_id, page.cid, e);
+                tracing::error!(
+                    "番剧playurl请求失败(分页) - EP ID: {}, CID: {}, 错误: {}",
+                    ep_id,
+                    page.cid,
+                    e
+                );
             }
         }
 
-        let res = response?
-            .error_for_status()?
-            .json::<serde_json::Value>()
-            .await?;
+        let res = response?.error_for_status()?.json::<serde_json::Value>().await?;
 
-        tracing::debug!("番剧playurl响应数据大小(分页): {} bytes", serde_json::to_string(&res).unwrap_or_default().len());
+        tracing::debug!(
+            "番剧playurl响应数据大小(分页): {} bytes",
+            serde_json::to_string(&res).unwrap_or_default().len()
+        );
 
         // 增强的番剧API响应调试信息
         tracing::debug!("=== 番剧API响应调试 ===");

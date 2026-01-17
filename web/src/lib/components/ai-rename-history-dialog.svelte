@@ -167,30 +167,45 @@
 			</div>
 
 			<!-- 提示词写法说明 -->
-			<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+			<div
+				class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950"
+			>
 				<p class="text-xs text-amber-700 dark:text-amber-300">
-					<strong>⚠️ 注意：</strong>提示词需具体明确，模糊的描述（如"作者"）可能被理解为UP主而非歌手。<br/>
-					<strong>💡 写法：</strong>AI会严格按格式生成，不添加额外信息。<br/>
-					<span class="font-mono">示例：BV号-歌手名-日期</span>（歌手从标题《》前提取，日期用YYYYMMDD）<br/>
+					<strong>⚠️ 注意：</strong
+					>提示词需具体明确，模糊的描述（如"作者"）可能被理解为UP主而非歌手。<br />
+					<strong>💡 写法：</strong>AI会严格按格式生成，不添加额外信息。<br />
+					<span class="font-mono">示例：BV号-歌手名-日期</span
+					>（歌手从标题《》前提取，日期用YYYYMMDD）<br />
 					可用字段：BV号、UP主、标题、歌手、分区、日期、排序位置等
 				</p>
 			</div>
 
 			<!-- 高级选项（默认关闭） -->
-			<div class="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900">
+			<div
+				class="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
+			>
 				<button
 					type="button"
 					onclick={() => (showAdvancedOptions = !showAdvancedOptions)}
 					class="flex w-full items-center justify-between text-left"
 				>
-					<span class="text-sm font-medium text-gray-700 dark:text-gray-300">高级选项（默认关闭，有风险）</span>
+					<span class="text-sm font-medium text-gray-700 dark:text-gray-300"
+						>高级选项（默认关闭，有风险）</span
+					>
 					<svg
-						class="h-4 w-4 transform text-gray-500 transition-transform {showAdvancedOptions ? 'rotate-180' : ''}"
+						class="h-4 w-4 transform text-gray-500 transition-transform {showAdvancedOptions
+							? 'rotate-180'
+							: ''}"
 						fill="none"
 						stroke="currentColor"
 						viewBox="0 0 24 24"
 					>
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="2"
+							d="M19 9l-7 7-7-7"
+						/>
 					</svg>
 				</button>
 
@@ -230,9 +245,12 @@
 							</Label>
 						</div>
 						<!-- 风险警告 -->
-						<div class="rounded border border-red-200 bg-red-50 p-2 dark:border-red-800 dark:bg-red-950">
+						<div
+							class="rounded border border-red-200 bg-red-50 p-2 dark:border-red-800 dark:bg-red-950"
+						>
 							<p class="text-xs text-red-700 dark:text-red-300">
-								<strong>⚠️ 风险警告：</strong>以上选项为实验性功能，可能存在命名Bug导致视频文件丢失或无法识别。
+								<strong>⚠️ 风险警告：</strong
+								>以上选项为实验性功能，可能存在命名Bug导致视频文件丢失或无法识别。
 								启用后果自负，建议先在小范围测试。
 							</p>
 						</div>
@@ -241,14 +259,18 @@
 			</div>
 
 			<!-- 提示信息 -->
-			<div class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
+			<div
+				class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950"
+			>
 				<p class="text-xs text-blue-700 dark:text-blue-300">
 					点击"开始重命名"后，对话框将关闭，任务会在后台执行。完成后将显示通知，并自动为该视频源开启AI重命名功能。
 				</p>
 			</div>
 
 			<!-- 警告提示 -->
-			<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+			<div
+				class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950"
+			>
 				<p class="text-xs text-amber-700 dark:text-amber-300">
 					注意：此操作会重命名该视频源下所有已下载的文件，包括视频、音频及其附属文件（NFO、字幕、封面等）。处理时间取决于文件数量和AI响应速度。
 				</p>
@@ -257,9 +279,7 @@
 
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel onclick={handleCancel}>取消</AlertDialog.Cancel>
-			<Button onclick={handleExecute}>
-				开始重命名
-			</Button>
+			<Button onclick={handleExecute}>开始重命名</Button>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>

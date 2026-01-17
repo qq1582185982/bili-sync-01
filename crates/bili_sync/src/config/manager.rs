@@ -336,8 +336,8 @@ impl ConfigManager {
             .await?;
 
         if let Some(item) = config_item {
-            let value: Value = serde_json::from_str(&item.value_json)
-                .with_context(|| format!("解析配置项 {} 失败", key))?;
+            let value: Value =
+                serde_json::from_str(&item.value_json).with_context(|| format!("解析配置项 {} 失败", key))?;
             Ok(Some(value))
         } else {
             Ok(None)

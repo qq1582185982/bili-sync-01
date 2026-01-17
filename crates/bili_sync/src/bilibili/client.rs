@@ -20,7 +20,7 @@ pub struct UserFollowingInfo {
     pub face: String,
     pub sign: String,
     pub official_verify: Option<UserOfficialVerify>,
-    pub follower: Option<i64>,  // 粉丝数（关注列表API不返回此字段，需单独获取）
+    pub follower: Option<i64>, // 粉丝数（关注列表API不返回此字段，需单独获取）
 }
 
 #[derive(Debug, Clone)]
@@ -921,20 +921,16 @@ impl BiliClient {
                     // 根据 type 字段区分：type=11 是收藏夹，type=21 是合集
                     let item_type = item_obj["type"].as_i64().unwrap_or(0);
                     let collection_type = if item_type == 11 {
-                        "favorite"  // 收藏夹
+                        "favorite" // 收藏夹
                     } else {
-                        "season"    // 合集 (type=21)
+                        "season" // 合集 (type=21)
                     };
 
                     all_collections.push(crate::api::response::UserCollectionInfo {
                         sid: item_obj["id"].as_i64().unwrap_or(0).to_string(),
                         name: item_obj["title"].as_str().unwrap_or("").to_string(),
                         cover: item_obj.get("cover").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        description: item_obj
-                            .get("intro")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
+                        description: item_obj.get("intro").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         total: item_obj["media_count"].as_i64().unwrap_or(0) as i32,
                         collection_type: collection_type.to_string(),
                         up_name: item_obj["upper"]["name"].as_str().unwrap_or("").to_string(),
@@ -954,9 +950,15 @@ impl BiliClient {
         if all_collections.is_empty() {
             info!("当前用户暂无关注的合集/收藏夹");
         } else {
-            let favorites_count = all_collections.iter().filter(|c| c.collection_type == "favorite").count();
+            let favorites_count = all_collections
+                .iter()
+                .filter(|c| c.collection_type == "favorite")
+                .count();
             let seasons_count = all_collections.iter().filter(|c| c.collection_type == "season").count();
-            info!("获取到用户关注的 {} 个合集和 {} 个收藏夹", seasons_count, favorites_count);
+            info!(
+                "获取到用户关注的 {} 个合集和 {} 个收藏夹",
+                seasons_count, favorites_count
+            );
         }
 
         Ok(all_collections)

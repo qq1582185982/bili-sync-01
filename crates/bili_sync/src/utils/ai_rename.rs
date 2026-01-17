@@ -7,13 +7,16 @@ use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Client;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Set,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use bili_sync_entity::ai_conversation_history;
 use super::deepseek_web::{deepseek_web_generate, DeepSeekSession};
+use bili_sync_entity::ai_conversation_history;
 
 /// AI 重命名上下文（从 API 获取的视频信息）
 #[derive(Clone, Debug, Default)]
@@ -77,7 +80,12 @@ impl AiRenameContext {
         }
         if self.duration > 0 {
             let dur_str = if self.duration >= 3600 {
-                format!("{}:{:02}:{:02}", self.duration / 3600, (self.duration % 3600) / 60, self.duration % 60)
+                format!(
+                    "{}:{:02}:{:02}",
+                    self.duration / 3600,
+                    (self.duration % 3600) / 60,
+                    self.duration % 60
+                )
             } else {
                 format!("{}:{:02}", self.duration / 60, self.duration % 60)
             };
@@ -124,7 +132,10 @@ impl AiRenameContext {
 
         // 添加 API 参考链接，让 AI 可以参考更多信息
         if !self.bvid.is_empty() {
-            format!("{}\nAPI参考: https://api.bilibili.com/x/web-interface/view?bvid={}", json_str, self.bvid)
+            format!(
+                "{}\nAPI参考: https://api.bilibili.com/x/web-interface/view?bvid={}",
+                json_str, self.bvid
+            )
         } else {
             json_str
         }
@@ -134,8 +145,7 @@ impl AiRenameContext {
 /// DeepSeek Web 会话缓存（按 source_key 存储）
 /// 同一个视频源复用同一个会话，避免创建过多会话
 /// 使用 tokio::sync::Mutex 确保异步安全
-static DEEPSEEK_SESSION_CACHE: Lazy<Mutex<HashMap<String, DeepSeekSession>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static DEEPSEEK_SESSION_CACHE: Lazy<Mutex<HashMap<String, DeepSeekSession>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// AI 重命名全局锁（确保同一时间只有一个 AI 重命名请求）
 /// 防止并发请求导致创建多个会话
@@ -150,8 +160,7 @@ struct ConversationMessage {
 
 /// 清除指定视频源的对话历史（数据库持久化版本）
 pub async fn clear_naming_cache(source_key: &str) -> Result<()> {
-    let db = crate::database::get_global_db()
-        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let db = crate::database::get_global_db().ok_or_else(|| anyhow!("数据库连接不可用"))?;
 
     let result = ai_conversation_history::Entity::delete_many()
         .filter(ai_conversation_history::Column::SourceKey.eq(source_key))
@@ -164,18 +173,18 @@ pub async fn clear_naming_cache(source_key: &str) -> Result<()> {
         cache.remove(source_key);
     }
 
-    info!("已清除视频源 {} 的AI对话历史，删除 {} 条记录", source_key, result.rows_affected);
+    info!(
+        "已清除视频源 {} 的AI对话历史，删除 {} 条记录",
+        source_key, result.rows_affected
+    );
     Ok(())
 }
 
 /// 清除所有对话历史（数据库持久化版本）
 pub async fn clear_all_naming_cache() -> Result<()> {
-    let db = crate::database::get_global_db()
-        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let db = crate::database::get_global_db().ok_or_else(|| anyhow!("数据库连接不可用"))?;
 
-    let result = ai_conversation_history::Entity::delete_many()
-        .exec(db.as_ref())
-        .await?;
+    let result = ai_conversation_history::Entity::delete_many().exec(db.as_ref()).await?;
 
     // 同时清除所有 DeepSeek Web 会话缓存
     {
@@ -234,7 +243,10 @@ async fn add_conversation_message(db: &DatabaseConnection, source_key: &str, rol
     };
 
     new_message.insert(db).await?;
-    debug!("保存对话消息到数据库: source_key={}, role={}, order={}", source_key, role, new_order);
+    debug!(
+        "保存对话消息到数据库: source_key={}, role={}, order={}",
+        source_key, role, new_order
+    );
 
     Ok(())
 }
@@ -247,15 +259,13 @@ async fn get_conversation_history(db: &DatabaseConnection, source_key: &str) -> 
         .all(db)
         .await
     {
-        Ok(records) => {
-            records
-                .into_iter()
-                .map(|r| ConversationMessage {
-                    role: r.role,
-                    content: r.content,
-                })
-                .collect()
-        }
+        Ok(records) => records
+            .into_iter()
+            .map(|r| ConversationMessage {
+                role: r.role,
+                content: r.content,
+            })
+            .collect(),
         Err(e) => {
             warn!("获取对话历史失败: {}", e);
             Vec::new()
@@ -287,7 +297,10 @@ async fn save_deepseek_session(db: &DatabaseConnection, source_key: &str, sessio
     };
     new_record.insert(db).await?;
 
-    debug!("保存 DeepSeek 会话到数据库: source_key={}, session_id={}", source_key, session.session_id);
+    debug!(
+        "保存 DeepSeek 会话到数据库: source_key={}, session_id={}",
+        source_key, session.session_id
+    );
     Ok(())
 }
 
@@ -299,18 +312,19 @@ async fn load_deepseek_session(db: &DatabaseConnection, source_key: &str) -> Opt
         .one(db)
         .await
     {
-        Ok(Some(record)) => {
-            match serde_json::from_str::<DeepSeekSession>(&record.content) {
-                Ok(session) => {
-                    debug!("从数据库加载 DeepSeek 会话: source_key={}, session_id={}", source_key, session.session_id);
-                    Some(session)
-                }
-                Err(e) => {
-                    warn!("解析 DeepSeek 会话失败: {}", e);
-                    None
-                }
+        Ok(Some(record)) => match serde_json::from_str::<DeepSeekSession>(&record.content) {
+            Ok(session) => {
+                debug!(
+                    "从数据库加载 DeepSeek 会话: source_key={}, session_id={}",
+                    source_key, session.session_id
+                );
+                Some(session)
             }
-        }
+            Err(e) => {
+                warn!("解析 DeepSeek 会话失败: {}", e);
+                None
+            }
+        },
         Ok(None) => None,
         Err(e) => {
             warn!("加载 DeepSeek 会话失败: {}", e);
@@ -375,10 +389,12 @@ impl Default for AiRenameConfig {
             // 视频命名规则
             video_prompt_hint: "【命名结构】精简标题-作者-时间(YYYYMMDD)；\
 【标题规则】仅保留核心主题，去除修饰性/情绪性/营销性词语，不使用表情；\
-【符号规则】仅用英文连字符-，禁止其他特殊符号".to_string(),
+【符号规则】仅用英文连字符-，禁止其他特殊符号"
+                .to_string(),
             // 音频命名规则
             audio_prompt_hint: "【命名结构】歌手-歌名-版本(如录音棚/现场)-时间(YYYYMMDD)；\
-【规则】去除表情/情绪文案，仅用英文连字符-连接".to_string(),
+【规则】去除表情/情绪文案，仅用英文连字符-连接"
+                .to_string(),
             // 特殊类型默认关闭
             enable_multi_page: false,
             enable_collection: false,
@@ -485,12 +501,13 @@ async fn ai_generate_filename_deepseek_web(
     // 防止并发请求导致创建多个会话
     let _lock = AI_RENAME_LOCK.lock().await;
 
-    let token = cfg.deepseek_web_token.clone()
+    let token = cfg
+        .deepseek_web_token
+        .clone()
         .ok_or_else(|| anyhow!("DeepSeek Web Token 未配置"))?;
 
     // 获取数据库连接
-    let db = crate::database::get_global_db()
-        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let db = crate::database::get_global_db().ok_or_else(|| anyhow!("数据库连接不可用"))?;
 
     // 获取对话历史（从数据库）
     let history = get_conversation_history(db.as_ref(), source_key).await;
@@ -524,13 +541,19 @@ async fn ai_generate_filename_deepseek_web(
     let cached_session = {
         let cache = DEEPSEEK_SESSION_CACHE.lock().await;
         if let Some(session) = cache.get(source_key).cloned() {
-            info!("会话缓存命中（内存）: source_key='{}', session_id='{}'", source_key, session.session_id);
+            info!(
+                "会话缓存命中（内存）: source_key='{}', session_id='{}'",
+                source_key, session.session_id
+            );
             Some(session)
         } else {
             // 内存缓存未命中，尝试从数据库加载
             drop(cache); // 释放锁
             if let Some(session) = load_deepseek_session(db.as_ref(), source_key).await {
-                info!("会话缓存命中（数据库）: source_key='{}', session_id='{}'", source_key, session.session_id);
+                info!(
+                    "会话缓存命中（数据库）: source_key='{}', session_id='{}'",
+                    source_key, session.session_id
+                );
                 // 加载到内存缓存
                 let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
                 cache.insert(source_key.to_string(), session.clone());
@@ -543,12 +566,7 @@ async fn ai_generate_filename_deepseek_web(
     };
 
     // 调用 DeepSeek Web API
-    let result = deepseek_web_generate(
-        &token,
-        cached_session,
-        &full_prompt,
-        cfg.timeout_seconds,
-    ).await;
+    let result = deepseek_web_generate(&token, cached_session, &full_prompt, cfg.timeout_seconds).await;
 
     // 检查是否是会话长度上限错误，需要重建会话
     let (name, new_session) = match result {
@@ -581,15 +599,22 @@ async fn ai_generate_filename_deepseek_web(
             let new_prompt = format!("{}{}", history_context, full_prompt);
 
             // 用新会话重试（session = None 会创建新会话）
-            info!("[{}] 使用新会话重试，带上 {} 条历史记录", source_key, history_for_retry.len());
+            info!(
+                "[{}] 使用新会话重试，带上 {} 条历史记录",
+                source_key,
+                history_for_retry.len()
+            );
             deepseek_web_generate(
                 &token,
                 None, // 创建新会话
                 &new_prompt,
                 cfg.timeout_seconds,
-            ).await?
+            )
+            .await?
         }
-        Err(e) if e.to_string().contains("读取响应体失败") || e.to_string().contains("error decoding response body") => {
+        Err(e)
+            if e.to_string().contains("读取响应体失败") || e.to_string().contains("error decoding response body") =>
+        {
             warn!("[{}] DeepSeek 响应体解码失败，正在重建会话并带上历史...", source_key);
 
             // 清除旧会话缓存
@@ -617,13 +642,12 @@ async fn ai_generate_filename_deepseek_web(
             let new_prompt = format!("{}{}", history_context, full_prompt);
 
             // 用新会话重试
-            info!("[{}] 使用新会话重试（响应体错误），带上 {} 条历史记录", source_key, history_for_retry.len());
-            deepseek_web_generate(
-                &token,
-                None,
-                &new_prompt,
-                cfg.timeout_seconds,
-            ).await?
+            info!(
+                "[{}] 使用新会话重试（响应体错误），带上 {} 条历史记录",
+                source_key,
+                history_for_retry.len()
+            );
+            deepseek_web_generate(&token, None, &new_prompt, cfg.timeout_seconds).await?
         }
         Err(e) => return Err(e),
     };
@@ -631,7 +655,10 @@ async fn ai_generate_filename_deepseek_web(
     // 更新会话缓存（内存 + 数据库）
     {
         let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
-        info!("更新会话缓存: source_key='{}', session_id='{}'", source_key, new_session.session_id);
+        info!(
+            "更新会话缓存: source_key='{}', session_id='{}'",
+            source_key, new_session.session_id
+        );
         cache.insert(source_key.to_string(), new_session.clone());
     }
     // 保存到数据库
@@ -666,8 +693,7 @@ async fn ai_generate_filename_openai_compatible(
     let api_key = cfg.api_key.clone().ok_or_else(|| anyhow!("API key missing"))?;
 
     // 获取数据库连接
-    let db = crate::database::get_global_db()
-        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let db = crate::database::get_global_db().ok_or_else(|| anyhow!("数据库连接不可用"))?;
 
     // 获取对话历史（从数据库）
     let history = get_conversation_history(db.as_ref(), source_key).await;
@@ -764,10 +790,7 @@ async fn ai_generate_filename_openai_compatible(
         warn!("保存助手回复到数据库失败: {}", e);
     }
 
-    info!(
-        "AI重命名成功(OpenAI) [{}]: {} → {}",
-        source_key, current_filename, name
-    );
+    info!("AI重命名成功(OpenAI) [{}]: {} → {}", source_key, current_filename, name);
 
     Ok(name)
 }
@@ -819,8 +842,13 @@ pub fn rename_sidecars(old: &Path, new_stem: &str, new_ext: &str) -> Result<()> 
             // 跳过原始主视频/音频文件本身（理论上已经被重命名了，但以防万一）
             if suffix.starts_with('.') {
                 let ext_lower = suffix.to_lowercase();
-                if ext_lower == ".mp4" || ext_lower == ".mkv" || ext_lower == ".m4a"
-                   || ext_lower == ".flv" || ext_lower == ".webm" || ext_lower == ".avi" {
+                if ext_lower == ".mp4"
+                    || ext_lower == ".mkv"
+                    || ext_lower == ".m4a"
+                    || ext_lower == ".flv"
+                    || ext_lower == ".webm"
+                    || ext_lower == ".avi"
+                {
                     continue;
                 }
             }
@@ -890,7 +918,9 @@ pub fn update_nfo_content(nfo_path: &Path, new_title: &str) -> Result<()> {
     // 更新 <title> 标签（仅当原内容非空时）
     if let Some(caps) = title_re.captures(&content) {
         if !caps.get(1).map_or(true, |m| m.as_str().trim().is_empty()) {
-            updated_content = title_re.replace(&updated_content, format!("<title>{}</title>", new_title)).to_string();
+            updated_content = title_re
+                .replace(&updated_content, format!("<title>{}</title>", new_title))
+                .to_string();
             updated = true;
         }
     }
@@ -898,7 +928,12 @@ pub fn update_nfo_content(nfo_path: &Path, new_title: &str) -> Result<()> {
     // 更新 <originaltitle> 标签（仅当原内容非空时）
     if let Some(caps) = originaltitle_re.captures(&updated_content) {
         if !caps.get(1).map_or(true, |m| m.as_str().trim().is_empty()) {
-            updated_content = originaltitle_re.replace(&updated_content, format!("<originaltitle>{}</originaltitle>", new_title)).to_string();
+            updated_content = originaltitle_re
+                .replace(
+                    &updated_content,
+                    format!("<originaltitle>{}</originaltitle>", new_title),
+                )
+                .to_string();
             updated = true;
         }
     }
@@ -906,7 +941,9 @@ pub fn update_nfo_content(nfo_path: &Path, new_title: &str) -> Result<()> {
     // 更新 <sorttitle> 标签（仅当原内容非空时）
     if let Some(caps) = sorttitle_re.captures(&updated_content) {
         if !caps.get(1).map_or(true, |m| m.as_str().trim().is_empty()) {
-            updated_content = sorttitle_re.replace(&updated_content, format!("<sorttitle>{}</sorttitle>", new_title)).to_string();
+            updated_content = sorttitle_re
+                .replace(&updated_content, format!("<sorttitle>{}</sorttitle>", new_title))
+                .to_string();
             updated = true;
         }
     }
@@ -942,7 +979,10 @@ pub async fn find_inconsistent_filenames(
 
     // DeepSeek Web 模式通过会话上下文自动保持一致性，无需额外检查
     if cfg.provider == "deepseek-web" {
-        debug!("[{}] DeepSeek Web 模式使用会话上下文保持一致性，跳过一致性检查", source_key);
+        debug!(
+            "[{}] DeepSeek Web 模式使用会话上下文保持一致性，跳过一致性检查",
+            source_key
+        );
         return Ok(Vec::new());
     }
 
@@ -956,8 +996,7 @@ pub async fn find_inconsistent_filenames(
     };
 
     // 获取数据库连接和对话历史
-    let db = crate::database::get_global_db()
-        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let db = crate::database::get_global_db().ok_or_else(|| anyhow!("数据库连接不可用"))?;
     let history = get_conversation_history(db.as_ref(), source_key).await;
 
     // 构建文件列表字符串
@@ -1082,10 +1121,7 @@ pub async fn rename_inconsistent_file(
         .and_then(|s| s.to_str())
         .ok_or_else(|| anyhow!("Invalid file stem"))?;
 
-    let ext = file_path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("mp4");
+    let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
 
     let is_audio = ext == "m4a" || ext == "mp3" || ext == "flac";
 
@@ -1099,8 +1135,7 @@ pub async fn rename_inconsistent_file(
     };
 
     // 获取数据库连接
-    let db = crate::database::get_global_db()
-        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let db = crate::database::get_global_db().ok_or_else(|| anyhow!("数据库连接不可用"))?;
 
     // 获取对话历史作为参考（从数据库）
     let history = get_conversation_history(db.as_ref(), source_key).await;
@@ -1134,7 +1169,9 @@ pub async fn rename_inconsistent_file(
     let mut messages = Vec::with_capacity(2 + history.len());
     messages.push(ChatMessage {
         role: "system".to_string(),
-        content: "你是一个文件命名一致性修复助手。根据之前的命名风格，为这个异类文件生成一致的新名称。只输出文件名本身。".to_string(),
+        content:
+            "你是一个文件命名一致性修复助手。根据之前的命名风格，为这个异类文件生成一致的新名称。只输出文件名本身。"
+                .to_string(),
     });
 
     // 添加历史对话
@@ -1197,10 +1234,7 @@ pub async fn rename_inconsistent_file(
 
     // 如果生成的文件名与当前相同，说明AI认为当前命名已经是一致的，跳过
     if new_stem == current_stem {
-        info!(
-            "[{}] 文件名已一致，无需修改: {}",
-            source_key, current_stem
-        );
+        info!("[{}] 文件名已一致，无需修改: {}", source_key, current_stem);
         return Ok(file_path.to_path_buf());
     }
 
@@ -1213,12 +1247,7 @@ pub async fn rename_inconsistent_file(
         warn!("重命名侧车文件失败: {}", e);
     }
 
-    info!(
-        "[{}] 一致性修复: {} → {}",
-        source_key,
-        current_stem,
-        new_stem
-    );
+    info!("[{}] 一致性修复: {} → {}", source_key, current_stem, new_stem);
 
     Ok(new_path)
 }
@@ -1315,22 +1344,29 @@ async fn ai_generate_filenames_batch_deepseek_web(
 ) -> Result<Vec<String>> {
     let _lock = AI_RENAME_LOCK.lock().await;
 
-    let token = cfg.deepseek_web_token.clone()
+    let token = cfg
+        .deepseek_web_token
+        .clone()
         .ok_or_else(|| anyhow!("DeepSeek Web Token 未配置"))?;
 
-    let db = crate::database::get_global_db()
-        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let db = crate::database::get_global_db().ok_or_else(|| anyhow!("数据库连接不可用"))?;
 
     // 从缓存获取会话
     let cached_session = {
         let cache = DEEPSEEK_SESSION_CACHE.lock().await;
         if let Some(session) = cache.get(source_key).cloned() {
-            info!("会话缓存命中（内存）: source_key='{}', session_id='{}'", source_key, session.session_id);
+            info!(
+                "会话缓存命中（内存）: source_key='{}', session_id='{}'",
+                source_key, session.session_id
+            );
             Some(session)
         } else {
             drop(cache);
             if let Some(session) = load_deepseek_session(db.as_ref(), source_key).await {
-                info!("会话缓存命中（数据库）: source_key='{}', session_id='{}'", source_key, session.session_id);
+                info!(
+                    "会话缓存命中（数据库）: source_key='{}', session_id='{}'",
+                    source_key, session.session_id
+                );
                 let mut cache = DEEPSEEK_SESSION_CACHE.lock().await;
                 cache.insert(source_key.to_string(), session.clone());
                 Some(session)
@@ -1342,12 +1378,8 @@ async fn ai_generate_filenames_batch_deepseek_web(
     };
 
     // 调用 DeepSeek Web API（使用原始响应，不清洗）
-    let result = super::deepseek_web::deepseek_web_generate_raw(
-        &token,
-        cached_session,
-        prompt,
-        cfg.timeout_seconds,
-    ).await;
+    let result =
+        super::deepseek_web::deepseek_web_generate_raw(&token, cached_session, prompt, cfg.timeout_seconds).await;
 
     // 检查是否是会话长度上限错误，需要重建会话
     let (response, new_session) = match result {
@@ -1387,9 +1419,12 @@ async fn ai_generate_filenames_batch_deepseek_web(
                 None, // 创建新会话
                 &new_prompt,
                 cfg.timeout_seconds,
-            ).await?
+            )
+            .await?
         }
-        Err(e) if e.to_string().contains("读取响应体失败") || e.to_string().contains("error decoding response body") => {
+        Err(e)
+            if e.to_string().contains("读取响应体失败") || e.to_string().contains("error decoding response body") =>
+        {
             warn!("[{}] DeepSeek 响应体解码失败，正在重建会话并带上历史...", source_key);
 
             // 清除旧会话缓存
@@ -1417,13 +1452,12 @@ async fn ai_generate_filenames_batch_deepseek_web(
             let new_prompt = format!("{}{}", history_context, prompt);
 
             // 用新会话重试
-            info!("[{}] 使用新会话重试（响应体错误），带上 {} 条历史记录", source_key, history.len());
-            super::deepseek_web::deepseek_web_generate_raw(
-                &token,
-                None,
-                &new_prompt,
-                cfg.timeout_seconds,
-            ).await?
+            info!(
+                "[{}] 使用新会话重试（响应体错误），带上 {} 条历史记录",
+                source_key,
+                history.len()
+            );
+            super::deepseek_web::deepseek_web_generate_raw(&token, None, &new_prompt, cfg.timeout_seconds).await?
         }
         Err(e) => return Err(e),
     };
@@ -1463,8 +1497,7 @@ async fn ai_generate_filenames_batch_openai(
 ) -> Result<Vec<String>> {
     let api_key = cfg.api_key.clone().ok_or_else(|| anyhow!("API key missing"))?;
 
-    let db = crate::database::get_global_db()
-        .ok_or_else(|| anyhow!("数据库连接不可用"))?;
+    let db = crate::database::get_global_db().ok_or_else(|| anyhow!("数据库连接不可用"))?;
 
     let history = get_conversation_history(db.as_ref(), source_key).await;
 
@@ -1555,14 +1588,11 @@ fn parse_batch_response(response: &str, expected_count: usize) -> Result<Vec<Str
     };
 
     // 解析 JSON
-    let names: Vec<String> = serde_json::from_str(json_str)
-        .map_err(|e| anyhow!("解析 JSON 数组失败: {} - 原始响应: {}", e, response))?;
+    let names: Vec<String> =
+        serde_json::from_str(json_str).map_err(|e| anyhow!("解析 JSON 数组失败: {} - 原始响应: {}", e, response))?;
 
     if names.len() != expected_count {
-        warn!(
-            "AI 返回数量不匹配: 期望 {}, 实际 {}",
-            expected_count, names.len()
-        );
+        warn!("AI 返回数量不匹配: 期望 {}, 实际 {}", expected_count, names.len());
     }
 
     // 清洗文件名
@@ -1610,11 +1640,7 @@ pub async fn batch_rename_history_files(
     let mut video_files: Vec<FileToRename> = Vec::new();
     let mut audio_files: Vec<FileToRename> = Vec::new();
 
-    info!(
-        "[{}] 开始批量重命名，共 {} 个视频",
-        source_key,
-        videos.len()
-    );
+    info!("[{}] 开始批量重命名，共 {} 个视频", source_key, videos.len());
 
     // 跟踪视频和音频的排序位置
     let mut video_sort_index = 1;
@@ -1635,7 +1661,10 @@ pub async fn batch_rename_history_files(
             // 检查文件是否存在
             let file_path = Path::new(&page_path);
             if !file_path.exists() {
-                debug!("[{}] 跳过 page_id={}: 文件不存在 path={}", source_key, page_model.id, page_path);
+                debug!(
+                    "[{}] 跳过 page_id={}: 文件不存在 path={}",
+                    source_key, page_model.id, page_path
+                );
                 result.skipped_count += 1;
                 continue;
             }
@@ -1842,16 +1871,16 @@ async fn apply_rename(
     if let Err(e) = fs::rename(&file.path, &new_path) {
         warn!(
             "[{}] 重命名文件失败: {} -> {} - {}",
-            source_key, file.path.display(), new_path.display(), e
+            source_key,
+            file.path.display(),
+            new_path.display(),
+            e
         );
         result.failed_count += 1;
         return;
     }
 
-    info!(
-        "[{}] 重命名成功: {} -> {}",
-        source_key, file.current_stem, final_stem
-    );
+    info!("[{}] 重命名成功: {} -> {}", source_key, file.current_stem, final_stem);
 
     // 重命名侧车文件
     if let Err(e) = rename_sidecars(&file.path, &final_stem, &file.ext) {
@@ -1879,9 +1908,8 @@ async fn apply_rename(
                 if target_dir != old_dir {
                     match std::fs::rename(old_dir, &target_dir) {
                         Ok(_) => {
-                            let moved_path = target_dir.join(
-                                new_path.file_name().expect("new_path should have file name"),
-                            );
+                            let moved_path =
+                                target_dir.join(new_path.file_name().expect("new_path should have file name"));
                             info!(
                                 "[{}] AI 重命名子文件夹成功: {} -> {}",
                                 source_key,
@@ -1891,7 +1919,9 @@ async fn apply_rename(
 
                             // 更新当前 video.path
                             let new_video_path = target_dir.to_string_lossy().to_string();
-                            if let Ok(Some(current_video)) = video::Entity::find_by_id(file.video_id).one(connection).await {
+                            if let Ok(Some(current_video)) =
+                                video::Entity::find_by_id(file.video_id).one(connection).await
+                            {
                                 let mut active_video: video::ActiveModel = current_video.into();
                                 active_video.path = Set(new_video_path.clone());
                                 if let Err(e) = active_video.update(connection).await {
@@ -1906,8 +1936,9 @@ async fn apply_rename(
                             if let Ok(other_videos) = video::Entity::find()
                                 .filter(video::Column::Id.ne(file.video_id))
                                 .filter(
-                                    video::Column::Path.eq(&old_dir_str)
-                                        .or(video::Column::Path.eq(&old_dir_str_alt))
+                                    video::Column::Path
+                                        .eq(&old_dir_str)
+                                        .or(video::Column::Path.eq(&old_dir_str_alt)),
                                 )
                                 .all(connection)
                                 .await
@@ -1927,7 +1958,9 @@ async fn apply_rename(
                                     {
                                         for other_page in other_pages {
                                             if let Some(page_path_str) = other_page.path.clone() {
-                                                if page_path_str.starts_with(&old_dir_str) || page_path_str.starts_with(&old_dir_str_alt) {
+                                                if page_path_str.starts_with(&old_dir_str)
+                                                    || page_path_str.starts_with(&old_dir_str_alt)
+                                                {
                                                     let new_page_path = if page_path_str.starts_with(&old_dir_str) {
                                                         page_path_str.replacen(&old_dir_str, &new_video_path, 1)
                                                     } else {
@@ -1936,9 +1969,15 @@ async fn apply_rename(
                                                     let mut active_page: page::ActiveModel = other_page.into();
                                                     active_page.path = Set(Some(new_page_path.clone()));
                                                     if let Err(e) = active_page.update(connection).await {
-                                                        warn!("[{}] 更新同文件夹其他视频 page.path 失败: {}", source_key, e);
+                                                        warn!(
+                                                            "[{}] 更新同文件夹其他视频 page.path 失败: {}",
+                                                            source_key, e
+                                                        );
                                                     } else {
-                                                        info!("[{}] 同步更新同文件夹页面路径: {} -> {}", source_key, page_path_str, new_page_path);
+                                                        info!(
+                                                            "[{}] 同步更新同文件夹页面路径: {} -> {}",
+                                                            source_key, page_path_str, new_page_path
+                                                        );
                                                     }
                                                 }
                                             }

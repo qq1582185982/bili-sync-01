@@ -1,6 +1,6 @@
+pub mod fingerprint;
 pub mod gpu;
 pub mod webgl;
-pub mod fingerprint;
 
 pub use fingerprint::HardwareFingerprint;
 pub use gpu::{GpuInfo, GpuVendor};

@@ -368,23 +368,25 @@ class ApiClient {
 			ai_rename_enable_collection?: boolean;
 			ai_rename_enable_bangumi?: boolean;
 		}
-	): Promise<ApiResponse<{
-		success: boolean;
-		source_id: number;
-		source_type: string;
-		audio_only: boolean;
-		audio_only_m4a_only: boolean;
-		flat_folder: boolean;
-		download_danmaku: boolean;
-		download_subtitle: boolean;
-		ai_rename: boolean;
-		ai_rename_video_prompt: string;
-		ai_rename_audio_prompt: string;
-		ai_rename_enable_multi_page: boolean;
-		ai_rename_enable_collection: boolean;
-		ai_rename_enable_bangumi: boolean;
-		message: string;
-	}>> {
+	): Promise<
+		ApiResponse<{
+			success: boolean;
+			source_id: number;
+			source_type: string;
+			audio_only: boolean;
+			audio_only_m4a_only: boolean;
+			flat_folder: boolean;
+			download_danmaku: boolean;
+			download_subtitle: boolean;
+			ai_rename: boolean;
+			ai_rename_video_prompt: string;
+			ai_rename_audio_prompt: string;
+			ai_rename_enable_multi_page: boolean;
+			ai_rename_enable_collection: boolean;
+			ai_rename_enable_bangumi: boolean;
+			message: string;
+		}>
+	> {
 		return this.put<{
 			success: boolean;
 			source_id: number;
@@ -522,13 +524,15 @@ class ApiClient {
 		enableMultiPage?: boolean,
 		enableCollection?: boolean,
 		enableBangumi?: boolean
-	): Promise<ApiResponse<{
-		success: boolean;
-		renamed_count: number;
-		skipped_count: number;
-		failed_count: number;
-		message: string;
-	}>> {
+	): Promise<
+		ApiResponse<{
+			success: boolean;
+			renamed_count: number;
+			skipped_count: number;
+			failed_count: number;
+			message: string;
+		}>
+	> {
 		return this.post<{
 			success: boolean;
 			renamed_count: number;
@@ -1095,8 +1099,24 @@ export const api = {
 	/**
 	 * 批量AI重命名视频源下的历史文件
 	 */
-	aiRenameHistory: (sourceType: string, id: number, videoPrompt?: string, audioPrompt?: string, enableMultiPage?: boolean, enableCollection?: boolean, enableBangumi?: boolean) =>
-		apiClient.aiRenameHistory(sourceType, id, videoPrompt, audioPrompt, enableMultiPage, enableCollection, enableBangumi),
+	aiRenameHistory: (
+		sourceType: string,
+		id: number,
+		videoPrompt?: string,
+		audioPrompt?: string,
+		enableMultiPage?: boolean,
+		enableCollection?: boolean,
+		enableBangumi?: boolean
+	) =>
+		apiClient.aiRenameHistory(
+			sourceType,
+			id,
+			videoPrompt,
+			audioPrompt,
+			enableMultiPage,
+			enableCollection,
+			enableBangumi
+		),
 
 	/**
 	 * 检查是否需要初始设置

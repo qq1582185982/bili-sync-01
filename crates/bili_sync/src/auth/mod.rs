@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::bilibili::Credential;
-use crate::http::headers::{create_navigation_headers, create_api_headers};
+use crate::http::headers::{create_api_headers, create_navigation_headers};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QRCodeInfo {
@@ -73,29 +73,28 @@ impl QRLoginService {
         let homepage_url = "https://www.bilibili.com";
         tracing::debug!("发起B站主页访问请求: {}", homepage_url);
 
-        let homepage_request = self.client
-            .get(homepage_url)
-            .headers(create_navigation_headers());
+        let homepage_request = self.client.get(homepage_url).headers(create_navigation_headers());
 
         // B站主页访问请求头日志已在建造器时设置
 
-        let _ = homepage_request.send().await.map_err(|e| {
-            tracing::warn!("B站主页访问失败，继续尝试生成二维码 - 错误: {}", e);
-            e
-        }).map(|resp| {
-            tracing::debug!("B站主页访问成功 - 状态码: {}", resp.status());
-            tracing::debug!("B站主页响应头: {:?}", resp.headers());
-            resp
-        });
+        let _ = homepage_request
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!("B站主页访问失败，继续尝试生成二维码 - 错误: {}", e);
+                e
+            })
+            .map(|resp| {
+                tracing::debug!("B站主页访问成功 - 状态码: {}", resp.status());
+                tracing::debug!("B站主页响应头: {:?}", resp.headers());
+                resp
+            });
 
         // 调用B站API生成二维码
         let qrcode_url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate";
         tracing::debug!("发起二维码生成请求: {}", qrcode_url);
 
-        let qrcode_request = self
-            .client
-            .get(qrcode_url)
-            .headers(create_api_headers());
+        let qrcode_request = self.client.get(qrcode_url).headers(create_api_headers());
 
         // 二维码生成请求头日志已在建造器时设置
 
@@ -110,7 +109,6 @@ impl QRLoginService {
                 return Err(e.into());
             }
         };
-
 
         let data: serde_json::Value = response.json().await.map_err(|e| {
             tracing::error!("解析B站API响应失败: {}", e);
@@ -182,7 +180,11 @@ impl QRLoginService {
 
         // 调用B站API检查状态
         let poll_url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll";
-        tracing::debug!("发起扫码状态检查请求: {} - qrcode_key: {}...", poll_url, &session.qrcode_key[..std::cmp::min(session.qrcode_key.len(), 20)]);
+        tracing::debug!(
+            "发起扫码状态检查请求: {} - qrcode_key: {}...",
+            poll_url,
+            &session.qrcode_key[..std::cmp::min(session.qrcode_key.len(), 20)]
+        );
 
         let poll_request = self
             .client

@@ -246,11 +246,7 @@ pub async fn create_videos(
                 };
 
                 if should_filter {
-                    info!(
-                        "视频 '{}' 被关键词过滤器过滤，跳过: {}",
-                        title,
-                        extract_bvid(info)
-                    );
+                    info!("视频 '{}' 被关键词过滤器过滤，跳过: {}", title, extract_bvid(info));
                 }
                 !should_filter
             })
@@ -260,7 +256,9 @@ pub async fn create_videos(
         if filtered_count > 0 {
             info!(
                 "关键词过滤完成：原视频 {} 个，过滤 {} 个，剩余 {} 个",
-                before_count, filtered_count, filtered_videos.len()
+                before_count,
+                filtered_count,
+                filtered_videos.len()
             );
         }
 
@@ -836,10 +834,7 @@ pub async fn create_pages(
         .collect();
 
     if new_pages.is_empty() {
-        debug!(
-            "视频 {} ({}) 没有新增分P，跳过",
-            video_model.bvid, video_model.id
-        );
+        debug!("视频 {} ({}) 没有新增分P，跳过", video_model.bvid, video_model.id);
         return Ok(());
     }
 
@@ -865,7 +860,7 @@ pub async fn create_pages(
         let update_video = video::ActiveModel {
             id: Unchanged(video_model.id),
             single_page: Set(Some(false)),
-            download_status: Set(0), // 重置下载状态，让视频重新进入下载流程
+            download_status: Set(0),   // 重置下载状态，让视频重新进入下载流程
             path: Set("".to_string()), // 清空路径，因为目录结构会变化
             ..Default::default()
         };
@@ -881,7 +876,7 @@ pub async fn create_pages(
         let update_page = page::ActiveModel {
             id: Unchanged(original_page.id),
             download_status: Set(0), // 重置下载状态
-            path: Set(None), // 清空路径
+            path: Set(None),         // 清空路径
             ..Default::default()
         };
         update_page.save(connection).await?;
@@ -891,19 +886,18 @@ pub async fn create_pages(
         let bvid = video_model.bvid.clone();
         tokio::spawn(async move {
             use crate::utils::notification::send_single_to_multi_page_notification;
-            if let Err(e) = send_single_to_multi_page_notification(
-                &video_name,
-                &bvid,
-                total_pages_after,
-                old_path.as_deref(),
-            ).await {
+            if let Err(e) =
+                send_single_to_multi_page_notification(&video_name, &bvid, total_pages_after, old_path.as_deref()).await
+            {
                 tracing::warn!("发送单P变多P通知失败: {}", e);
             }
         });
     } else {
         info!(
             "视频 {} ({}) 检测到 {} 个新增分P，准备下载",
-            video_model.bvid, video_model.id, new_pages.len()
+            video_model.bvid,
+            video_model.id,
+            new_pages.len()
         );
     }
 
@@ -914,9 +908,7 @@ pub async fn create_pages(
         .collect::<Vec<page::ActiveModel>>();
 
     for page_chunk in page_models.chunks(50) {
-        page::Entity::insert_many(page_chunk.to_vec())
-            .exec(connection)
-            .await?;
+        page::Entity::insert_many(page_chunk.to_vec()).exec(connection).await?;
     }
 
     Ok(())

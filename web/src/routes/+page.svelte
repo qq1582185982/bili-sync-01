@@ -457,63 +457,64 @@
 					</CardHeader>
 					<CardContent>
 						{#if dashboardData}
-						<div class="space-y-4">
-							<!-- 监听状态 -->
-							<div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-								<div class="flex items-center gap-2">
-									{#if taskControlStatus && taskControlStatus.is_paused}
-										<Badge variant="destructive">已停止</Badge>
-									{:else if dashboardData.monitoring_status.is_scanning}
-										<Badge>扫描中</Badge>
-									{:else}
-										<Badge variant="outline">等待中</Badge>
-									{/if}
-								</div>
-								<div class="flex items-center gap-2">
-									<div class="text-muted-foreground text-sm">下次扫描</div>
-									<div class="text-sm font-medium">
-										{formatTime(dashboardData.monitoring_status.next_scan_time)}
+							<div class="space-y-4">
+								<!-- 监听状态 -->
+								<div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+									<div class="flex items-center gap-2">
+										{#if taskControlStatus && taskControlStatus.is_paused}
+											<Badge variant="destructive">已停止</Badge>
+										{:else if dashboardData.monitoring_status.is_scanning}
+											<Badge>扫描中</Badge>
+										{:else}
+											<Badge variant="outline">等待中</Badge>
+										{/if}
 									</div>
-									<Button
-										size="sm"
-										variant="outline"
-										onclick={() => {
-											loadDashboard();
-											loadLatestIngests();
-										}}
-										class="h-8"
-										title="刷新首页数据"
-									>
-										<RefreshCwIcon class="mr-2 h-4 w-4" />
-										刷新
-									</Button>
+									<div class="flex items-center gap-2">
+										<div class="text-muted-foreground text-sm">下次扫描</div>
+										<div class="text-sm font-medium">
+											{formatTime(dashboardData.monitoring_status.next_scan_time)}
+										</div>
+										<Button
+											size="sm"
+											variant="outline"
+											onclick={() => {
+												loadDashboard();
+												loadLatestIngests();
+											}}
+											class="h-8"
+											title="刷新首页数据"
+										>
+											<RefreshCwIcon class="mr-2 h-4 w-4" />
+											刷新
+										</Button>
+									</div>
 								</div>
-							</div>
 
-							<!-- 扫描摘要 -->
-							<div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-								<div class="flex items-center justify-between">
-									<span class="text-sm">监听源</span>
-									<Badge variant="outline">
-										{dashboardData.monitoring_status.active_sources} / {dashboardData.monitoring_status.total_sources}
-									</Badge>
+								<!-- 扫描摘要 -->
+								<div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+									<div class="flex items-center justify-between">
+										<span class="text-sm">监听源</span>
+										<Badge variant="outline">
+											{dashboardData.monitoring_status.active_sources} / {dashboardData
+												.monitoring_status.total_sources}
+										</Badge>
+									</div>
+									<div class="flex items-center justify-between">
+										<span class="text-sm">上次扫描</span>
+										<span class="text-muted-foreground text-sm">
+											{formatTime(dashboardData.monitoring_status.last_scan_time)}
+										</span>
+									</div>
+									<div class="flex items-center justify-between">
+										<span class="text-sm">未启用</span>
+										<span class="text-muted-foreground text-sm">
+											{dashboardData.monitoring_status.inactive_sources}
+										</span>
+									</div>
 								</div>
-								<div class="flex items-center justify-between">
-									<span class="text-sm">上次扫描</span>
-									<span class="text-muted-foreground text-sm">
-										{formatTime(dashboardData.monitoring_status.last_scan_time)}
-									</span>
-								</div>
-								<div class="flex items-center justify-between">
-									<span class="text-sm">未启用</span>
-									<span class="text-muted-foreground text-sm">
-										{dashboardData.monitoring_status.inactive_sources}
-									</span>
-								</div>
-							</div>
 
-							<!-- 具体监听项统计 -->
-							<div class="grid grid-cols-2 gap-4 md:grid-cols-3">
+								<!-- 具体监听项统计 -->
+								<div class="grid grid-cols-2 gap-4 md:grid-cols-3">
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-2">
 											<HeartIcon class="text-muted-foreground h-4 w-4" />
@@ -727,13 +728,13 @@
 											{#if loadingTaskControl}
 												<SettingsIcon class="mr-2 h-4 w-4 animate-spin" />
 												处理中...
-										{:else if taskControlStatus.is_paused}
-											<PlayIcon class="mr-2 h-4 w-4" />
-											恢复任务
-										{:else}
-											<PauseIcon class="mr-2 h-4 w-4" />
-											停止任务
-										{/if}
+											{:else if taskControlStatus.is_paused}
+												<PlayIcon class="mr-2 h-4 w-4" />
+												恢复任务
+											{:else}
+												<PauseIcon class="mr-2 h-4 w-4" />
+												停止任务
+											{/if}
 										</Button>
 
 										<Button
@@ -944,18 +945,18 @@
 					</Button>
 				</Dialog.Title>
 			</Dialog.Header>
-			<div class="mt-2 space-y-2 max-h-[60vh] overflow-auto">
+			<div class="mt-2 max-h-[60vh] space-y-2 overflow-auto">
 				{#if latestIngests.length === 0}
 					<div class="text-muted-foreground py-8 text-center text-sm">暂无入库记录</div>
 				{:else}
 					{#each latestIngests as item (item.video_id)}
-						<div class="rounded-lg border p-3 hover:bg-muted/30 transition-colors">
+						<div class="hover:bg-muted/30 rounded-lg border p-3 transition-colors">
 							<div class="flex items-start justify-between gap-3">
-								<div class="flex-1 min-w-0">
-									<div class="font-medium truncate" title={item.video_name}>
+								<div class="min-w-0 flex-1">
+									<div class="truncate font-medium" title={item.video_name}>
 										{item.video_name}
 									</div>
-									<div class="text-muted-foreground text-xs mt-1 flex items-center gap-2 flex-wrap">
+									<div class="text-muted-foreground mt-1 flex flex-wrap items-center gap-2 text-xs">
 										{#if item.upper_name && item.upper_name.trim() !== ''}
 											<span>{item.upper_name}</span>
 										{:else}
@@ -968,23 +969,23 @@
 											<span>{formatSpeed(item.download_speed_bps)}</span>
 										{/if}
 									</div>
-									<div class="text-muted-foreground text-xs mt-1 truncate" title={item.path}>
+									<div class="text-muted-foreground mt-1 truncate text-xs" title={item.path}>
 										📁 {item.path}
 									</div>
 								</div>
 								<div class="shrink-0">
 									{#if item.status === 'success'}
-										<div class="flex items-center gap-1 text-emerald-600 text-xs">
+										<div class="flex items-center gap-1 text-xs text-emerald-600">
 											<CheckCircleIcon class="h-4 w-4" />
 											<span class="hidden sm:inline">成功</span>
 										</div>
 									{:else if item.status === 'deleted'}
-										<div class="flex items-center gap-1 text-amber-600 text-xs">
+										<div class="flex items-center gap-1 text-xs text-amber-600">
 											<Trash2Icon class="h-4 w-4" />
 											<span class="hidden sm:inline">已删除</span>
 										</div>
 									{:else}
-										<div class="flex items-center gap-1 text-rose-600 text-xs">
+										<div class="flex items-center gap-1 text-xs text-rose-600">
 											<XCircleIcon class="h-4 w-4" />
 											<span class="hidden sm:inline">失败</span>
 										</div>

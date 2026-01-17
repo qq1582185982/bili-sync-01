@@ -83,12 +83,7 @@ async fn fetch_latest_wasm_hash() -> Option<String> {
 
     for chunk in chunks {
         let chunk_url = format!("https://static.deepseek.com/chat/static/{}", chunk);
-        if let Ok(resp) = client
-            .get(&chunk_url)
-            .header("User-Agent", "Mozilla/5.0")
-            .send()
-            .await
-        {
+        if let Ok(resp) = client.get(&chunk_url).header("User-Agent", "Mozilla/5.0").send().await {
             if let Ok(chunk_js) = resp.text().await {
                 if let Some(caps) = wasm_re.captures(&chunk_js) {
                     let hash = caps.get(1)?.as_str().to_string();
@@ -104,10 +99,7 @@ async fn fetch_latest_wasm_hash() -> Option<String> {
 
 /// 下载 WASM 文件
 async fn download_wasm(hash: &str) -> anyhow::Result<Vec<u8>> {
-    let url = format!(
-        "https://static.deepseek.com/chat/static/sha3_wasm_bg.{}.wasm",
-        hash
-    );
+    let url = format!("https://static.deepseek.com/chat/static/sha3_wasm_bg.{}.wasm", hash);
 
     debug!("下载 WASM: {}", url);
 
@@ -273,9 +265,8 @@ pub struct PowResponse {
 }
 
 /// WASM 运行时（全局单例，支持重新初始化）
-static WASM_RUNTIME: Lazy<parking_lot::RwLock<Option<WasmPowSolver>>> = Lazy::new(|| {
-    parking_lot::RwLock::new(init_wasm_solver())
-});
+static WASM_RUNTIME: Lazy<parking_lot::RwLock<Option<WasmPowSolver>>> =
+    Lazy::new(|| parking_lot::RwLock::new(init_wasm_solver()));
 
 /// 初始化 WASM 求解器
 fn init_wasm_solver() -> Option<WasmPowSolver> {
@@ -325,14 +316,11 @@ impl WasmPowSolver {
             .get_memory(&mut store, "memory")
             .ok_or_else(|| anyhow::anyhow!("找不到 memory 导出"))?;
 
-        let malloc = instance
-            .get_typed_func::<(i32, i32), i32>(&mut store, "__wbindgen_export_0")?;
+        let malloc = instance.get_typed_func::<(i32, i32), i32>(&mut store, "__wbindgen_export_0")?;
 
-        let stack_pointer = instance
-            .get_typed_func::<i32, i32>(&mut store, "__wbindgen_add_to_stack_pointer")?;
+        let stack_pointer = instance.get_typed_func::<i32, i32>(&mut store, "__wbindgen_add_to_stack_pointer")?;
 
-        let wasm_solve = instance
-            .get_typed_func::<(i32, i32, i32, i32, i32, f64), ()>(&mut store, "wasm_solve")?;
+        let wasm_solve = instance.get_typed_func::<(i32, i32, i32, i32, i32, f64), ()>(&mut store, "wasm_solve")?;
 
         Ok(Self {
             store,
@@ -350,9 +338,10 @@ impl WasmPowSolver {
         let paths = [
             std::env::var("DEEPSEEK_WASM_PATH").ok(),
             Some(wasm_file_path().to_string_lossy().to_string()),
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.join("sha3_wasm.wasm").to_string_lossy().to_string())),
+            std::env::current_exe().ok().and_then(|p| {
+                p.parent()
+                    .map(|d| d.join("sha3_wasm.wasm").to_string_lossy().to_string())
+            }),
         ];
 
         for path in paths.iter().flatten() {
@@ -399,7 +388,8 @@ impl WasmPowSolver {
 
         // 读取结果（f64 在 retptr + 8 位置）
         let mut result_bytes = [0u8; 8];
-        self.memory.read(&self.store, (retptr + 8) as usize, &mut result_bytes)?;
+        self.memory
+            .read(&self.store, (retptr + 8) as usize, &mut result_bytes)?;
         let answer = f64::from_le_bytes(result_bytes);
 
         // 恢复栈指针
@@ -477,8 +467,7 @@ fn solve_pow_keccak(challenge: &PowChallenge) -> u64 {
 
     debug!(
         "使用 Keccak-256 求解 POW: prefix={}, target_prefix={:#018x}",
-        &prefix,
-        target_prefix
+        &prefix, target_prefix
     );
 
     let start = std::time::Instant::now();

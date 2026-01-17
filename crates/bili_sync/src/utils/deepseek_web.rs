@@ -138,42 +138,20 @@ impl DeepSeekWebClient {
     /// 获取默认请求头
     fn get_headers(&self) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::ACCEPT,
-            "*/*".parse().unwrap(),
-        );
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            "application/json".parse().unwrap(),
-        );
-        headers.insert(
-            reqwest::header::ORIGIN,
-            BASE_URL.parse().unwrap(),
-        );
-        headers.insert(
-            reqwest::header::REFERER,
-            format!("{}/", BASE_URL).parse().unwrap(),
-        );
+        headers.insert(reqwest::header::ACCEPT, "*/*".parse().unwrap());
+        headers.insert(reqwest::header::CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.insert(reqwest::header::ORIGIN, BASE_URL.parse().unwrap());
+        headers.insert(reqwest::header::REFERER, format!("{}/", BASE_URL).parse().unwrap());
         headers.insert(
             reqwest::header::USER_AGENT,
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".parse().unwrap(),
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                .parse()
+                .unwrap(),
         );
-        headers.insert(
-            "x-app-version",
-            APP_VERSION.parse().unwrap(),
-        );
-        headers.insert(
-            "x-client-locale",
-            "zh_CN".parse().unwrap(),
-        );
-        headers.insert(
-            "x-client-platform",
-            "web".parse().unwrap(),
-        );
-        headers.insert(
-            "x-client-version",
-            "1.6.0".parse().unwrap(),
-        );
+        headers.insert("x-app-version", APP_VERSION.parse().unwrap());
+        headers.insert("x-client-locale", "zh_CN".parse().unwrap());
+        headers.insert("x-client-platform", "web".parse().unwrap());
+        headers.insert("x-client-version", "1.6.0".parse().unwrap());
         headers.insert(
             reqwest::header::AUTHORIZATION,
             format!("Bearer {}", self.token).parse().unwrap(),
@@ -217,11 +195,7 @@ impl DeepSeekWebClient {
             ));
         }
 
-        let session_id = data
-            .data
-            .ok_or_else(|| anyhow!("创建会话响应无数据"))?
-            .biz_data
-            .id;
+        let session_id = data.data.ok_or_else(|| anyhow!("创建会话响应无数据"))?.biz_data.id;
 
         info!("DeepSeek 会话创建成功: {}", session_id);
         Ok(session_id)
@@ -474,7 +448,11 @@ impl DeepSeekWebClient {
                                 if let Some(fragments) = item.get("v").and_then(|v| v.as_array()) {
                                     for fragment in fragments {
                                         if let Some(content) = fragment.get("content").and_then(|c| c.as_str()) {
-                                            debug!("SSE BATCH/fragments: content='{}', 累计长度={}", content, full_response.len());
+                                            debug!(
+                                                "SSE BATCH/fragments: content='{}', 累计长度={}",
+                                                content,
+                                                full_response.len()
+                                            );
                                             full_response.push_str(content);
                                         }
                                     }
@@ -485,11 +463,17 @@ impl DeepSeekWebClient {
                 }
                 // 格式2: fragments content 追加
                 // 例: p="response/fragments/-1/content", o="APPEND", v="心"
-                else if p_field.map(|p| p.contains("fragments") && p.contains("content")).unwrap_or(false)
+                else if p_field
+                    .map(|p| p.contains("fragments") && p.contains("content"))
+                    .unwrap_or(false)
                     && o_field == Some("APPEND")
                 {
                     if let Some(text) = v_field.and_then(|v| v.as_str()) {
-                        debug!("SSE fragments/content APPEND: v='{}', 累计长度={}", text, full_response.len());
+                        debug!(
+                            "SSE fragments/content APPEND: v='{}', 累计长度={}",
+                            text,
+                            full_response.len()
+                        );
                         full_response.push_str(text);
                     }
                 }
@@ -499,7 +483,11 @@ impl DeepSeekWebClient {
                     if let Some(text) = v_field.and_then(|v| v.as_str()) {
                         // 只在 APPEND 或空操作时追加内容（与 chat.js 一致）
                         if operation == "APPEND" || operation.is_empty() {
-                            debug!("SSE response/content APPEND: v='{}', 累计长度={}", text, full_response.len());
+                            debug!(
+                                "SSE response/content APPEND: v='{}', 累计长度={}",
+                                text,
+                                full_response.len()
+                            );
                             full_response.push_str(text);
                         } else {
                             // SET 或其他操作：记录但忽略（chat.js 也不处理 SET）
@@ -518,10 +506,17 @@ impl DeepSeekWebClient {
         }
 
         if full_response.is_empty() {
-            return Err(anyhow!("DeepSeek 响应为空，原始响应: {}...", &body[..body.len().min(200)]));
+            return Err(anyhow!(
+                "DeepSeek 响应为空，原始响应: {}...",
+                &body[..body.len().min(200)]
+            ));
         }
 
-        debug!("SSE 解析完成: 共{}个数据块, 响应长度={}", chunk_count, full_response.len());
+        debug!(
+            "SSE 解析完成: 共{}个数据块, 响应长度={}",
+            chunk_count,
+            full_response.len()
+        );
 
         Ok((full_response, message_id))
     }

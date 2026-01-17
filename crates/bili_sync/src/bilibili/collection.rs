@@ -237,7 +237,7 @@ impl<'a> Collection<'a> {
                             ("mid", self.collection.mid.as_str()),
                             ("series_id", self.collection.sid.as_str()),
                             ("only_normal", "true"),
-                            ("sort", "asc"),  // 正序
+                            ("sort", "asc"), // 正序
                             ("pn", page_str.as_str()),
                             ("ps", "30"),
                         ],
@@ -250,7 +250,7 @@ impl<'a> Collection<'a> {
                         vec![
                             ("mid", self.collection.mid.as_str()),
                             ("season_id", self.collection.sid.as_str()),
-                            ("sort_reverse", "false"),  // 正序
+                            ("sort_reverse", "false"), // 正序
                             ("page_num", page_str.as_str()),
                             ("page_size", "30"),
                         ],
@@ -259,7 +259,8 @@ impl<'a> Collection<'a> {
                 ),
             };
 
-            let videos = self.client
+            let videos = self
+                .client
                 .request(Method::GET, url)
                 .await
                 .query(&query)
@@ -291,10 +292,7 @@ impl<'a> Collection<'a> {
                 CollectionType::Series => ["num", "size", "total"],
                 CollectionType::Season => ["page_num", "page_size", "total"],
             };
-            let values: Vec<Option<i64>> = fields
-                .iter()
-                .map(|f| page_info[f].as_i64())
-                .collect();
+            let values: Vec<Option<i64>> = fields.iter().map(|f| page_info[f].as_i64()).collect();
 
             if let [Some(num), Some(size), Some(total)] = values[..] {
                 if num * size >= total {
@@ -306,7 +304,11 @@ impl<'a> Collection<'a> {
             }
         }
 
-        debug!("获取合集 {:?} 的视频顺序，共 {} 个视频", self.collection, order_map.len());
+        debug!(
+            "获取合集 {:?} 的视频顺序，共 {} 个视频",
+            self.collection,
+            order_map.len()
+        );
         Ok(order_map)
     }
 }

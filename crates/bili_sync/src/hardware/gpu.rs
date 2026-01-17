@@ -1,4 +1,4 @@
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 
 #[derive(Debug, Clone)]
 pub enum GpuVendor {
@@ -47,7 +47,9 @@ impl GpuInfo {
             device_id: "0x0000747E".to_string(),
             driver_version: "vs_5_0 ps_5_0".to_string(),
             directx_version: "Direct3D11".to_string(),
-            angle_info: "ANGLE (AMD, AMD Radeon RX 7800 XT (0x0000747E) Direct3D11 vs_5_0 ps_5_0, D3D11)ATI Technologies Inc.".to_string(),
+            angle_info:
+                "ANGLE (AMD, AMD Radeon RX 7800 XT (0x0000747E) Direct3D11 vs_5_0 ps_5_0, D3D11)ATI Technologies Inc."
+                    .to_string(),
         }
     }
 
@@ -58,7 +60,8 @@ impl GpuInfo {
             device_id: "0x000056A0".to_string(),
             driver_version: "vs_5_0 ps_5_0".to_string(),
             directx_version: "Direct3D11".to_string(),
-            angle_info: "ANGLE (Intel, Intel Arc A770 Graphics (0x000056A0) Direct3D11 vs_5_0 ps_5_0, D3D11)Intel Inc.".to_string(),
+            angle_info: "ANGLE (Intel, Intel Arc A770 Graphics (0x000056A0) Direct3D11 vs_5_0 ps_5_0, D3D11)Intel Inc."
+                .to_string(),
         }
     }
 
@@ -92,7 +95,9 @@ impl GpuInfo {
             device_id: "0x0000744C".to_string(),
             driver_version: "vs_5_0 ps_5_0".to_string(),
             directx_version: "Direct3D11".to_string(),
-            angle_info: "ANGLE (AMD, AMD Radeon RX 7900 XTX (0x0000744C) Direct3D11 vs_5_0 ps_5_0, D3D11)ATI Technologies Inc.".to_string(),
+            angle_info:
+                "ANGLE (AMD, AMD Radeon RX 7900 XTX (0x0000744C) Direct3D11 vs_5_0 ps_5_0, D3D11)ATI Technologies Inc."
+                    .to_string(),
         }
     }
 
@@ -103,7 +108,9 @@ impl GpuInfo {
             device_id: "0x000074E8".to_string(),
             driver_version: "vs_5_0 ps_5_0".to_string(),
             directx_version: "Direct3D11".to_string(),
-            angle_info: "ANGLE (AMD, AMD Radeon RX 7700 XT (0x000074E8) Direct3D11 vs_5_0 ps_5_0, D3D11)ATI Technologies Inc.".to_string(),
+            angle_info:
+                "ANGLE (AMD, AMD Radeon RX 7700 XT (0x000074E8) Direct3D11 vs_5_0 ps_5_0, D3D11)ATI Technologies Inc."
+                    .to_string(),
         }
     }
 
@@ -114,7 +121,8 @@ impl GpuInfo {
             device_id: "0x000056A1".to_string(),
             driver_version: "vs_5_0 ps_5_0".to_string(),
             directx_version: "Direct3D11".to_string(),
-            angle_info: "ANGLE (Intel, Intel Arc A750 Graphics (0x000056A1) Direct3D11 vs_5_0 ps_5_0, D3D11)Intel Inc.".to_string(),
+            angle_info: "ANGLE (Intel, Intel Arc A750 Graphics (0x000056A1) Direct3D11 vs_5_0 ps_5_0, D3D11)Intel Inc."
+                .to_string(),
         }
     }
 

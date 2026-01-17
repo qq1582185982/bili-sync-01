@@ -1,9 +1,9 @@
 use super::HardwareInfo;
+use anyhow::Result;
 use rand::Rng;
 use serde_json::json;
-use tracing::{debug, info, warn};
 use std::sync::OnceLock;
-use anyhow::Result;
+use tracing::{debug, info, warn};
 
 // 全局硬件指纹和用户ID管理 - 确保会话期间指纹固定
 static GLOBAL_HARDWARE_FINGERPRINT: OnceLock<HardwareFingerprint> = OnceLock::new();
@@ -63,12 +63,12 @@ impl HardwareFingerprint {
     pub fn with_random_resolution(hardware: HardwareInfo) -> Self {
         let mut rng = rand::thread_rng();
         let resolutions = [
-            (1920, 1080),  // 1080p - 最常见
-            (2560, 1440),  // 1440p - 主流游戏
-            (3840, 2160),  // 4K - 高端
-            (3440, 1440),  // 超宽屏
-            (1366, 768),   // 笔记本常见
-            (2560, 1600),  // 16:10 显示器
+            (1920, 1080), // 1080p - 最常见
+            (2560, 1440), // 1440p - 主流游戏
+            (3840, 2160), // 4K - 高端
+            (3440, 1440), // 超宽屏
+            (1366, 768),  // 笔记本常见
+            (2560, 1600), // 16:10 显示器
         ];
         let weights = [40, 25, 15, 10, 7, 3]; // 权重分布
 
@@ -109,8 +109,7 @@ impl HardwareFingerprint {
 
         debug!(
             "生成弹幕交互数据 - 视频时长: {}s, 最大时长: {}ms, 交互次数: {}, 分辨率: {}x{}",
-            video_duration, max_duration, interaction_count,
-            self.screen_resolution.0, self.screen_resolution.1
+            video_duration, max_duration, interaction_count, self.screen_resolution.0, self.screen_resolution.1
         );
 
         // 生成更真实的时间分布
@@ -142,10 +141,12 @@ impl HardwareFingerprint {
                 0
             } else {
                 // 基于时间间隔调整z值
-                let time_gap = if i > 0 { timestamp - timestamps[i-1] } else { 0 };
-                if time_gap < 2000 { // 快速连续点击
+                let time_gap = if i > 0 { timestamp - timestamps[i - 1] } else { 0 };
+                if time_gap < 2000 {
+                    // 快速连续点击
                     rng.gen_range(50..120)
-                } else { // 间隔较长
+                } else {
+                    // 间隔较长
                     rng.gen_range(120..200)
                 }
             };
@@ -170,7 +171,10 @@ impl HardwareFingerprint {
 
     pub fn generate_dm_img_inter(&self) -> String {
         let mut rng = rand::thread_rng();
-        debug!("生成弹幕交互统计数据，使用分辨率: {}x{}", self.screen_resolution.0, self.screen_resolution.1);
+        debug!(
+            "生成弹幕交互统计数据，使用分辨率: {}x{}",
+            self.screen_resolution.0, self.screen_resolution.1
+        );
 
         let ds_data = json!([{
             "t": 2,
@@ -211,7 +215,11 @@ impl HardwareFingerprint {
     }
 
     pub fn get_screen_info(&self) -> (u32, u32, f32) {
-        (self.screen_resolution.0, self.screen_resolution.1, self.device_pixel_ratio)
+        (
+            self.screen_resolution.0,
+            self.screen_resolution.1,
+            self.device_pixel_ratio,
+        )
     }
 
     // 预设配置方法
@@ -288,8 +296,8 @@ impl HardwareFingerprint {
             5 => Self::workstation_mainstream(),
             6 => Self::budget_setup(),
             7 => Self::budget_mainstream(),
-            8 => Self::gaming_setup_random_res(),      // 激活gaming_setup_random_res
-            9 => Self::gaming_high_end_random_res(),   // 激活gaming_high_end_random_res
+            8 => Self::gaming_setup_random_res(),    // 激活gaming_setup_random_res
+            9 => Self::gaming_high_end_random_res(), // 激活gaming_high_end_random_res
             _ => Self::workstation_setup_random_res(), // 激活workstation_setup_random_res
         }
     }
@@ -301,12 +309,12 @@ impl HardwareFingerprint {
             "high_end" => match rng.gen_range(0..3) {
                 0 => Self::gaming_high_end(),
                 1 => Self::workstation_high_end(),
-                _ => Self::firefox_high_end(),  // 激活firefox_high_end
+                _ => Self::firefox_high_end(), // 激活firefox_high_end
             },
             "mainstream" => match rng.gen_range(0..4) {
                 0 => Self::gaming_mainstream(),
                 1 => Self::workstation_mainstream(),
-                2 => Self::gaming_setup(), // RTX 4070 Ti作为主流高端
+                2 => Self::gaming_setup(),        // RTX 4070 Ti作为主流高端
                 _ => Self::firefox_workstation(), // 激活firefox_workstation
             },
             "budget" => match rng.gen_range(0..2) {
@@ -330,7 +338,8 @@ impl HardwareFingerprint {
             "chrome" => Self::random_common_setup(),
             _ => {
                 // 随机选择浏览器
-                if rng.gen_bool(0.7) { // 70%概率Chrome，30%概率Firefox
+                if rng.gen_bool(0.7) {
+                    // 70%概率Chrome，30%概率Firefox
                     Self::random_common_setup()
                 } else {
                     Self::random_by_browser("firefox")
@@ -371,33 +380,37 @@ impl HardwareFingerprint {
         // 先随机选择配置类别，激活不同的预设方法
         let config_type = rng.gen_range(0..13);
         let base_config = match config_type {
-            0 => Self::gaming_high_end(),          // 激活gaming_high_end
-            1 => Self::gaming_mainstream(),        // 激活gaming_mainstream
-            2 => Self::workstation_high_end(),     // 激活workstation_high_end
-            3 => Self::workstation_mainstream(),   // 激活workstation_mainstream
-            4 => Self::firefox_gaming(),           // 激活firefox_gaming
+            0 => Self::gaming_high_end(),              // 激活gaming_high_end
+            1 => Self::gaming_mainstream(),            // 激活gaming_mainstream
+            2 => Self::workstation_high_end(),         // 激活workstation_high_end
+            3 => Self::workstation_mainstream(),       // 激活workstation_mainstream
+            4 => Self::firefox_gaming(),               // 激活firefox_gaming
             5 => Self::firefox_workstation_high_end(), // 激活firefox_workstation_high_end
-            6 => Self::gaming_setup(),             // 激活gaming_setup
-            7 => Self::workstation_setup(),        // 激活workstation_setup
-            8 => Self::random_common_setup(),      // 激活random_common_setup
-            9 => Self::random_by_tier("high_end"), // 激活random_by_tier
-            10 => Self::random_by_browser("firefox"), // 激活random_by_browser
-            11 => Self::default_config(),          // 激活default_config和HardwareInfo::new
-            _ => Self::fully_random(),             // 激活fully_random（递归调用）
+            6 => Self::gaming_setup(),                 // 激活gaming_setup
+            7 => Self::workstation_setup(),            // 激活workstation_setup
+            8 => Self::random_common_setup(),          // 激活random_common_setup
+            9 => Self::random_by_tier("high_end"),     // 激活random_by_tier
+            10 => Self::random_by_browser("firefox"),  // 激活random_by_browser
+            11 => Self::default_config(),              // 激活default_config和HardwareInfo::new
+            _ => Self::fully_random(),                 // 激活fully_random（递归调用）
         };
 
         // 随机应用分辨率配置，激活分辨率方法
         let resolution_type = rng.gen_range(0..4);
         match resolution_type {
-            0 => Self::with_1440p(base_config.hardware),    // 激活with_1440p
-            1 => Self::with_4k(base_config.hardware),       // 激活with_4k
-            2 => Self::with_ultrawide(base_config.hardware), // 激活with_ultrawide
+            0 => Self::with_1440p(base_config.hardware),             // 激活with_1440p
+            1 => Self::with_4k(base_config.hardware),                // 激活with_4k
+            2 => Self::with_ultrawide(base_config.hardware),         // 激活with_ultrawide
             _ => Self::with_random_resolution(base_config.hardware), // 保持随机分辨率
         }
     }
 
     // 基于用户加载或创建硬件指纹
-    pub async fn load_or_create_for_user(user_id: i64, db: &sea_orm::DatabaseConnection, force_regenerate: bool) -> Result<HardwareFingerprint> {
+    pub async fn load_or_create_for_user(
+        user_id: i64,
+        db: &sea_orm::DatabaseConnection,
+        force_regenerate: bool,
+    ) -> Result<HardwareFingerprint> {
         use crate::config::ConfigManager;
 
         let config_manager = ConfigManager::new(db.clone());
@@ -478,7 +491,10 @@ impl HardwareFingerprint {
                 // 用户切换，为新用户生成指纹
                 info!("检测到用户切换：{} -> {}，为新用户生成硬件指纹", current_user, user_id);
                 let _new_fingerprint = Self::load_or_create_for_user(user_id, db, true).await?;
-                info!("用户 {} 的硬件指纹已生成，当前会话继续使用原用户 {} 的指纹", user_id, current_user);
+                info!(
+                    "用户 {} 的硬件指纹已生成，当前会话继续使用原用户 {} 的指纹",
+                    user_id, current_user
+                );
                 return Ok(());
             }
         }
@@ -519,7 +535,6 @@ impl HardwareFingerprint {
         Ok(())
     }
 
-
     // 记录硬件指纹详细信息
     fn log_fingerprint_details(fingerprint: &HardwareFingerprint, is_new: bool) {
         let action = if is_new { "生成" } else { "加载" };
@@ -540,11 +555,14 @@ impl HardwareFingerprint {
         debug!("GPU详细信息: {}", gpu_full_info);
         debug!("浏览器: {}", browser_type);
         debug!("WebGL上下文: {}", webgl_context);
-        debug!("WebGL扩展: {}", if webgl_extensions.len() > 100 {
-            format!("{}... (共{}个字符)", &webgl_extensions[..100], webgl_extensions.len())
-        } else {
-            webgl_extensions
-        });
+        debug!(
+            "WebGL扩展: {}",
+            if webgl_extensions.len() > 100 {
+                format!("{}... (共{}个字符)", &webgl_extensions[..100], webgl_extensions.len())
+            } else {
+                webgl_extensions
+            }
+        );
         debug!("分辨率: {}x{}", width, height);
         debug!("===========================");
     }
@@ -588,16 +606,11 @@ impl HardwareFingerprint {
         }
     }
 
-
     // 从JSON数据恢复硬件指纹
     pub fn from_json(json_data: &serde_json::Value) -> Result<Self> {
-        let device_pixel_ratio = json_data["device_pixel_ratio"]
-            .as_f64()
-            .unwrap_or(1.0) as f32;
+        let device_pixel_ratio = json_data["device_pixel_ratio"].as_f64().unwrap_or(1.0) as f32;
 
-        let timezone_offset = json_data["timezone_offset"]
-            .as_i64()
-            .unwrap_or(-480) as i32;
+        let timezone_offset = json_data["timezone_offset"].as_i64().unwrap_or(-480) as i32;
 
         let screen_resolution = if let Some(resolution) = json_data["screen_resolution"].as_array() {
             (
@@ -637,7 +650,10 @@ impl HardwareFingerprint {
 
         let webgl = crate::hardware::WebGLInfo {
             version: webgl_data["version"].as_str().unwrap_or("WebGL 1.0").to_string(),
-            shading_language_version: webgl_data["shading_language_version"].as_str().unwrap_or("WebGL GLSL ES 1.0").to_string(),
+            shading_language_version: webgl_data["shading_language_version"]
+                .as_str()
+                .unwrap_or("WebGL GLSL ES 1.0")
+                .to_string(),
             vendor: webgl_data["vendor"].as_str().unwrap_or("WebKit").to_string(),
             renderer: webgl_data["renderer"].as_str().unwrap_or("WebKit WebGL").to_string(),
             extensions,

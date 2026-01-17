@@ -57,8 +57,7 @@ impl VideoSource for submission::Model {
         // 如果有选择的视频列表，检查是否是首次扫描
         if self.selected_videos.is_some() {
             // 检查 latest_row_at 是否为初始值（首次扫描）
-            let is_first_scan = latest_row_at_string == "1970-01-01 00:00:00"
-                || latest_row_at_string.is_empty();
+            let is_first_scan = latest_row_at_string == "1970-01-01 00:00:00" || latest_row_at_string.is_empty();
 
             if is_first_scan {
                 // 首次扫描：需要获取所有视频以找到选定的视频
@@ -69,10 +68,7 @@ impl VideoSource for submission::Model {
                 return true;
             }
             // 非首次扫描：使用增量逻辑，只获取新视频
-            debug!(
-                "UP主「{}」选择性下载增量扫描：只获取新发布的视频",
-                self.upper_name
-            );
+            debug!("UP主「{}」选择性下载增量扫描：只获取新发布的视频", self.upper_name);
         }
 
         // 增量扫描逻辑：只获取比上次扫描时间更新的视频
@@ -120,10 +116,12 @@ impl VideoSource for submission::Model {
             info!("开始断点恢复「{}」投稿扫描..", self.upper_name);
         } else if self.selected_videos.is_some() {
             // 选择性下载模式
-            let is_first_scan = self.latest_row_at == "1970-01-01 00:00:00"
-                || self.latest_row_at.is_empty();
+            let is_first_scan = self.latest_row_at == "1970-01-01 00:00:00" || self.latest_row_at.is_empty();
             if is_first_scan {
-                info!("开始全量扫描「{}」投稿（首次选择性下载，需匹配选择列表）..", self.upper_name);
+                info!(
+                    "开始全量扫描「{}」投稿（首次选择性下载，需匹配选择列表）..",
+                    self.upper_name
+                );
             } else {
                 info!("开始增量扫描「{}」投稿（选择性下载，仅获取新视频）..", self.upper_name);
             }

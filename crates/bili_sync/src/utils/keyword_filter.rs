@@ -77,26 +77,17 @@ pub fn should_filter_video_dual_list(
     if !whitelist.is_empty() {
         let matches_whitelist = whitelist.iter().any(|regex| regex.is_match(title));
         if !matches_whitelist {
-            debug!(
-                "视频标题 '{}' 未匹配白名单关键词，将被过滤",
-                title
-            );
+            debug!("视频标题 '{}' 未匹配白名单关键词，将被过滤", title);
             return true; // 不在白名单中，过滤
         }
-        debug!(
-            "视频标题 '{}' 匹配白名单关键词",
-            title
-        );
+        debug!("视频标题 '{}' 匹配白名单关键词", title);
     }
 
     // 2. 检查黑名单（即使通过白名单，匹配黑名单的也过滤）
     if !blacklist.is_empty() {
         let matches_blacklist = blacklist.iter().any(|regex| regex.is_match(title));
         if matches_blacklist {
-            debug!(
-                "视频标题 '{}' 匹配黑名单关键词，将被过滤",
-                title
-            );
+            debug!("视频标题 '{}' 匹配黑名单关键词，将被过滤", title);
             return true; // 在黑名单中，过滤
         }
     }
@@ -125,7 +116,7 @@ pub fn should_filter_video_with_mode(
 ) -> bool {
     let keywords = match keyword_filters {
         Some(filters) => parse_keywords(filters, true), // 旧API默认区分大小写
-        None => return false, // 没有关键词配置，不过滤任何视频
+        None => return false,                           // 没有关键词配置，不过滤任何视频
     };
 
     if keywords.is_empty() {
@@ -143,10 +134,7 @@ pub fn should_filter_video_with_mode(
         KeywordFilterMode::Blacklist => {
             // 黑名单模式：匹配到关键词则过滤
             if matches_any {
-                debug!(
-                    "视频标题 '{}' 匹配黑名单关键词，将被过滤",
-                    title
-                );
+                debug!("视频标题 '{}' 匹配黑名单关键词，将被过滤", title);
                 true
             } else {
                 false
@@ -155,16 +143,10 @@ pub fn should_filter_video_with_mode(
         KeywordFilterMode::Whitelist => {
             // 白名单模式：没有匹配到关键词则过滤
             if matches_any {
-                debug!(
-                    "视频标题 '{}' 匹配白名单关键词，将被下载",
-                    title
-                );
+                debug!("视频标题 '{}' 匹配白名单关键词，将被下载", title);
                 false
             } else {
-                debug!(
-                    "视频标题 '{}' 未匹配白名单关键词，将被过滤",
-                    title
-                );
+                debug!("视频标题 '{}' 未匹配白名单关键词，将被过滤", title);
                 true
             }
         }
@@ -203,18 +185,15 @@ fn parse_keywords(keyword_filters: &str, case_sensitive: bool) -> Vec<Regex> {
 
     keywords
         .into_iter()
-        .filter_map(|pattern| {
-            match RegexBuilder::new(&pattern)
-                .case_insensitive(!case_sensitive)
-                .build()
-            {
+        .filter_map(
+            |pattern| match RegexBuilder::new(&pattern).case_insensitive(!case_sensitive).build() {
                 Ok(regex) => Some(regex),
                 Err(e) => {
                     warn!("编译正则表达式 '{}' 失败: {}", pattern, e);
                     None
                 }
-            }
-        })
+            },
+        )
         .collect()
 }
 
@@ -234,14 +213,24 @@ mod tests {
     fn test_dual_list_no_filters() {
         // 没有任何过滤器，不过滤
         assert!(!should_filter_video_dual_list("测试视频", &None, &None, true));
-        assert!(!should_filter_video_dual_list("测试视频", &Some("[]".to_string()), &Some("[]".to_string()), true));
+        assert!(!should_filter_video_dual_list(
+            "测试视频",
+            &Some("[]".to_string()),
+            &Some("[]".to_string()),
+            true
+        ));
     }
 
     #[test]
     fn test_dual_list_blacklist_only() {
         let blacklist = Some(r#"["广告", "预告"]"#.to_string());
         // 只有黑名单：匹配黑名单的被过滤
-        assert!(should_filter_video_dual_list("这是一个广告视频", &blacklist, &None, true));
+        assert!(should_filter_video_dual_list(
+            "这是一个广告视频",
+            &blacklist,
+            &None,
+            true
+        ));
         assert!(should_filter_video_dual_list("预告片", &blacklist, &None, true));
         // 不匹配黑名单的不过滤
         assert!(!should_filter_video_dual_list("正常视频", &blacklist, &None, true));
@@ -282,10 +271,11 @@ mod tests {
         let blacklist = Some(r#"["预告"]"#.to_string());
         let whitelist = Some(r#"["PV"]"#.to_string());
 
-        assert!(!should_filter_video_dual_list("XXX PV", &blacklist, &whitelist, true));      // 下载
-        assert!(should_filter_video_dual_list("预告PV", &blacklist, &whitelist, true));       // 不下载
-        assert!(should_filter_video_dual_list("第一集", &blacklist, &whitelist, true));       // 不下载
-        assert!(should_filter_video_dual_list("预告", &blacklist, &whitelist, true));         // 不下载
+        assert!(!should_filter_video_dual_list("XXX PV", &blacklist, &whitelist, true)); // 下载
+        assert!(should_filter_video_dual_list("预告PV", &blacklist, &whitelist, true)); // 不下载
+        assert!(should_filter_video_dual_list("第一集", &blacklist, &whitelist, true)); // 不下载
+        assert!(should_filter_video_dual_list("预告", &blacklist, &whitelist, true));
+        // 不下载
     }
 
     #[test]
@@ -294,8 +284,9 @@ mod tests {
         let whitelist = Some(r#"["PV", "MV"]"#.to_string());
 
         // 区分大小写时，小写的 pv 不匹配
-        assert!(should_filter_video_dual_list("官方pv", &None, &whitelist, true));  // 被过滤
-        assert!(!should_filter_video_dual_list("官方PV", &None, &whitelist, true)); // 不过滤
+        assert!(should_filter_video_dual_list("官方pv", &None, &whitelist, true)); // 被过滤
+        assert!(!should_filter_video_dual_list("官方PV", &None, &whitelist, true));
+        // 不过滤
     }
 
     #[test]
@@ -306,7 +297,8 @@ mod tests {
         // 不区分大小写时，小写的 pv 也能匹配
         assert!(!should_filter_video_dual_list("官方pv", &None, &whitelist, false)); // 不过滤
         assert!(!should_filter_video_dual_list("官方PV", &None, &whitelist, false)); // 不过滤
-        assert!(!should_filter_video_dual_list("官方Pv", &None, &whitelist, false)); // 不过滤
+        assert!(!should_filter_video_dual_list("官方Pv", &None, &whitelist, false));
+        // 不过滤
     }
 
     #[test]
@@ -315,12 +307,32 @@ mod tests {
         let blacklist = Some(r#"["AD", "广告"]"#.to_string());
 
         // 不区分大小写时，小写的 ad 也能匹配黑名单
-        assert!(should_filter_video_dual_list("This is an ad video", &blacklist, &None, false)); // 被过滤
-        assert!(should_filter_video_dual_list("This is an AD video", &blacklist, &None, false)); // 被过滤
+        assert!(should_filter_video_dual_list(
+            "This is an ad video",
+            &blacklist,
+            &None,
+            false
+        )); // 被过滤
+        assert!(should_filter_video_dual_list(
+            "This is an AD video",
+            &blacklist,
+            &None,
+            false
+        )); // 被过滤
 
         // 区分大小写时，小写的 ad 不匹配
-        assert!(!should_filter_video_dual_list("This is an ad video", &blacklist, &None, true)); // 不过滤
-        assert!(should_filter_video_dual_list("This is an AD video", &blacklist, &None, true));  // 被过滤
+        assert!(!should_filter_video_dual_list(
+            "This is an ad video",
+            &blacklist,
+            &None,
+            true
+        )); // 不过滤
+        assert!(should_filter_video_dual_list(
+            "This is an AD video",
+            &blacklist,
+            &None,
+            true
+        )); // 被过滤
     }
 
     #[test]

@@ -148,8 +148,7 @@
 							<ResponsiveButton
 								size="sm"
 								variant="outline"
-								onclick={() =>
-									window.open('https://NeeYoonc.github.io/bili-sync-up/', '_blank')}
+								onclick={() => window.open('https://NeeYoonc.github.io/bili-sync-up/', '_blank')}
 								icon={BookOpen}
 								text="文档"
 								title="查看文档"

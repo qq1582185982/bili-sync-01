@@ -104,7 +104,11 @@ impl Downloader {
 
         let (total_size, range_supported) = self.get_size_and_range_support(url).await?;
         ensure!(total_size > 0, "无法获取文件大小");
-        ensure!(total_size >= MIN_PARALLEL_SIZE, "文件过小({} bytes)，不启用分片下载", total_size);
+        ensure!(
+            total_size >= MIN_PARALLEL_SIZE,
+            "文件过小({} bytes)，不启用分片下载",
+            total_size
+        );
         ensure!(range_supported, "服务器不支持Range分片下载");
 
         // 计算分片数（按最小分片大小限制）
@@ -144,7 +148,12 @@ impl Downloader {
 
         let results = futures::future::try_join_all(tasks).await?;
         let downloaded: u64 = results.into_iter().sum();
-        ensure!(downloaded == total_size, "分片下载大小不一致: {} != {}", downloaded, total_size);
+        ensure!(
+            downloaded == total_size,
+            "分片下载大小不一致: {} != {}",
+            downloaded,
+            total_size
+        );
 
         Ok(())
     }

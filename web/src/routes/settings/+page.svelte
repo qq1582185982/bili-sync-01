@@ -3463,7 +3463,11 @@
 									{#if activeNotificationChannel !== 'none'}
 										<Badge variant="default" class="bg-green-500">已配置</Badge>
 										<span class="text-sm text-green-700 dark:text-green-400">
-											{activeNotificationChannel === 'serverchan' ? 'Server酱' : activeNotificationChannel === 'serverchan3' ? 'Server酱3' : '企业微信'}已配置
+											{activeNotificationChannel === 'serverchan'
+												? 'Server酱'
+												: activeNotificationChannel === 'serverchan3'
+													? 'Server酱3'
+													: '企业微信'}已配置
 										</span>
 									{:else}
 										<Badge variant="secondary">未配置</Badge>
@@ -3559,9 +3563,7 @@
 										bind:value={serverchan3Uid}
 										placeholder="请输入您的UID"
 									/>
-									<p class="text-muted-foreground text-sm">
-										您的Server酱3用户UID
-									</p>
+									<p class="text-muted-foreground text-sm">您的Server酱3用户UID</p>
 								</div>
 
 								<div class="space-y-2">
@@ -3727,7 +3729,8 @@
 												class="text-primary hover:underline">Server酱3官网</a
 											> 注册账号
 										</li>
-										<li>登录后在 <a
+										<li>
+											登录后在 <a
 												href="https://sc3.ft07.com/sendkey"
 												target="_blank"
 												class="text-primary hover:underline">SendKey页面</a
@@ -4055,7 +4058,9 @@
 			>
 				<SheetHeader class="{isMobile ? 'border-b p-4' : 'border-b p-6'} relative">
 					<SheetTitle>AI重命名设置</SheetTitle>
-					<SheetDescription>配置AI自动重命名功能，使用大语言模型为视频文件生成更好的文件名</SheetDescription>
+					<SheetDescription
+						>配置AI自动重命名功能，使用大语言模型为视频文件生成更好的文件名</SheetDescription
+					>
 					<!-- 自定义关闭按钮 -->
 					<button
 						onclick={() => (openSheet = null)}
@@ -4082,11 +4087,15 @@
 				>
 					<div class="flex-1 space-y-6 overflow-y-auto {isMobile ? 'px-4 py-4' : 'px-6 py-6'}">
 						<!-- 功能说明 -->
-						<div class="rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-800 dark:bg-purple-950/20">
+						<div
+							class="rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-800 dark:bg-purple-950/20"
+						>
 							<h4 class="mb-2 font-medium text-purple-800 dark:text-purple-400">功能说明</h4>
 							<p class="text-sm text-purple-700 dark:text-purple-300">
 								AI重命名功能会在视频下载完成后，使用大语言模型分析视频标题、UP主等信息，自动生成更规范、更易读的文件名。
-								支持两种方式：<strong>付费API</strong>（DeepSeek/OpenAI等）和<strong>免费Web API</strong>（DeepSeek Web）。
+								支持两种方式：<strong>付费API</strong>（DeepSeek/OpenAI等）和<strong
+									>免费Web API</strong
+								>（DeepSeek Web）。
 							</p>
 						</div>
 
@@ -4145,15 +4154,17 @@
 									<div class="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
 										<p class="text-xs text-amber-700 dark:text-amber-300">
 											<strong>获取方法：</strong>
-											<br />1. 登录 <a href="https://chat.deepseek.com" target="_blank" class="underline">chat.deepseek.com</a>
+											<br />1. 登录
+											<a href="https://chat.deepseek.com" target="_blank" class="underline"
+												>chat.deepseek.com</a
+											>
 											<br />2. 按 F12 打开开发者工具 → Network（网络）
 											<br />3. 发送一条消息，找到 completion 请求
 											<br />4. 复制 Request Headers 中 Authorization: Bearer 后面的值
 										</p>
 									</div>
 								</div>
-
-								{:else}
+							{:else}
 								<!-- API Base URL -->
 								<div class="space-y-2">
 									<Label for="ai-rename-base-url">API Base URL</Label>
@@ -4241,11 +4252,16 @@
 							<!-- 提示词写法说明 -->
 							<div class="rounded-lg bg-amber-100 p-3 dark:bg-amber-900/20">
 								<p class="text-sm text-amber-700 dark:text-amber-300">
-									<strong>⚠️ 注意：</strong>提示词需具体明确，模糊的描述（如"作者"）可能被理解为UP主而非歌手。
+									<strong>⚠️ 注意：</strong
+									>提示词需具体明确，模糊的描述（如"作者"）可能被理解为UP主而非歌手。
 								</p>
 								<div class="space-y-1 text-sm text-amber-700 dark:text-amber-300">
 									<p><strong>💡 写法：</strong>AI会严格按格式生成，不添加额外信息。</p>
-									<p><code class="bg-amber-200 dark:bg-amber-800 px-1 rounded">示例：BV号-歌手名-日期</code>（歌手从标题《》前提取，日期用YYYYMMDD）</p>
+									<p>
+										<code class="rounded bg-amber-200 px-1 dark:bg-amber-800"
+											>示例：BV号-歌手名-日期</code
+										>（歌手从标题《》前提取，日期用YYYYMMDD）
+									</p>
 									<p>可用字段：BV号、UP主、标题、歌手、分区、日期、排序位置等</p>
 								</div>
 							</div>

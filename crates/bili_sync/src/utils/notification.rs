@@ -195,7 +195,9 @@ impl NotificationClient {
                 error!("Server酱推送发送失败，已达最大重试次数");
             }
             "serverchan3" => {
-                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                let (Some(ref uid), Some(ref sendkey)) =
+                    (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey)
+                else {
                     warn!("Server酱3渠道已激活但未配置UID或SendKey");
                     return Ok(());
                 };
@@ -533,19 +535,23 @@ impl NotificationClient {
                 };
 
                 let title = "Bili Sync 测试推送";
-                let content = "这是一条测试推送消息。\n\n如果您收到此消息，说明Server酱推送配置正确。\n\n🎉 推送功能工作正常！";
+                let content =
+                    "这是一条测试推送消息。\n\n如果您收到此消息，说明Server酱推送配置正确。\n\n🎉 推送功能工作正常！";
 
                 self.send_to_serverchan(key, title, content).await?;
                 info!("Server酱测试推送发送成功");
                 Ok(())
             }
             "serverchan3" => {
-                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                let (Some(ref uid), Some(ref sendkey)) =
+                    (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey)
+                else {
                     return Err(anyhow!("Server酱3渠道已选择但未配置UID或SendKey"));
                 };
 
                 let title = "Bili Sync 测试推送";
-                let content = "这是一条测试推送消息。\n\n如果您收到此消息，说明Server酱3推送配置正确。\n\n🎉 推送功能工作正常！";
+                let content =
+                    "这是一条测试推送消息。\n\n如果您收到此消息，说明Server酱3推送配置正确。\n\n🎉 推送功能工作正常！";
 
                 self.send_to_serverchan3(uid, sendkey, title, content).await?;
                 info!("Server酱3测试推送发送成功");
@@ -559,7 +565,7 @@ impl NotificationClient {
                 info!("企业微信测试推送发送成功");
                 Ok(())
             }
-            _ => Err(anyhow!("未知的通知渠道: {}", active_channel))
+            _ => Err(anyhow!("未知的通知渠道: {}", active_channel)),
         }
     }
 
@@ -584,7 +590,9 @@ impl NotificationClient {
                 Ok(())
             }
             "serverchan3" => {
-                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                let (Some(ref uid), Some(ref sendkey)) =
+                    (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey)
+                else {
                     return Err(anyhow!("Server酱3渠道已选择但未配置UID或SendKey"));
                 };
 
@@ -598,7 +606,7 @@ impl NotificationClient {
                 info!("企业微信自定义测试推送发送成功");
                 Ok(())
             }
-            _ => Err(anyhow!("未知的通知渠道: {}", active_channel))
+            _ => Err(anyhow!("未知的通知渠道: {}", active_channel)),
         }
     }
 
@@ -635,7 +643,9 @@ impl NotificationClient {
                 }
             }
             "serverchan3" => {
-                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                let (Some(ref uid), Some(ref sendkey)) =
+                    (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey)
+                else {
                     warn!("Server酱3渠道已激活但未配置UID或SendKey，跳过风控通知");
                     return Ok(());
                 };
@@ -717,7 +727,9 @@ impl NotificationClient {
                 }
             }
             "serverchan3" => {
-                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                let (Some(ref uid), Some(ref sendkey)) =
+                    (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey)
+                else {
                     warn!("Server酱3渠道已激活但未配置UID或SendKey，跳过单P变多P通知");
                     return Ok(());
                 };
@@ -751,12 +763,7 @@ impl NotificationClient {
     }
 
     /// 发送错误通知
-    pub async fn send_error(
-        &self,
-        error_type: &str,
-        error_message: &str,
-        context: Option<&str>,
-    ) -> Result<()> {
+    pub async fn send_error(&self, error_type: &str, error_message: &str, context: Option<&str>) -> Result<()> {
         let active_channel = self.config.active_channel.as_str();
 
         if active_channel == "none" {
@@ -765,9 +772,7 @@ impl NotificationClient {
         }
 
         let title = format!("Bili Sync 错误提醒 - {}", error_type);
-        let context_info = context
-            .map(|c| format!("\n\n**上下文**: {}", c))
-            .unwrap_or_default();
+        let context_info = context.map(|c| format!("\n\n**上下文**: {}", c)).unwrap_or_default();
 
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
@@ -799,7 +804,9 @@ impl NotificationClient {
                 }
             }
             "serverchan3" => {
-                let (Some(ref uid), Some(ref sendkey)) = (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey) else {
+                let (Some(ref uid), Some(ref sendkey)) =
+                    (&self.config.serverchan3_uid, &self.config.serverchan3_sendkey)
+                else {
                     warn!("Server酱3渠道已激活但未配置UID或SendKey，跳过错误通知");
                     return Ok(());
                 };
@@ -870,15 +877,13 @@ pub async fn send_single_to_multi_page_notification(
 ) -> Result<()> {
     let config = crate::config::reload_config().notification;
     let client = NotificationClient::new(config);
-    client.send_single_to_multi_page(video_name, bvid, total_pages, old_path).await
+    client
+        .send_single_to_multi_page(video_name, bvid, total_pages, old_path)
+        .await
 }
 
 /// 发送错误通知的便捷函数
-pub async fn send_error_notification(
-    error_type: &str,
-    error_message: &str,
-    context: Option<&str>,
-) -> Result<()> {
+pub async fn send_error_notification(error_type: &str, error_message: &str, context: Option<&str>) -> Result<()> {
     let config = crate::config::reload_config().notification;
     let client = NotificationClient::new(config);
     client.send_error(error_type, error_message, context).await
@@ -923,9 +928,7 @@ mod tests {
         assert!(config.validate().is_err());
 
         // 配置企业微信后应该通过
-        config.wecom_webhook_url = Some(
-            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test".to_string(),
-        );
+        config.wecom_webhook_url = Some("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test".to_string());
         assert!(config.validate().is_ok());
 
         // 错误的URL格式应该失败
@@ -933,9 +936,7 @@ mod tests {
         assert!(config.validate().is_err());
 
         // 错误的消息类型应该失败
-        config.wecom_webhook_url = Some(
-            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test".to_string(),
-        );
+        config.wecom_webhook_url = Some("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test".to_string());
         config.wecom_msgtype = "invalid".to_string();
         assert!(config.validate().is_err());
     }

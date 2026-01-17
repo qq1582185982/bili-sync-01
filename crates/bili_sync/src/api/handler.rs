@@ -5,8 +5,8 @@ use anyhow::{anyhow, Context, Result};
 use axum::extract::{Extension, Json, Path, Query};
 use chrono::Datelike;
 
+use crate::http::headers::{create_api_headers, create_image_headers};
 use crate::utils::time_format::{now_standard_string, to_standard_string};
-use crate::http::headers::{create_image_headers, create_api_headers};
 use bili_sync_entity::{collection, favorite, page, submission, video, video_source, watch_later};
 use bili_sync_migration::Expr;
 use reqwest;
@@ -29,13 +29,13 @@ use crate::api::request::{
     UpdateConfigItemRequest, UpdateConfigRequest, UpdateCredentialRequest, UpdateVideoStatusRequest, VideosRequest,
 };
 use crate::api::response::{
-    AddVideoSourceResponse, BangumiSeasonInfo, BangumiSourceListResponse, BangumiSourceOption, ConfigChangeInfo, ConfigHistoryResponse, ConfigItemResponse,
-    ConfigReloadResponse, ConfigResponse, ConfigValidationResponse, DashBoardResponse, DeleteVideoResponse,
-    DeleteVideoSourceResponse, HotReloadStatusResponse, InitialSetupCheckResponse, MonitoringStatus, PageInfo,
-    QRGenerateResponse, QRPollResponse, QRUserInfo, ResetAllVideosResponse, ResetVideoResponse,
-    ResetVideoSourcePathResponse, SetupAuthTokenResponse, SubmissionVideosResponse, UpdateConfigResponse,
-    UpdateCredentialResponse, UpdateVideoStatusResponse, VideoInfo, VideoResponse, VideoSource, VideoSourcesResponse,
-    VideosResponse,
+    AddVideoSourceResponse, BangumiSeasonInfo, BangumiSourceListResponse, BangumiSourceOption, ConfigChangeInfo,
+    ConfigHistoryResponse, ConfigItemResponse, ConfigReloadResponse, ConfigResponse, ConfigValidationResponse,
+    DashBoardResponse, DeleteVideoResponse, DeleteVideoSourceResponse, HotReloadStatusResponse,
+    InitialSetupCheckResponse, MonitoringStatus, PageInfo, QRGenerateResponse, QRPollResponse, QRUserInfo,
+    ResetAllVideosResponse, ResetVideoResponse, ResetVideoSourcePathResponse, SetupAuthTokenResponse,
+    SubmissionVideosResponse, UpdateConfigResponse, UpdateCredentialResponse, UpdateVideoStatusResponse, VideoInfo,
+    VideoResponse, VideoSource, VideoSourcesResponse, VideosResponse,
 };
 use crate::api::wrapper::{ApiError, ApiResponse};
 use crate::utils::status::{PageStatus, VideoStatus};
@@ -51,18 +51,18 @@ fn normalize_file_path(path: &str) -> String {
 }
 
 /// 清理空的父目录
-/// 
+///
 /// # 参数
 /// - `deleted_path`: 已删除的文件夹路径
 /// - `stop_at`: 停止清理的父目录路径（避免删除配置的基础路径）
 fn cleanup_empty_parent_dirs(deleted_path: &str, _stop_at: &str) {
-    use std::path::Path;
     use std::fs;
-    
+    use std::path::Path;
+
     let mut current_path = Path::new(deleted_path).parent();
     while let Some(parent) = current_path {
         let parent_str = parent.to_string_lossy().to_string();
-        
+
         // 检查父目录是否为空
         if parent.exists() {
             match fs::read_dir(parent) {
@@ -188,15 +188,18 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(|model| {
-            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
+            let keyword_filters = model
+                .keyword_filters
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let blacklist_keywords = model
+                .blacklist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let whitelist_keywords = model
+                .whitelist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
             VideoSource {
                 id: model.id,
                 name: model.name,
@@ -235,15 +238,18 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(|model| {
-            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
+            let keyword_filters = model
+                .keyword_filters
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let blacklist_keywords = model
+                .blacklist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let whitelist_keywords = model
+                .whitelist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
             VideoSource {
                 id: model.id,
                 name: model.name,
@@ -282,15 +288,18 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(|model| {
-            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
+            let keyword_filters = model
+                .keyword_filters
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let blacklist_keywords = model
+                .blacklist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let whitelist_keywords = model
+                .whitelist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
             VideoSource {
                 id: model.id,
                 name: model.upper_name.clone(),
@@ -329,15 +338,18 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(|model| {
-            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
+            let keyword_filters = model
+                .keyword_filters
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let blacklist_keywords = model
+                .blacklist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let whitelist_keywords = model
+                .whitelist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
             VideoSource {
                 id: model.id,
                 name: "稍后再看".to_string(),
@@ -379,25 +391,33 @@ pub async fn get_video_sources(
         .await?
         .into_iter()
         .map(|model| {
-            let selected_seasons = model.selected_seasons.as_ref().and_then(|json| {
-                match serde_json::from_str::<Vec<String>>(json) {
-                    Ok(seasons) if !seasons.is_empty() => Some(seasons),
-                    Ok(_) => None,
-                    Err(err) => {
-                        warn!("Failed to parse selected_seasons for bangumi source {}: {}", model.id, err);
-                        None
-                    }
-                }
-            });
-            let keyword_filters = model.keyword_filters.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let blacklist_keywords = model.blacklist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
-            let whitelist_keywords = model.whitelist_keywords.as_ref().and_then(|json| {
-                serde_json::from_str::<Vec<String>>(json).ok()
-            });
+            let selected_seasons =
+                model
+                    .selected_seasons
+                    .as_ref()
+                    .and_then(|json| match serde_json::from_str::<Vec<String>>(json) {
+                        Ok(seasons) if !seasons.is_empty() => Some(seasons),
+                        Ok(_) => None,
+                        Err(err) => {
+                            warn!(
+                                "Failed to parse selected_seasons for bangumi source {}: {}",
+                                model.id, err
+                            );
+                            None
+                        }
+                    });
+            let keyword_filters = model
+                .keyword_filters
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let blacklist_keywords = model
+                .blacklist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+            let whitelist_keywords = model
+                .whitelist_keywords
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
 
             VideoSource {
                 id: model.id,
@@ -637,8 +657,10 @@ pub async fn get_videos(
                 .collect();
 
             // 为番剧类型的视频填充真实标题
-            for (i, (_id, _bvid, _name, _upper_name, _path, _category, _download_status, _cover, season_id, source_type)) in
-                raw_videos.iter().enumerate()
+            for (
+                i,
+                (_id, _bvid, _name, _upper_name, _path, _category, _download_status, _cover, season_id, source_type),
+            ) in raw_videos.iter().enumerate()
             {
                 if *source_type == Some(1) && season_id.is_some() {
                     // 番剧类型且有season_id，尝试获取真实标题
@@ -1105,7 +1127,9 @@ pub async fn reset_all_videos(
     // 触发立即扫描（缩短等待）
     crate::task::resume_scanning();
     // 触发立即扫描（缩短等待）
-    if resetted { crate::task::resume_scanning(); }
+    if resetted {
+        crate::task::resume_scanning();
+    }
     Ok(ApiResponse::ok(ResetAllVideosResponse {
         resetted,
         resetted_videos_count: resetted_videos_info.len(),
@@ -1546,7 +1570,9 @@ pub async fn update_video_status(
     }
 
     // 触发立即扫描（缩短等待）
-    if has_video_updates || has_page_updates { crate::task::resume_scanning(); }
+    if has_video_updates || has_page_updates {
+        crate::task::resume_scanning();
+    }
     Ok(ApiResponse::ok(UpdateVideoStatusResponse {
         success: has_video_updates || has_page_updates,
         video: video_info,
@@ -3049,7 +3075,7 @@ pub async fn delete_video_source_internal(
                                         info!("成功删除合集视频文件夹: {} ({:.2} MB)", video.path, size_mb);
                                         deleted_folders.insert(video.path.clone());
                                         total_deleted_size += size;
-                                        
+
                                         // 删除后清理空的父目录
                                         cleanup_empty_parent_dirs(&video.path, base_path);
                                     }
@@ -3061,7 +3087,7 @@ pub async fn delete_video_source_internal(
                                     } else {
                                         info!("成功删除合集视频文件夹: {}", video.path);
                                         deleted_folders.insert(video.path.clone());
-                                        
+
                                         // 删除后清理空的父目录
                                         cleanup_empty_parent_dirs(&video.path, base_path);
                                     }
@@ -3176,7 +3202,7 @@ pub async fn delete_video_source_internal(
                                         info!("成功删除收藏夹视频文件夹: {} ({:.2} MB)", video.path, size_mb);
                                         deleted_folders.insert(video.path.clone());
                                         total_deleted_size += size;
-                                        
+
                                         // 删除后清理空的父目录
                                         cleanup_empty_parent_dirs(&video.path, base_path);
                                     }
@@ -3188,7 +3214,7 @@ pub async fn delete_video_source_internal(
                                     } else {
                                         info!("成功删除收藏夹视频文件夹: {}", video.path);
                                         deleted_folders.insert(video.path.clone());
-                                        
+
                                         // 删除后清理空的父目录
                                         cleanup_empty_parent_dirs(&video.path, base_path);
                                     }
@@ -3306,7 +3332,7 @@ pub async fn delete_video_source_internal(
                                         info!("成功删除UP主投稿视频文件夹: {} ({:.2} MB)", video.path, size_mb);
                                         deleted_folders.insert(video.path.clone());
                                         total_deleted_size += size;
-                                        
+
                                         // 删除后清理空的父目录
                                         cleanup_empty_parent_dirs(&video.path, base_path);
                                     }
@@ -3318,7 +3344,7 @@ pub async fn delete_video_source_internal(
                                     } else {
                                         info!("成功删除UP主投稿视频文件夹: {}", video.path);
                                         deleted_folders.insert(video.path.clone());
-                                        
+
                                         // 删除后清理空的父目录
                                         cleanup_empty_parent_dirs(&video.path, base_path);
                                     }
@@ -3433,7 +3459,7 @@ pub async fn delete_video_source_internal(
                                         info!("成功删除稍后再看视频文件夹: {} ({:.2} MB)", video.path, size_mb);
                                         deleted_folders.insert(video.path.clone());
                                         total_deleted_size += size;
-                                        
+
                                         // 删除后清理空的父目录
                                         cleanup_empty_parent_dirs(&video.path, base_path);
                                     }
@@ -3445,7 +3471,7 @@ pub async fn delete_video_source_internal(
                                     } else {
                                         info!("成功删除稍后再看视频文件夹: {}", video.path);
                                         deleted_folders.insert(video.path.clone());
-                                        
+
                                         // 删除后清理空的父目录
                                         cleanup_empty_parent_dirs(&video.path, base_path);
                                     }
@@ -3559,28 +3585,28 @@ pub async fn delete_video_source_internal(
                                     let size_mb = size as f64 / 1024.0 / 1024.0;
                                     info!("删除番剧季度文件夹: {} (大小: {:.2} MB)", video.path, size_mb);
 
-                                     if let Err(e) = std::fs::remove_dir_all(&video.path) {
-                                         error!("删除番剧季度文件夹失败: {} - {}", video.path, e);
-                                     } else {
-                                         info!("成功删除番剧季度文件夹: {} ({:.2} MB)", video.path, size_mb);
-                                         deleted_folders.insert(video.path.clone());
-                                         total_deleted_size += size;
-                                         
-                                         // 删除后清理空的父目录
-                                         cleanup_empty_parent_dirs(&video.path, base_path);
-                                     }
+                                    if let Err(e) = std::fs::remove_dir_all(&video.path) {
+                                        error!("删除番剧季度文件夹失败: {} - {}", video.path, e);
+                                    } else {
+                                        info!("成功删除番剧季度文件夹: {} ({:.2} MB)", video.path, size_mb);
+                                        deleted_folders.insert(video.path.clone());
+                                        total_deleted_size += size;
+
+                                        // 删除后清理空的父目录
+                                        cleanup_empty_parent_dirs(&video.path, base_path);
+                                    }
                                 }
                                 Err(e) => {
                                     warn!("无法计算文件夹大小: {} - {}", video.path, e);
-                                     if let Err(e) = std::fs::remove_dir_all(&video.path) {
-                                         error!("删除番剧季度文件夹失败: {} - {}", video.path, e);
-                                     } else {
-                                         info!("成功删除番剧季度文件夹: {}", video.path);
-                                         deleted_folders.insert(video.path.clone());
-                                         
-                                         // 删除后清理空的父目录
-                                         cleanup_empty_parent_dirs(&video.path, base_path);
-                                     }
+                                    if let Err(e) = std::fs::remove_dir_all(&video.path) {
+                                        error!("删除番剧季度文件夹失败: {} - {}", video.path, e);
+                                    } else {
+                                        info!("成功删除番剧季度文件夹: {}", video.path);
+                                        deleted_folders.insert(video.path.clone());
+
+                                        // 删除后清理空的父目录
+                                        cleanup_empty_parent_dirs(&video.path, base_path);
+                                    }
                                 }
                             }
                         }
@@ -3841,11 +3867,23 @@ pub async fn update_video_source_download_options_internal(
             let download_danmaku = params.download_danmaku.unwrap_or(collection.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(collection.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(collection.ai_rename);
-            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(collection.ai_rename_video_prompt.clone());
-            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(collection.ai_rename_audio_prompt.clone());
-            let ai_rename_enable_multi_page = params.ai_rename_enable_multi_page.unwrap_or(collection.ai_rename_enable_multi_page);
-            let ai_rename_enable_collection = params.ai_rename_enable_collection.unwrap_or(collection.ai_rename_enable_collection);
-            let ai_rename_enable_bangumi = params.ai_rename_enable_bangumi.unwrap_or(collection.ai_rename_enable_bangumi);
+            let ai_rename_video_prompt = params
+                .ai_rename_video_prompt
+                .clone()
+                .unwrap_or(collection.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params
+                .ai_rename_audio_prompt
+                .clone()
+                .unwrap_or(collection.ai_rename_audio_prompt.clone());
+            let ai_rename_enable_multi_page = params
+                .ai_rename_enable_multi_page
+                .unwrap_or(collection.ai_rename_enable_multi_page);
+            let ai_rename_enable_collection = params
+                .ai_rename_enable_collection
+                .unwrap_or(collection.ai_rename_enable_collection);
+            let ai_rename_enable_bangumi = params
+                .ai_rename_enable_bangumi
+                .unwrap_or(collection.ai_rename_enable_bangumi);
 
             collection::Entity::update(collection::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
@@ -3895,11 +3933,23 @@ pub async fn update_video_source_download_options_internal(
             let download_danmaku = params.download_danmaku.unwrap_or(favorite.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(favorite.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(favorite.ai_rename);
-            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(favorite.ai_rename_video_prompt.clone());
-            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(favorite.ai_rename_audio_prompt.clone());
-            let ai_rename_enable_multi_page = params.ai_rename_enable_multi_page.unwrap_or(favorite.ai_rename_enable_multi_page);
-            let ai_rename_enable_collection = params.ai_rename_enable_collection.unwrap_or(favorite.ai_rename_enable_collection);
-            let ai_rename_enable_bangumi = params.ai_rename_enable_bangumi.unwrap_or(favorite.ai_rename_enable_bangumi);
+            let ai_rename_video_prompt = params
+                .ai_rename_video_prompt
+                .clone()
+                .unwrap_or(favorite.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params
+                .ai_rename_audio_prompt
+                .clone()
+                .unwrap_or(favorite.ai_rename_audio_prompt.clone());
+            let ai_rename_enable_multi_page = params
+                .ai_rename_enable_multi_page
+                .unwrap_or(favorite.ai_rename_enable_multi_page);
+            let ai_rename_enable_collection = params
+                .ai_rename_enable_collection
+                .unwrap_or(favorite.ai_rename_enable_collection);
+            let ai_rename_enable_bangumi = params
+                .ai_rename_enable_bangumi
+                .unwrap_or(favorite.ai_rename_enable_bangumi);
 
             favorite::Entity::update(favorite::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
@@ -3949,11 +3999,23 @@ pub async fn update_video_source_download_options_internal(
             let download_danmaku = params.download_danmaku.unwrap_or(submission.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(submission.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(submission.ai_rename);
-            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(submission.ai_rename_video_prompt.clone());
-            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(submission.ai_rename_audio_prompt.clone());
-            let ai_rename_enable_multi_page = params.ai_rename_enable_multi_page.unwrap_or(submission.ai_rename_enable_multi_page);
-            let ai_rename_enable_collection = params.ai_rename_enable_collection.unwrap_or(submission.ai_rename_enable_collection);
-            let ai_rename_enable_bangumi = params.ai_rename_enable_bangumi.unwrap_or(submission.ai_rename_enable_bangumi);
+            let ai_rename_video_prompt = params
+                .ai_rename_video_prompt
+                .clone()
+                .unwrap_or(submission.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params
+                .ai_rename_audio_prompt
+                .clone()
+                .unwrap_or(submission.ai_rename_audio_prompt.clone());
+            let ai_rename_enable_multi_page = params
+                .ai_rename_enable_multi_page
+                .unwrap_or(submission.ai_rename_enable_multi_page);
+            let ai_rename_enable_collection = params
+                .ai_rename_enable_collection
+                .unwrap_or(submission.ai_rename_enable_collection);
+            let ai_rename_enable_bangumi = params
+                .ai_rename_enable_bangumi
+                .unwrap_or(submission.ai_rename_enable_bangumi);
 
             submission::Entity::update(submission::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
@@ -4003,11 +4065,23 @@ pub async fn update_video_source_download_options_internal(
             let download_danmaku = params.download_danmaku.unwrap_or(watch_later.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(watch_later.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(watch_later.ai_rename);
-            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(watch_later.ai_rename_video_prompt.clone());
-            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(watch_later.ai_rename_audio_prompt.clone());
-            let ai_rename_enable_multi_page = params.ai_rename_enable_multi_page.unwrap_or(watch_later.ai_rename_enable_multi_page);
-            let ai_rename_enable_collection = params.ai_rename_enable_collection.unwrap_or(watch_later.ai_rename_enable_collection);
-            let ai_rename_enable_bangumi = params.ai_rename_enable_bangumi.unwrap_or(watch_later.ai_rename_enable_bangumi);
+            let ai_rename_video_prompt = params
+                .ai_rename_video_prompt
+                .clone()
+                .unwrap_or(watch_later.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params
+                .ai_rename_audio_prompt
+                .clone()
+                .unwrap_or(watch_later.ai_rename_audio_prompt.clone());
+            let ai_rename_enable_multi_page = params
+                .ai_rename_enable_multi_page
+                .unwrap_or(watch_later.ai_rename_enable_multi_page);
+            let ai_rename_enable_collection = params
+                .ai_rename_enable_collection
+                .unwrap_or(watch_later.ai_rename_enable_collection);
+            let ai_rename_enable_bangumi = params
+                .ai_rename_enable_bangumi
+                .unwrap_or(watch_later.ai_rename_enable_bangumi);
 
             watch_later::Entity::update(watch_later::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
@@ -4057,11 +4131,23 @@ pub async fn update_video_source_download_options_internal(
             let download_danmaku = params.download_danmaku.unwrap_or(video_source.download_danmaku);
             let download_subtitle = params.download_subtitle.unwrap_or(video_source.download_subtitle);
             let ai_rename = params.ai_rename.unwrap_or(video_source.ai_rename);
-            let ai_rename_video_prompt = params.ai_rename_video_prompt.clone().unwrap_or(video_source.ai_rename_video_prompt.clone());
-            let ai_rename_audio_prompt = params.ai_rename_audio_prompt.clone().unwrap_or(video_source.ai_rename_audio_prompt.clone());
-            let ai_rename_enable_multi_page = params.ai_rename_enable_multi_page.unwrap_or(video_source.ai_rename_enable_multi_page);
-            let ai_rename_enable_collection = params.ai_rename_enable_collection.unwrap_or(video_source.ai_rename_enable_collection);
-            let ai_rename_enable_bangumi = params.ai_rename_enable_bangumi.unwrap_or(video_source.ai_rename_enable_bangumi);
+            let ai_rename_video_prompt = params
+                .ai_rename_video_prompt
+                .clone()
+                .unwrap_or(video_source.ai_rename_video_prompt.clone());
+            let ai_rename_audio_prompt = params
+                .ai_rename_audio_prompt
+                .clone()
+                .unwrap_or(video_source.ai_rename_audio_prompt.clone());
+            let ai_rename_enable_multi_page = params
+                .ai_rename_enable_multi_page
+                .unwrap_or(video_source.ai_rename_enable_multi_page);
+            let ai_rename_enable_collection = params
+                .ai_rename_enable_collection
+                .unwrap_or(video_source.ai_rename_enable_collection);
+            let ai_rename_enable_bangumi = params
+                .ai_rename_enable_bangumi
+                .unwrap_or(video_source.ai_rename_enable_bangumi);
 
             video_source::Entity::update(video_source::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
@@ -4165,12 +4251,14 @@ pub async fn update_submission_selected_videos(
 
     info!("{}", message);
 
-    Ok(ApiResponse::ok(crate::api::response::UpdateSubmissionSelectedVideosResponse {
-        success: true,
-        source_id: id,
-        selected_count,
-        message,
-    }))
+    Ok(ApiResponse::ok(
+        crate::api::response::UpdateSubmissionSelectedVideosResponse {
+            success: true,
+            source_id: id,
+            selected_count,
+            message,
+        },
+    ))
 }
 
 /// 删除视频（软删除）
@@ -5768,10 +5856,7 @@ pub async fn update_config_internal(
                     }
                 }
                 _ => {
-                    return Err(anyhow!(
-                        "无效的验证码识别服务，只支持 '2captcha' 或 'anticaptcha'"
-                    )
-                    .into());
+                    return Err(anyhow!("无效的验证码识别服务，只支持 '2captcha' 或 'anticaptcha'").into());
                 }
             }
         }
@@ -5852,7 +5937,11 @@ pub async fn update_config_internal(
     }
     if let Some(api_key) = &params.ai_rename_api_key {
         if config.ai_rename.api_key.as_ref() != Some(api_key) {
-            config.ai_rename.api_key = if api_key.is_empty() { None } else { Some(api_key.clone()) };
+            config.ai_rename.api_key = if api_key.is_empty() {
+                None
+            } else {
+                Some(api_key.clone())
+            };
             updated_fields.push("ai_rename");
         }
     }
@@ -8223,9 +8312,7 @@ pub async fn proxy_image(
     // 请求图片，添加必要的请求头
     tracing::debug!("发起图片下载请求: {}", url);
 
-    let request = client
-        .get(url)
-        .headers(create_image_headers());
+    let request = client.get(url).headers(create_image_headers());
 
     // 图片下载请求头日志已在建造器时设置
 
@@ -9216,7 +9303,9 @@ pub async fn get_latest_ingests(
         })
         .collect();
 
-    Ok(ApiResponse::ok(crate::api::response::LatestIngestResponse { items: resp_items }))
+    Ok(ApiResponse::ok(crate::api::response::LatestIngestResponse {
+        items: resp_items,
+    }))
 }
 
 /// 获取视频的BVID信息（用于构建B站链接）
@@ -11780,9 +11869,7 @@ async fn handle_bangumi_merge_to_existing(
             target_update.name = sea_orm::Set(params.name);
         }
 
-        video_source::Entity::update(target_update)
-            .exec(txn)
-            .await?;
+        video_source::Entity::update(target_update).exec(txn).await?;
 
         // 清除番剧缓存，强制重新扫描新合并的季度
         let clear_cache_update = video_source::ActiveModel {
@@ -11867,18 +11954,24 @@ pub async fn update_video_source_keyword_filters(
 
     // 处理黑名单
     let blacklist_count = params.blacklist_keywords.as_ref().map(|v| v.len()).unwrap_or(0);
-    let blacklist_json = params.blacklist_keywords.as_ref()
+    let blacklist_json = params
+        .blacklist_keywords
+        .as_ref()
         .filter(|v| !v.is_empty())
         .map(|v| serde_json::to_string(v).unwrap_or_default());
 
     // 处理白名单
     let whitelist_count = params.whitelist_keywords.as_ref().map(|v| v.len()).unwrap_or(0);
-    let whitelist_json = params.whitelist_keywords.as_ref()
+    let whitelist_json = params
+        .whitelist_keywords
+        .as_ref()
         .filter(|v| !v.is_empty())
         .map(|v| serde_json::to_string(v).unwrap_or_default());
 
     // 向后兼容：处理旧的关键词列表
-    let keyword_filters_json = params.keyword_filters.as_ref()
+    let keyword_filters_json = params
+        .keyword_filters
+        .as_ref()
         .filter(|v| !v.is_empty())
         .map(|v| serde_json::to_string(v).unwrap_or_default());
     let keyword_filter_mode = params.keyword_filter_mode.clone();
@@ -11911,7 +12004,10 @@ pub async fn update_video_source_keyword_filters(
                 source_type: "collection".to_string(),
                 blacklist_count,
                 whitelist_count,
-                message: format!("合集 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个", record.name, blacklist_count, whitelist_count),
+                message: format!(
+                    "合集 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个",
+                    record.name, blacklist_count, whitelist_count
+                ),
             }
         }
         "favorite" => {
@@ -11938,7 +12034,10 @@ pub async fn update_video_source_keyword_filters(
                 source_type: "favorite".to_string(),
                 blacklist_count,
                 whitelist_count,
-                message: format!("收藏夹 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个", record.name, blacklist_count, whitelist_count),
+                message: format!(
+                    "收藏夹 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个",
+                    record.name, blacklist_count, whitelist_count
+                ),
             }
         }
         "submission" => {
@@ -11995,7 +12094,10 @@ pub async fn update_video_source_keyword_filters(
                 source_type: "watch_later".to_string(),
                 blacklist_count,
                 whitelist_count,
-                message: format!("稍后观看的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个", blacklist_count, whitelist_count),
+                message: format!(
+                    "稍后观看的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个",
+                    blacklist_count, whitelist_count
+                ),
             }
         }
         "bangumi" => {
@@ -12022,7 +12124,10 @@ pub async fn update_video_source_keyword_filters(
                 source_type: "bangumi".to_string(),
                 blacklist_count,
                 whitelist_count,
-                message: format!("番剧 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个", record.name, blacklist_count, whitelist_count),
+                message: format!(
+                    "番剧 {} 的关键词过滤器已更新，黑名单 {} 个，白名单 {} 个",
+                    record.name, blacklist_count, whitelist_count
+                ),
             }
         }
         _ => return Err(anyhow!("不支持的视频源类型: {}", source_type).into()),
@@ -12068,14 +12173,20 @@ pub async fn get_video_source_keyword_filters(
                 .ok_or_else(|| anyhow!("未找到指定的合集"))?;
 
             FilterInfo {
-                blacklist: record.blacklist_keywords.as_ref()
+                blacklist: record
+                    .blacklist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
-                whitelist: record.whitelist_keywords.as_ref()
+                whitelist: record
+                    .whitelist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 case_sensitive: record.keyword_case_sensitive,
-                legacy_filters: record.keyword_filters.as_ref()
+                legacy_filters: record
+                    .keyword_filters
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 legacy_mode: record.keyword_filter_mode,
@@ -12088,14 +12199,20 @@ pub async fn get_video_source_keyword_filters(
                 .ok_or_else(|| anyhow!("未找到指定的收藏夹"))?;
 
             FilterInfo {
-                blacklist: record.blacklist_keywords.as_ref()
+                blacklist: record
+                    .blacklist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
-                whitelist: record.whitelist_keywords.as_ref()
+                whitelist: record
+                    .whitelist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 case_sensitive: record.keyword_case_sensitive,
-                legacy_filters: record.keyword_filters.as_ref()
+                legacy_filters: record
+                    .keyword_filters
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 legacy_mode: record.keyword_filter_mode,
@@ -12108,14 +12225,20 @@ pub async fn get_video_source_keyword_filters(
                 .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
 
             FilterInfo {
-                blacklist: record.blacklist_keywords.as_ref()
+                blacklist: record
+                    .blacklist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
-                whitelist: record.whitelist_keywords.as_ref()
+                whitelist: record
+                    .whitelist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 case_sensitive: record.keyword_case_sensitive,
-                legacy_filters: record.keyword_filters.as_ref()
+                legacy_filters: record
+                    .keyword_filters
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 legacy_mode: record.keyword_filter_mode,
@@ -12128,14 +12251,20 @@ pub async fn get_video_source_keyword_filters(
                 .ok_or_else(|| anyhow!("未找到指定的稍后观看"))?;
 
             FilterInfo {
-                blacklist: record.blacklist_keywords.as_ref()
+                blacklist: record
+                    .blacklist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
-                whitelist: record.whitelist_keywords.as_ref()
+                whitelist: record
+                    .whitelist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 case_sensitive: record.keyword_case_sensitive,
-                legacy_filters: record.keyword_filters.as_ref()
+                legacy_filters: record
+                    .keyword_filters
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 legacy_mode: record.keyword_filter_mode,
@@ -12148,14 +12277,20 @@ pub async fn get_video_source_keyword_filters(
                 .ok_or_else(|| anyhow!("未找到指定的番剧"))?;
 
             FilterInfo {
-                blacklist: record.blacklist_keywords.as_ref()
+                blacklist: record
+                    .blacklist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
-                whitelist: record.whitelist_keywords.as_ref()
+                whitelist: record
+                    .whitelist_keywords
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 case_sensitive: record.keyword_case_sensitive,
-                legacy_filters: record.keyword_filters.as_ref()
+                legacy_filters: record
+                    .keyword_filters
+                    .as_ref()
                     .and_then(|json_str| serde_json::from_str(json_str).ok())
                     .unwrap_or_default(),
                 legacy_mode: record.keyword_filter_mode,
@@ -12275,8 +12410,8 @@ pub async fn ai_rename_history(
     Path((source_type, id)): Path<(String, i32)>,
     Json(req): Json<crate::api::response::BatchRenameRequest>,
 ) -> Result<ApiResponse<crate::api::response::BatchRenameResponse>, ApiError> {
-    use crate::utils::ai_rename::{batch_rename_history_files, AiRenameConfig};
     use crate::task::{pause_scanning, resume_scanning};
+    use crate::utils::ai_rename::{batch_rename_history_files, AiRenameConfig};
 
     // 扫描恢复守卫，确保函数退出时恢复扫描
     struct ScanResumeGuard {
@@ -12323,11 +12458,7 @@ pub async fn ai_rename_history(
                 .ok_or_else(|| anyhow!("未找到指定的合集"))?;
 
             // 获取该合集下所有视频及其分页
-            let videos_with_pages = get_videos_with_pages_for_source(
-                db.as_ref(),
-                "collection",
-                id,
-            ).await?;
+            let videos_with_pages = get_videos_with_pages_for_source(db.as_ref(), "collection", id).await?;
 
             (
                 source.ai_rename_video_prompt,
@@ -12342,11 +12473,7 @@ pub async fn ai_rename_history(
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的收藏夹"))?;
 
-            let videos_with_pages = get_videos_with_pages_for_source(
-                db.as_ref(),
-                "favorite",
-                id,
-            ).await?;
+            let videos_with_pages = get_videos_with_pages_for_source(db.as_ref(), "favorite", id).await?;
 
             (
                 source.ai_rename_video_prompt,
@@ -12361,11 +12488,7 @@ pub async fn ai_rename_history(
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的UP主投稿"))?;
 
-            let videos_with_pages = get_videos_with_pages_for_source(
-                db.as_ref(),
-                "submission",
-                id,
-            ).await?;
+            let videos_with_pages = get_videos_with_pages_for_source(db.as_ref(), "submission", id).await?;
 
             (
                 source.ai_rename_video_prompt,
@@ -12380,11 +12503,7 @@ pub async fn ai_rename_history(
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的稍后观看"))?;
 
-            let videos_with_pages = get_videos_with_pages_for_source(
-                db.as_ref(),
-                "watch_later",
-                id,
-            ).await?;
+            let videos_with_pages = get_videos_with_pages_for_source(db.as_ref(), "watch_later", id).await?;
 
             (
                 source.ai_rename_video_prompt,
@@ -12399,11 +12518,7 @@ pub async fn ai_rename_history(
                 .await?
                 .ok_or_else(|| anyhow!("未找到指定的番剧"))?;
 
-            let videos_with_pages = get_videos_with_pages_for_source(
-                db.as_ref(),
-                "bangumi",
-                id,
-            ).await?;
+            let videos_with_pages = get_videos_with_pages_for_source(db.as_ref(), "bangumi", id).await?;
 
             (
                 source.ai_rename_video_prompt,
@@ -12457,11 +12572,7 @@ pub async fn ai_rename_history(
         }));
     }
 
-    info!(
-        "[{}] 开始批量 AI 重命名，共 {} 个视频",
-        source_key,
-        videos.len()
-    );
+    info!("[{}] 开始批量 AI 重命名，共 {} 个视频", source_key, videos.len());
 
     // 记录使用的提示词（便于调试）
     if !video_prompt.is_empty() {
@@ -12480,23 +12591,20 @@ pub async fn ai_rename_history(
         &video_prompt,
         &audio_prompt,
         flat_folder,
-    ).await;
+    )
+    .await;
 
     match result {
-        Ok(batch_result) => {
-            Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {
-                success: true,
-                renamed_count: batch_result.renamed_count,
-                skipped_count: batch_result.skipped_count,
-                failed_count: batch_result.failed_count,
-                message: format!(
-                    "批量重命名完成：重命名 {} 个，跳过 {} 个，失败 {} 个",
-                    batch_result.renamed_count,
-                    batch_result.skipped_count,
-                    batch_result.failed_count
-                ),
-            }))
-        }
+        Ok(batch_result) => Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {
+            success: true,
+            renamed_count: batch_result.renamed_count,
+            skipped_count: batch_result.skipped_count,
+            failed_count: batch_result.failed_count,
+            message: format!(
+                "批量重命名完成：重命名 {} 个，跳过 {} 个，失败 {} 个",
+                batch_result.renamed_count, batch_result.skipped_count, batch_result.failed_count
+            ),
+        })),
         Err(e) => {
             error!("[{}] 批量重命名失败: {}", source_key, e);
             Ok(ApiResponse::ok(crate::api::response::BatchRenameResponse {

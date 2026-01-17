@@ -1,8 +1,8 @@
 use anyhow::Result;
 use bili_sync_migration::{Migrator, MigratorTrait};
-use sea_orm::{DatabaseConnection, SqlxSqliteConnector};
-use sea_orm::sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous, SqlitePoolOptions};
+use sea_orm::sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sea_orm::sqlx::{self, Executor};
+use sea_orm::{DatabaseConnection, SqlxSqliteConnector};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use tracing::debug;
@@ -65,9 +65,7 @@ async fn database_connection() -> Result<DatabaseConnection> {
     // 立即验证连接池中的连接配置
     {
         let mut conn = pool.acquire().await?;
-        let row: (i64,) = sqlx::query_as("PRAGMA busy_timeout;")
-            .fetch_one(&mut *conn)
-            .await?;
+        let row: (i64,) = sqlx::query_as("PRAGMA busy_timeout;").fetch_one(&mut *conn).await?;
         tracing::debug!("验证连接池 busy_timeout = {}ms", row.0);
     }
 
@@ -227,21 +225,20 @@ pub async fn begin_write_transaction(
     use sea_orm::{ConnectionTrait, TransactionTrait};
 
     // 确保锁定表存在
-    let _ = connection.execute_unprepared(
-        "CREATE TABLE IF NOT EXISTS _write_lock (id INTEGER PRIMARY KEY, ts INTEGER)"
-    ).await;
-    let _ = connection.execute_unprepared(
-        "INSERT OR IGNORE INTO _write_lock (id, ts) VALUES (1, 0)"
-    ).await;
+    let _ = connection
+        .execute_unprepared("CREATE TABLE IF NOT EXISTS _write_lock (id INTEGER PRIMARY KEY, ts INTEGER)")
+        .await;
+    let _ = connection
+        .execute_unprepared("INSERT OR IGNORE INTO _write_lock (id, ts) VALUES (1, 0)")
+        .await;
 
     // 开始事务
     let txn = connection.begin().await?;
 
     // 立即更新锁定表，强制获取写锁
     // 如果其他事务持有锁，这里会等待 busy_timeout
-    txn.execute_unprepared(
-        "UPDATE _write_lock SET ts = strftime('%s', 'now') WHERE id = 1"
-    ).await?;
+    txn.execute_unprepared("UPDATE _write_lock SET ts = strftime('%s', 'now') WHERE id = 1")
+        .await?;
 
     Ok(txn)
 }

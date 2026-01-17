@@ -30,9 +30,9 @@ use tokio_util::task::TaskTracker;
 
 use crate::config::{init_config_with_database, ARGS, CONFIG_BUNDLE};
 use crate::database::setup_database;
+use crate::hardware::HardwareFingerprint;
 use crate::utils::signal::terminate;
 use crate::utils::{file_logger, init_logger};
-use crate::hardware::HardwareFingerprint;
 use anyhow::Result;
 
 #[tokio::main]

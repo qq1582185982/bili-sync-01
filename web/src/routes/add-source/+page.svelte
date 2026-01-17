@@ -20,7 +20,13 @@
 		AddVideoSourceRequest,
 		KeywordFilterMode
 	} from '$lib/types';
-	import { Search, X, Plus as PlusIcon, Filter as FilterIcon, Info as InfoIcon } from '@lucide/svelte';
+	import {
+		Search,
+		X,
+		Plus as PlusIcon,
+		Filter as FilterIcon,
+		Info as InfoIcon
+	} from '@lucide/svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { flip } from 'svelte/animate';
@@ -2453,12 +2459,20 @@
 							<div class="flex items-center gap-1">
 								<Label for="path">保存路径</Label>
 								<div class="group relative">
-									<InfoIcon class="h-4 w-4 text-muted-foreground cursor-help" />
-									<div class="absolute left-0 bottom-full mb-2 hidden w-72 rounded-md border bg-popover p-3 text-sm shadow-md group-hover:block z-50">
-										<p class="font-medium mb-1">Docker 路径说明</p>
-										<p class="text-muted-foreground text-xs">如果使用 Docker 部署并设置了卷映射，请填写容器内路径。</p>
-										<p class="text-muted-foreground text-xs mt-1">例如映射 <code class="bg-muted px-1 rounded">/volume1/Videos:/Downloads</code></p>
-										<p class="text-muted-foreground text-xs">则应填写 <code class="bg-muted px-1 rounded">/Downloads</code></p>
+									<InfoIcon class="text-muted-foreground h-4 w-4 cursor-help" />
+									<div
+										class="bg-popover absolute bottom-full left-0 z-50 mb-2 hidden w-72 rounded-md border p-3 text-sm shadow-md group-hover:block"
+									>
+										<p class="mb-1 font-medium">Docker 路径说明</p>
+										<p class="text-muted-foreground text-xs">
+											如果使用 Docker 部署并设置了卷映射，请填写容器内路径。
+										</p>
+										<p class="text-muted-foreground mt-1 text-xs">
+											例如映射 <code class="bg-muted rounded px-1">/volume1/Videos:/Downloads</code>
+										</p>
+										<p class="text-muted-foreground text-xs">
+											则应填写 <code class="bg-muted rounded px-1">/Downloads</code>
+										</p>
 									</div>
 								</div>
 							</div>
@@ -2696,13 +2710,18 @@
 
 								<!-- AI重命名提示词设置（仅在启用AI重命名时显示） -->
 								{#if aiRename}
-									<div class="mt-3 space-y-3 rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
+									<div
+										class="mt-3 space-y-3 rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950"
+									>
 										<div class="text-xs font-medium text-blue-800 dark:text-blue-200">
 											自定义提示词（留空使用全局配置）
 										</div>
 										<!-- 视频提示词 -->
 										<div class="space-y-1">
-											<label for="ai-video-prompt" class="text-[10px] font-medium text-gray-600 dark:text-gray-400">
+											<label
+												for="ai-video-prompt"
+												class="text-[10px] font-medium text-gray-600 dark:text-gray-400"
+											>
 												视频重命名提示词
 											</label>
 											<textarea
@@ -2715,7 +2734,10 @@
 										</div>
 										<!-- 音频提示词 -->
 										<div class="space-y-1">
-											<label for="ai-audio-prompt" class="text-[10px] font-medium text-gray-600 dark:text-gray-400">
+											<label
+												for="ai-audio-prompt"
+												class="text-[10px] font-medium text-gray-600 dark:text-gray-400"
+											>
 												音频重命名提示词
 											</label>
 											<textarea
@@ -2727,29 +2749,45 @@
 											></textarea>
 										</div>
 										<!-- 提示词写法说明 -->
-										<div class="rounded border border-amber-300 bg-amber-50 p-2 dark:border-amber-700 dark:bg-amber-950">
+										<div
+											class="rounded border border-amber-300 bg-amber-50 p-2 dark:border-amber-700 dark:bg-amber-950"
+										>
 											<p class="text-[10px] text-amber-700 dark:text-amber-300">
-												⚠️ 提示词需具体明确，模糊描述（如"作者"）可能被理解为UP主而非歌手。<br/>
-												💡 AI会严格按格式生成。示例：<code class="bg-amber-200 dark:bg-amber-800 px-0.5 rounded">BV号-歌手名-日期</code><br/>
+												⚠️ 提示词需具体明确，模糊描述（如"作者"）可能被理解为UP主而非歌手。<br />
+												💡 AI会严格按格式生成。示例：<code
+													class="rounded bg-amber-200 px-0.5 dark:bg-amber-800"
+													>BV号-歌手名-日期</code
+												><br />
 												可用字段：BV号、UP主、标题、歌手、分区、日期、排序位置等
 											</p>
 										</div>
 
 										<!-- 高级选项（默认关闭） -->
-										<div class="space-y-2 rounded border border-gray-300 bg-gray-50 p-2 dark:border-gray-600 dark:bg-gray-800">
+										<div
+											class="space-y-2 rounded border border-gray-300 bg-gray-50 p-2 dark:border-gray-600 dark:bg-gray-800"
+										>
 											<button
 												type="button"
 												onclick={() => (showAiRenameAdvanced = !showAiRenameAdvanced)}
 												class="flex w-full items-center justify-between text-left"
 											>
-												<span class="text-[10px] font-medium text-gray-700 dark:text-gray-300">高级选项（默认关闭，有风险）</span>
+												<span class="text-[10px] font-medium text-gray-700 dark:text-gray-300"
+													>高级选项（默认关闭，有风险）</span
+												>
 												<svg
-													class="h-3 w-3 transform text-gray-500 transition-transform {showAiRenameAdvanced ? 'rotate-180' : ''}"
+													class="h-3 w-3 transform text-gray-500 transition-transform {showAiRenameAdvanced
+														? 'rotate-180'
+														: ''}"
 													fill="none"
 													stroke="currentColor"
 													viewBox="0 0 24 24"
 												>
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+														d="M19 9l-7 7-7-7"
+													/>
 												</svg>
 											</button>
 
@@ -2761,7 +2799,9 @@
 															bind:checked={aiRenameEnableMultiPage}
 															class="h-3 w-3 rounded border-gray-300"
 														/>
-														<span class="text-[10px] text-gray-700 dark:text-gray-300">对多P视频启用AI重命名</span>
+														<span class="text-[10px] text-gray-700 dark:text-gray-300"
+															>对多P视频启用AI重命名</span
+														>
 													</label>
 													<label class="flex items-center space-x-2">
 														<input
@@ -2769,7 +2809,9 @@
 															bind:checked={aiRenameEnableCollection}
 															class="h-3 w-3 rounded border-gray-300"
 														/>
-														<span class="text-[10px] text-gray-700 dark:text-gray-300">对合集视频启用AI重命名</span>
+														<span class="text-[10px] text-gray-700 dark:text-gray-300"
+															>对合集视频启用AI重命名</span
+														>
 													</label>
 													<label class="flex items-center space-x-2">
 														<input
@@ -2777,10 +2819,14 @@
 															bind:checked={aiRenameEnableBangumi}
 															class="h-3 w-3 rounded border-gray-300"
 														/>
-														<span class="text-[10px] text-gray-700 dark:text-gray-300">对番剧启用AI重命名</span>
+														<span class="text-[10px] text-gray-700 dark:text-gray-300"
+															>对番剧启用AI重命名</span
+														>
 													</label>
 													<!-- 风险警告 -->
-													<div class="rounded border border-red-300 bg-red-50 p-1.5 dark:border-red-700 dark:bg-red-950">
+													<div
+														class="rounded border border-red-300 bg-red-50 p-1.5 dark:border-red-700 dark:bg-red-950"
+													>
 														<p class="text-[9px] text-red-700 dark:text-red-300">
 															⚠️ 以上选项为实验性功能，可能导致文件丢失。建议先小范围测试。
 														</p>
@@ -3277,7 +3323,9 @@
 													</div>
 													<p class="text-muted-foreground truncate text-xs">
 														{result.author}{#if result.result_type === 'bili_user' && result.follower !== undefined && result.follower !== null}
-															<span class="ml-2">· 粉丝: {formatSubmissionPlayCount(result.follower)}</span>
+															<span class="ml-2"
+																>· 粉丝: {formatSubmissionPlayCount(result.follower)}</span
+															>
 														{/if}
 													</p>
 													{#if result.description}
@@ -3419,7 +3467,9 @@
 													</div>
 													<p class="text-muted-foreground mb-1 truncate text-xs">
 														UID: {following.mid}{#if following.follower !== undefined && following.follower !== null}
-															<span class="ml-2">· 粉丝: {formatSubmissionPlayCount(following.follower)}</span>
+															<span class="ml-2"
+																>· 粉丝: {formatSubmissionPlayCount(following.follower)}</span
+															>
 														{/if}
 													</p>
 													{#if following.sign}

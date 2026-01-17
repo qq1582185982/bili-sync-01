@@ -1,5 +1,5 @@
-use sea_orm_migration::prelude::*;
 use sea_orm::ConnectionTrait;
+use sea_orm_migration::prelude::*;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -435,19 +435,12 @@ impl MigrationTrait for Migration {
 }
 
 /// 检查SQLite表中是否存在指定列
-async fn column_exists<C: ConnectionTrait>(
-    db: &C,
-    table_name: &str,
-    column_name: &str,
-) -> Result<bool, DbErr> {
+async fn column_exists<C: ConnectionTrait>(db: &C, table_name: &str, column_name: &str) -> Result<bool, DbErr> {
     use sea_orm::Statement;
 
     let sql = format!("PRAGMA table_info({})", table_name);
     let result = db
-        .query_all(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            sql,
-        ))
+        .query_all(Statement::from_string(sea_orm::DatabaseBackend::Sqlite, sql))
         .await?;
 
     for row in result {

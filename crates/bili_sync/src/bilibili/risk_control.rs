@@ -123,8 +123,13 @@ impl<'a> RiskControl<'a> {
     /// 返回：grisk_id (即gaia_vtoken)
     pub async fn validate(&self, captcha_result: CaptchaResult) -> Result<String> {
         tracing::info!("开始验证captcha，获取gaia_vtoken");
-        tracing::info!("提交验证参数: challenge={}, token={}, validate={}, seccode={}",
-            captcha_result.challenge, captcha_result.token, captcha_result.validate, captcha_result.seccode);
+        tracing::info!(
+            "提交验证参数: challenge={}, token={}, validate={}, seccode={}",
+            captcha_result.challenge,
+            captcha_result.token,
+            captcha_result.validate,
+            captcha_result.seccode
+        );
 
         let mut form_data = vec![
             ("challenge", captcha_result.challenge),
