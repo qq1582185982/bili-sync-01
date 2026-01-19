@@ -63,10 +63,10 @@ rsa = { version = "0.9.8", features = ["sha2"] }
 rust-embed = "8.7.2"
 sea-orm = { version = "1.1.11", features = [
     "macros",
-    "runtime-tokio-rustls",
+    "runtime-tokio",
     "sqlx-sqlite",
 ] }
-sea-orm-migration = { version = "1.1.11", features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
+sea-orm-migration = { version = "1.1.11", features = ["runtime-tokio", "sqlx-sqlite"] }
 sha3 = "0.10.8"
 wasmtime = "28.0"
 serde = { version = "1.0.219", features = ["derive"] }

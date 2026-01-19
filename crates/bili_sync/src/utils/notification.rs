@@ -301,6 +301,7 @@ impl NotificationClient {
         let response = match self.config.wecom_msgtype.as_str() {
             "text" => {
                 let full_content = format!("{}\n\n{}", title, content);
+                let full_content = self.truncate_wecom_text(&full_content);
 
                 let mentioned_list = if self.config.wecom_mention_all {
                     Some(vec!["@all".to_string()])
@@ -319,7 +320,7 @@ impl NotificationClient {
                 self.client.post(webhook_url).json(&request).send().await?
             }
             "markdown" => {
-                // 先拼接完整内容，再进行长度限制
+                // 先拼接完整内容，再进行长度限制（企业微信限制按 UTF-8 字节计算）
                 let full_content = format!("# {}\n\n{}", title, content);
                 let markdown_content = self.truncate_wecom_markdown(&full_content);
 
@@ -352,31 +353,49 @@ impl NotificationClient {
         }
     }
 
-    /// 格式化企业微信消息内容（限制长度）
-    /// 企业微信 markdown 消息限制 4096 字符，预留 100 字符给标题和格式
-    fn format_wecom_content(&self, content: &str) -> String {
-        const MAX_WECOM_LENGTH: usize = 3900;
-
-        if content.len() > MAX_WECOM_LENGTH {
-            let mut truncated = content.chars().take(MAX_WECOM_LENGTH - 50).collect::<String>();
-            truncated.push_str("\n\n...内容过长，已截断");
-            truncated
-        } else {
-            content.to_string()
+    /// 截断 UTF-8 字符串到指定字节长度，并追加提示（保证结果仍是合法 UTF-8）。
+    fn truncate_utf8_bytes_with_suffix(content: &str, max_bytes: usize, suffix: &str) -> String {
+        if content.len() <= max_bytes {
+            return content.to_string();
         }
+
+        let suffix_bytes = suffix.as_bytes().len();
+        if suffix_bytes >= max_bytes {
+            let mut end = max_bytes;
+            while end > 0 && !content.is_char_boundary(end) {
+                end -= 1;
+            }
+            return content[..end].to_string();
+        }
+
+        let mut end = max_bytes - suffix_bytes;
+        while end > 0 && !content.is_char_boundary(end) {
+            end -= 1;
+        }
+
+        let mut truncated = String::with_capacity(end + suffix_bytes);
+        truncated.push_str(&content[..end]);
+        truncated.push_str(suffix);
+        truncated
     }
 
-    /// 截断企业微信 markdown 消息（严格限制 4096 字符）
-    fn truncate_wecom_markdown(&self, content: &str) -> String {
-        const MAX_MARKDOWN_LENGTH: usize = 4000;
+    /// 格式化企业微信消息内容（预截断）
+    /// 企业微信 markdown 消息限制 4096 **字节**，这里预留部分字节给标题和格式。
+    fn format_wecom_content(&self, content: &str) -> String {
+        const MAX_WECOM_BYTES: usize = 3900;
+        Self::truncate_utf8_bytes_with_suffix(content, MAX_WECOM_BYTES, "\n\n...内容过长，已截断")
+    }
 
-        if content.len() > MAX_MARKDOWN_LENGTH {
-            let mut truncated = content.chars().take(MAX_MARKDOWN_LENGTH - 50).collect::<String>();
-            truncated.push_str("\n\n...内容过长，已截断");
-            truncated
-        } else {
-            content.to_string()
-        }
+    /// 截断企业微信 text 消息（严格限制 2048 字节）
+    fn truncate_wecom_text(&self, content: &str) -> String {
+        const MAX_TEXT_BYTES: usize = 2048;
+        Self::truncate_utf8_bytes_with_suffix(content, MAX_TEXT_BYTES, "\n\n...内容过长，已截断")
+    }
+
+    /// 截断企业微信 markdown 消息（严格限制 4096 字节）
+    fn truncate_wecom_markdown(&self, content: &str) -> String {
+        const MAX_MARKDOWN_BYTES: usize = 4096;
+        Self::truncate_utf8_bytes_with_suffix(content, MAX_MARKDOWN_BYTES, "\n\n...内容过长，已截断")
     }
 
     fn format_scan_message(&self, summary: &ScanSummary) -> (String, String) {
@@ -955,5 +974,24 @@ mod tests {
         let formatted = client.format_wecom_content(&long_content);
         assert!(formatted.len() < 4100);
         assert!(formatted.contains("内容过长，已截断"));
+
+        // 多字节内容也必须按字节严格截断（避免超过企业微信限制）
+        const MAX_WECOM_BYTES: usize = 3900;
+        let long_multibyte = "测".repeat(5000);
+        let formatted_multibyte = client.format_wecom_content(&long_multibyte);
+        assert!(formatted_multibyte.len() <= MAX_WECOM_BYTES);
+        assert!(formatted_multibyte.contains("内容过长，已截断"));
+    }
+
+    #[test]
+    fn test_truncate_wecom_markdown_multibyte() {
+        let config = NotificationConfig::default();
+        let client = NotificationClient::new(config);
+
+        let long_content = format!("# 标题\n\n{}", "测".repeat(5000));
+        let truncated = client.truncate_wecom_markdown(&long_content);
+
+        assert!(truncated.len() <= 4096);
+        assert!(truncated.contains("内容过长，已截断"));
     }
 }
