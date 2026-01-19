@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import api from '$lib/api';
+	import BatchCheckbox from '$lib/components/batch-checkbox.svelte';
+	import BiliImage from '$lib/components/bili-image.svelte';
 	import { Button } from '$lib/components/ui/button';
+	import EmptyState from '$lib/components/empty-state.svelte';
+	import SelectableCardButton from '$lib/components/selectable-card-button.svelte';
+	import SidePanel from '$lib/components/side-panel.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
@@ -15,6 +20,7 @@
 		BangumiSeasonInfo,
 		BangumiSourceOption,
 		BangumiSourceListResponse,
+		VideoSourcesResponse,
 		ValidateFavoriteResponse,
 		UserCollectionInfo,
 		AddVideoSourceRequest,
@@ -31,6 +37,8 @@
 	import { toast } from 'svelte-sonner';
 	import { flip } from 'svelte/animate';
 	import { fade, fly } from 'svelte/transition';
+	import { runRequest } from '$lib/utils/request.js';
+	import { IsMobile } from '$lib/hooks/is-mobile.svelte.js';
 
 	let sourceType: VideoCategory = 'collection';
 	let lastSourceType: VideoCategory = sourceType; // 记录上一次的源类型，用于检测切换
@@ -96,6 +104,7 @@
 	let bangumiSeasons: BangumiSeasonInfo[] = [];
 	let loadingSeasons = false;
 	let selectedSeasons: string[] = [];
+	let bangumiSeasonsFetchAttempted = false;
 	let seasonIdTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// 番剧合并相关
@@ -131,8 +140,9 @@
 
 	// 批量添加相关
 	let batchMode = false; // 是否为批量模式
-	let batchSelectedItems = new Map(); // 存储选中项 {key: {type, data, name}}
-	let batchCheckboxStates = {}; // 存储checkbox状态的响应式对象
+	type BatchSelectedItem = { type: string; data: any; name: string };
+	let batchSelectedItems = new Map<string, BatchSelectedItem>(); // 存储选中项 {key: {type, data, name}}
+	let batchCheckboxStates: Record<string, boolean> = {}; // 存储checkbox状态的响应式对象
 	let batchBasePath = '/Downloads'; // 批量基础路径
 	let batchAdding = false; // 批量添加进行中
 	let batchProgress = { current: 0, total: 0 }; // 批量添加进度
@@ -140,7 +150,7 @@
 
 	// 响应式语句：当Map变化时更新checkbox状态对象
 	$: {
-		const newStates = {};
+		const newStates: Record<string, boolean> = {};
 		for (const [key] of batchSelectedItems) {
 			newStates[key] = true;
 		}
@@ -149,17 +159,17 @@
 	}
 
 	// 悬停详情相关
-	let hoveredItem: {
-		type: 'search' | 'season';
-		data: SearchResultItem | BangumiSeasonInfo;
-	} | null = null;
+	type HoveredItem =
+		| { type: 'search'; data: SearchResultItem }
+		| { type: 'season'; data: BangumiSeasonInfo };
+	let hoveredItem: HoveredItem | null = null;
 	let hoverTimeout: ReturnType<typeof setTimeout> | null = null;
 	let mousePosition = { x: 0, y: 0 };
 
 	// 响应式相关
-	let innerWidth: number;
+	const isMobileQuery = new IsMobile();
 	let isMobile: boolean = false;
-	$: isMobile = innerWidth < 768; // md断点
+	$: isMobile = isMobileQuery.current;
 
 	// 源类型选项
 	const sourceTypeOptions = [
@@ -225,10 +235,10 @@
 
 	onDestroy(() => {
 		// 清理定时器
-		clearTimeout(hoverTimeout);
-		clearTimeout(upIdTimeout);
-		clearTimeout(seasonIdTimeout);
-		clearTimeout(favoriteValidationTimeout);
+		if (hoverTimeout) clearTimeout(hoverTimeout);
+		if (upIdTimeout) clearTimeout(upIdTimeout);
+		if (seasonIdTimeout) clearTimeout(seasonIdTimeout);
+		if (favoriteValidationTimeout) clearTimeout(favoriteValidationTimeout);
 	});
 
 	$: isMergingBangumi = sourceType === 'bangumi' && mergeToSourceId !== null;
@@ -279,87 +289,90 @@
 			}
 		}
 
-		searchLoading = true;
 		searchResults = [];
 		searchTotalResults = 0;
 
-		try {
-			// 针对番剧搜索，需要更多页面因为每页实际只有25+25=50个结果但分配可能不均
-			const pageSize = searchType === 'media_bangumi' ? 100 : 50;
+		const searchResponse = await runRequest(
+			async () => {
+				// 针对番剧搜索，需要更多页面因为每页实际只有25+25=50个结果但分配可能不均
+				const pageSize = searchType === 'media_bangumi' ? 100 : 50;
 
-			// 第一次请求获取总数
-			const firstResult = await api.searchBilibili({
-				keyword: searchKeyword,
-				search_type: searchType,
-				page: 1,
-				page_size: pageSize
-			});
+				// 第一次请求获取总数
+				const firstResult = await api.searchBilibili({
+					keyword: searchKeyword,
+					search_type: searchType,
+					page: 1,
+					page_size: pageSize
+				});
 
-			if (!firstResult.data.success) {
-				toast.error('搜索失败');
-				return;
-			}
+				if (!firstResult.data.success) {
+					toast.error('搜索失败');
+					return null;
+				}
 
-			const totalResults = firstResult.data.total;
-			searchTotalResults = totalResults;
-			let allResults = [...firstResult.data.results];
+				const totalResults = firstResult.data.total;
+				let allResults = [...firstResult.data.results];
 
-			// 如果总数超过pageSize，继续获取剩余页面
-			if (totalResults > pageSize) {
-				const totalPages = Math.ceil(totalResults / pageSize);
-				const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+				// 如果总数超过pageSize，继续获取剩余页面
+				if (totalResults > pageSize) {
+					const totalPages = Math.ceil(totalResults / pageSize);
+					const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
 
-				// 串行获取剩余页面，避免并发请求过多导致失败
-				for (const page of remainingPages) {
-					try {
-						const pageResult = await api.searchBilibili({
-							keyword: searchKeyword,
-							search_type: searchType,
-							page,
-							page_size: pageSize
-						});
+					// 串行获取剩余页面，避免并发请求过多导致失败
+					for (const page of remainingPages) {
+						try {
+							const pageResult = await api.searchBilibili({
+								keyword: searchKeyword,
+								search_type: searchType,
+								page,
+								page_size: pageSize
+							});
 
-						if (pageResult.data.success && pageResult.data.results) {
-							allResults.push(...pageResult.data.results);
+							if (pageResult.data.success && pageResult.data.results) {
+								allResults.push(...pageResult.data.results);
+							}
+
+							// 添加小延迟避免请求过于频繁
+							await new Promise((resolve) => setTimeout(resolve, 100));
+						} catch {
+							// 静默处理失败，继续获取下一页
 						}
-
-						// 添加小延迟避免请求过于频繁
-						await new Promise((resolve) => setTimeout(resolve, 100));
-					} catch {
-						// 静默处理失败，继续获取下一页
 					}
 				}
+
+				// 去重处理（基于season_id, bvid, mid等唯一标识）
+				const uniqueResults = allResults.filter((result, index, arr) => {
+					const id = result.season_id || result.bvid || result.mid || `${result.title}_${index}`;
+					return (
+						arr.findIndex((r) => {
+							const rid = r.season_id || r.bvid || r.mid || `${r.title}_${arr.indexOf(r)}`;
+							return rid === id;
+						}) === index
+					);
+				});
+
+				return { uniqueResults, totalResults };
+			},
+			{
+				setLoading: (value) => (searchLoading = value),
+				context: '搜索失败'
 			}
+		);
+		if (!searchResponse) return;
 
-			// 去重处理（基于season_id, bvid, mid等唯一标识）
-			const uniqueResults = allResults.filter((result, index, arr) => {
-				const id = result.season_id || result.bvid || result.mid || `${result.title}_${index}`;
-				return (
-					arr.findIndex((r) => {
-						const rid = r.season_id || r.bvid || r.mid || `${r.title}_${arr.indexOf(r)}`;
-						return rid === id;
-					}) === index
-				);
-			});
+		const { uniqueResults, totalResults } = searchResponse;
+		searchTotalResults = totalResults;
+		searchResults = uniqueResults;
+		showSearchResults = true;
 
-			searchResults = uniqueResults;
-			showSearchResults = true;
-
-			// 优化提示信息
-			const successRate = ((uniqueResults.length / totalResults) * 100).toFixed(1);
-			if (uniqueResults.length < totalResults) {
-				toast.success(
-					`搜索完成，获取到 ${uniqueResults.length}/${totalResults} 个结果 (${successRate}%)`
-				);
-			} else {
-				toast.success(`搜索完成，共获取到 ${uniqueResults.length} 个结果`);
-			}
-		} catch (error: unknown) {
-			console.error('搜索失败:', error);
-			const errorMessage = error instanceof Error ? error.message : '搜索失败';
-			toast.error('搜索失败', { description: errorMessage });
-		} finally {
-			searchLoading = false;
+		// 优化提示信息
+		const successRate = ((uniqueResults.length / totalResults) * 100).toFixed(1);
+		if (uniqueResults.length < totalResults) {
+			toast.success(
+				`搜索完成，获取到 ${uniqueResults.length}/${totalResults} 个结果 (${successRate}%)`
+			);
+		} else {
+			toast.success(`搜索完成，共获取到 ${uniqueResults.length} 个结果`);
 		}
 	}
 
@@ -460,24 +473,25 @@
 		}
 
 		// 验证正则表达式
-		validatingBlacklistKeyword = true;
-		try {
-			const result = await api.validateRegex(pattern);
-			if (result.status_code === 200) {
-				if (result.data.valid) {
-					blacklistKeywords = [...blacklistKeywords, pattern];
-					newBlacklistKeyword = '';
-					blacklistValidationError = '';
-				} else {
-					blacklistValidationError = result.data.error || '无效的正则表达式';
-				}
-			} else {
-				blacklistValidationError = '验证请求失败';
+		const result = await runRequest(() => api.validateRegex(pattern), {
+			setLoading: (value) => (validatingBlacklistKeyword = value),
+			showErrorToast: false,
+			onError: () => {
+				blacklistValidationError = '网络错误';
 			}
-		} catch {
-			blacklistValidationError = '网络错误';
-		} finally {
-			validatingBlacklistKeyword = false;
+		});
+		if (!result) return;
+
+		if (result.status_code === 200) {
+			if (result.data.valid) {
+				blacklistKeywords = [...blacklistKeywords, pattern];
+				newBlacklistKeyword = '';
+				blacklistValidationError = '';
+			} else {
+				blacklistValidationError = result.data.error || '无效的正则表达式';
+			}
+		} else {
+			blacklistValidationError = '验证请求失败';
 		}
 	}
 
@@ -502,24 +516,25 @@
 		}
 
 		// 验证正则表达式
-		validatingWhitelistKeyword = true;
-		try {
-			const result = await api.validateRegex(pattern);
-			if (result.status_code === 200) {
-				if (result.data.valid) {
-					whitelistKeywords = [...whitelistKeywords, pattern];
-					newWhitelistKeyword = '';
-					whitelistValidationError = '';
-				} else {
-					whitelistValidationError = result.data.error || '无效的正则表达式';
-				}
-			} else {
-				whitelistValidationError = '验证请求失败';
+		const result = await runRequest(() => api.validateRegex(pattern), {
+			setLoading: (value) => (validatingWhitelistKeyword = value),
+			showErrorToast: false,
+			onError: () => {
+				whitelistValidationError = '网络错误';
 			}
-		} catch {
-			whitelistValidationError = '网络错误';
-		} finally {
-			validatingWhitelistKeyword = false;
+		});
+		if (!result) return;
+
+		if (result.status_code === 200) {
+			if (result.data.valid) {
+				whitelistKeywords = [...whitelistKeywords, pattern];
+				newWhitelistKeyword = '';
+				whitelistValidationError = '';
+			} else {
+				whitelistValidationError = result.data.error || '无效的正则表达式';
+			}
+		} else {
+			whitelistValidationError = '验证请求失败';
 		}
 	}
 
@@ -546,35 +561,6 @@
 		if (event.key === 'Enter') {
 			event.preventDefault();
 			addWhitelistKeyword();
-		}
-	}
-
-	// 处理图片URL
-	function processBilibiliImageUrl(url: string): string {
-		if (!url) return '';
-
-		if (url.startsWith('https://')) return url;
-		if (url.startsWith('//')) return 'https:' + url;
-		if (url.startsWith('http://')) return url.replace('http://', 'https://');
-		if (!url.startsWith('http')) return 'https://' + url;
-
-		return url.split('@')[0];
-	}
-
-	// 处理图片加载错误
-	function handleImageError(event: Event) {
-		const img = event.target as HTMLImageElement;
-		// 使用默认的占位图片
-		img.style.display = 'none';
-		const parent = img.parentElement;
-		if (parent && !parent.querySelector('.placeholder')) {
-			const placeholder = document.createElement('div');
-			// 获取原图片的尺寸类
-			const widthClass = img.className.match(/w-\d+/)?.[0] || 'w-20';
-			const heightClass = img.className.match(/h-\d+/)?.[0] || 'h-14';
-			placeholder.className = `placeholder ${widthClass} ${heightClass} bg-muted rounded flex items-center justify-center text-xs text-muted-foreground`;
-			placeholder.textContent = '无图片';
-			parent.appendChild(placeholder);
 		}
 	}
 
@@ -611,159 +597,172 @@
 			}
 		}
 
-		loading = true;
+		const params: AddVideoSourceRequest = {
+			source_type: sourceType,
+			source_id: sourceId,
+			name,
+			path,
+			// 下载选项
+			audio_only: audioOnly,
+			audio_only_m4a_only: audioOnlyM4aOnly,
+			flat_folder: flatFolder,
+			download_danmaku: downloadDanmaku,
+			download_subtitle: downloadSubtitle,
+			ai_rename: aiRename,
+			ai_rename_video_prompt: aiRenameVideoPrompt.trim() || undefined,
+			ai_rename_audio_prompt: aiRenameAudioPrompt.trim() || undefined,
+			// AI重命名高级选项（仅当开启高级选项时传递）
+			ai_rename_enable_multi_page: showAiRenameAdvanced ? aiRenameEnableMultiPage : undefined,
+			ai_rename_enable_collection: showAiRenameAdvanced ? aiRenameEnableCollection : undefined,
+			ai_rename_enable_bangumi: showAiRenameAdvanced ? aiRenameEnableBangumi : undefined
+		};
 
-		try {
-			const params: AddVideoSourceRequest = {
-				source_type: sourceType,
-				source_id: sourceId,
-				name,
-				path,
-				// 下载选项
-				audio_only: audioOnly,
-				audio_only_m4a_only: audioOnlyM4aOnly,
-				flat_folder: flatFolder,
-				download_danmaku: downloadDanmaku,
-				download_subtitle: downloadSubtitle,
-				ai_rename: aiRename,
-				ai_rename_video_prompt: aiRenameVideoPrompt.trim() || undefined,
-				ai_rename_audio_prompt: aiRenameAudioPrompt.trim() || undefined,
-				// AI重命名高级选项（仅当开启高级选项时传递）
-				ai_rename_enable_multi_page: showAiRenameAdvanced ? aiRenameEnableMultiPage : undefined,
-				ai_rename_enable_collection: showAiRenameAdvanced ? aiRenameEnableCollection : undefined,
-				ai_rename_enable_bangumi: showAiRenameAdvanced ? aiRenameEnableBangumi : undefined
-			};
-
-			if (sourceType === 'collection') {
-				params.up_id = upId;
-				params.collection_type = collectionType;
-				if (cover) {
-					params.cover = cover;
-				}
+		if (sourceType === 'collection') {
+			params.up_id = upId;
+			params.collection_type = collectionType;
+			if (cover) {
+				params.cover = cover;
 			}
+		}
 
-			if (sourceType === 'bangumi') {
-				params.download_all_seasons = downloadAllSeasons;
-				// 如果选择了特定季度，添加selected_seasons参数
-				if (selectedSeasons.length > 0 && !downloadAllSeasons) {
-					params.selected_seasons = selectedSeasons;
-				}
-				// 如果选择了合并到现有番剧源，添加merge_to_source_id参数
-				if (mergeToSourceId) {
-					params.merge_to_source_id = mergeToSourceId;
-				}
+		if (sourceType === 'bangumi') {
+			params.download_all_seasons = downloadAllSeasons;
+			// 如果选择了特定季度，添加selected_seasons参数
+			if (selectedSeasons.length > 0 && !downloadAllSeasons) {
+				params.selected_seasons = selectedSeasons;
 			}
-
-			if (sourceType === 'submission') {
-				// 如果有选择的视频，添加selected_videos参数
-				if (selectedVideos.length > 0) {
-					params.selected_videos = selectedVideos;
-				}
+			// 如果选择了合并到现有番剧源，添加merge_to_source_id参数
+			if (mergeToSourceId) {
+				params.merge_to_source_id = mergeToSourceId;
 			}
+		}
 
-			// 如果有关键词过滤器，添加blacklist_keywords和whitelist_keywords参数（双列表模式）
-			// 注意：后端API仍使用keyword_filters和keyword_filter_mode，但会被转换为新格式
-			// 为了向后兼容，在添加时使用旧格式，后端会自动处理
-			if (blacklistKeywords.length > 0 || whitelistKeywords.length > 0) {
-				// 使用新的双列表模式，直接传递两个列表
-				// 后端handler会根据是否存在这些字段来决定使用哪种模式
-				if (blacklistKeywords.length > 0) {
-					params.keyword_filters = blacklistKeywords;
-					params.keyword_filter_mode = 'blacklist';
-				}
-				// 注意：当前添加接口只支持单一模式，双列表需要后续通过编辑接口设置
-				// 如果同时有白名单，需要先添加视频源，然后再通过关键词过滤器编辑功能设置完整的双列表
+		if (sourceType === 'submission') {
+			// 如果有选择的视频，添加selected_videos参数
+			if (selectedVideos.length > 0) {
+				params.selected_videos = selectedVideos;
 			}
+		}
 
-			const result = await api.addVideoSource(params);
+		// 如果有关键词过滤器，添加blacklist_keywords和whitelist_keywords参数（双列表模式）
+		// 注意：后端API仍使用keyword_filters和keyword_filter_mode，但会被转换为新格式
+		// 为了向后兼容，在添加时使用旧格式，后端会自动处理
+		if (blacklistKeywords.length > 0 || whitelistKeywords.length > 0) {
+			// 使用新的双列表模式，直接传递两个列表
+			// 后端handler会根据是否存在这些字段来决定使用哪种模式
+			if (blacklistKeywords.length > 0) {
+				params.keyword_filters = blacklistKeywords;
+				params.keyword_filter_mode = 'blacklist';
+			}
+			// 注意：当前添加接口只支持单一模式，双列表需要后续通过编辑接口设置
+			// 如果同时有白名单，需要先添加视频源，然后再通过关键词过滤器编辑功能设置完整的双列表
+		}
 
-			if (result.data.success) {
-				// 如果同时设置了白名单或修改了大小写敏感设置，需要额外调用API更新
-				if ((whitelistKeywords.length > 0 || !keywordCaseSensitive) && result.data.source_id) {
-					try {
-						await api.updateVideoSourceKeywordFilters(
-							sourceType,
-							result.data.source_id,
-							blacklistKeywords,
-							whitelistKeywords,
-							keywordCaseSensitive
-						);
-					} catch (e) {
-						console.warn('更新关键词过滤器失败:', e);
+		const result = await runRequest(
+			async () => {
+				const result = await api.addVideoSource(params);
+
+				if (result.data.success) {
+					// 如果同时设置了白名单或修改了大小写敏感设置，需要额外调用API更新
+					if ((whitelistKeywords.length > 0 || !keywordCaseSensitive) && result.data.source_id) {
+						try {
+							await api.updateVideoSourceKeywordFilters(
+								sourceType,
+								result.data.source_id,
+								blacklistKeywords,
+								whitelistKeywords,
+								keywordCaseSensitive
+							);
+						} catch (e) {
+							console.warn('更新关键词过滤器失败:', e);
+						}
 					}
 				}
 
-				toast.success('添加成功', { description: result.data.message });
-				// 重置表单
-				sourceId = '';
-				upId = '';
-				name = '';
-				path = '/Downloads';
-				downloadAllSeasons = false;
-				collectionType = 'season';
-				isManualInput = false;
-				bangumiSeasons = [];
-				selectedSeasons = [];
-				selectedVideos = [];
-				selectedUpName = '';
-				mergeToSourceId = null;
-				existingBangumiSources = [];
-				blacklistKeywords = [];
-				whitelistKeywords = [];
-				newBlacklistKeyword = '';
-				newWhitelistKeyword = '';
-				keywordCaseSensitive = true;
-				showKeywordSection = false;
-				// 重置下载选项
-				audioOnly = false;
-				audioOnlyM4aOnly = false;
-				flatFolder = false;
-				downloadDanmaku = true;
-				downloadSubtitle = true;
-				aiRename = false;
-				aiRenameVideoPrompt = '';
-				aiRenameAudioPrompt = '';
-				showAiRenameAdvanced = false;
-				aiRenameEnableMultiPage = false;
-				aiRenameEnableCollection = false;
-				aiRenameEnableBangumi = false;
-				// 跳转到视频源管理页面
-				goto('/video-sources');
-			} else {
-				toast.error('添加失败', { description: result.data.message });
-			}
-		} catch (error: unknown) {
-			console.error('添加视频源失败:', error);
+				return result;
+			},
+			{
+				setLoading: (value) => (loading = value),
+				context: '添加视频源失败',
+				showErrorToast: false,
+				onError: (error) => {
+					console.error('添加视频源失败:', error);
 
-			// 解析错误信息，提供更友好的提示
-			let errorMessage = error instanceof Error ? error.message : '添加视频源失败';
-			let errorDescription = '';
+					const errorMessage =
+						error && typeof error === 'object' && 'message' in error
+							? String(error.message)
+							: error instanceof Error
+								? error.message
+								: '添加视频源失败';
+					let errorDescription = '';
 
-			if (errorMessage.includes('已存在')) {
-				// 重复添加错误
-				if (sourceType === 'bangumi') {
-					errorDescription =
-						'该番剧已经添加过了，请检查是否使用了相同的Season ID、Media ID或Episode ID';
-				} else if (sourceType === 'collection') {
-					errorDescription = '该合集已经添加过了，请检查是否使用了相同的合集ID和UP主ID';
-				} else if (sourceType === 'favorite') {
-					errorDescription = '该收藏夹已经添加过了，请检查是否使用了相同的收藏夹ID';
-				} else if (sourceType === 'submission') {
-					errorDescription = '该UP主的投稿已经添加过了，请检查是否使用了相同的UP主ID';
-				} else if (sourceType === 'watch_later') {
-					errorDescription = '稍后观看只能配置一个，请先删除现有配置';
+					if (errorMessage.includes('已存在')) {
+						// 重复添加错误
+						if (sourceType === 'bangumi') {
+							errorDescription =
+								'该番剧已经添加过了，请检查是否使用了相同的Season ID、Media ID或Episode ID';
+						} else if (sourceType === 'collection') {
+							errorDescription = '该合集已经添加过了，请检查是否使用了相同的合集ID和UP主ID';
+						} else if (sourceType === 'favorite') {
+							errorDescription = '该收藏夹已经添加过了，请检查是否使用了相同的收藏夹ID';
+						} else if (sourceType === 'submission') {
+							errorDescription = '该UP主的投稿已经添加过了，请检查是否使用了相同的UP主ID';
+						} else if (sourceType === 'watch_later') {
+							errorDescription = '稍后观看只能配置一个，请先删除现有配置';
+						}
+
+						toast.error('重复添加', {
+							description: errorDescription,
+							duration: 5000 // 延长显示时间
+						});
+					} else {
+						// 其他错误
+						toast.error('添加失败', { description: errorMessage });
+					}
 				}
-
-				toast.error('重复添加', {
-					description: errorDescription,
-					duration: 5000 // 延长显示时间
-				});
-			} else {
-				// 其他错误
-				toast.error('添加失败', { description: errorMessage });
 			}
-		} finally {
-			loading = false;
+		);
+		if (!result) return;
+
+		if (result.data.success) {
+			toast.success('添加成功', { description: result.data.message });
+			// 重置表单
+			sourceId = '';
+			upId = '';
+			name = '';
+			path = '/Downloads';
+			downloadAllSeasons = false;
+			collectionType = 'season';
+			isManualInput = false;
+			bangumiSeasons = [];
+			selectedSeasons = [];
+			selectedVideos = [];
+			selectedUpName = '';
+			mergeToSourceId = null;
+			existingBangumiSources = [];
+			blacklistKeywords = [];
+			whitelistKeywords = [];
+			newBlacklistKeyword = '';
+			newWhitelistKeyword = '';
+			keywordCaseSensitive = true;
+			showKeywordSection = false;
+			// 重置下载选项
+			audioOnly = false;
+			audioOnlyM4aOnly = false;
+			flatFolder = false;
+			downloadDanmaku = true;
+			downloadSubtitle = true;
+			aiRename = false;
+			aiRenameVideoPrompt = '';
+			aiRenameAudioPrompt = '';
+			showAiRenameAdvanced = false;
+			aiRenameEnableMultiPage = false;
+			aiRenameEnableCollection = false;
+			aiRenameEnableBangumi = false;
+			// 跳转到视频源管理页面
+			goto('/video-sources');
+		} else {
+			toast.error('添加失败', { description: result.data.message });
 		}
 	}
 
@@ -773,23 +772,19 @@
 
 	// 获取收藏夹列表
 	async function fetchUserFavorites() {
-		loadingFavorites = true;
-		try {
-			const result = await api.getUserFavorites();
-			if (result.data) {
-				userFavorites = result.data;
-				toast.success('获取收藏夹成功', {
-					description: `共获取到 ${userFavorites.length} 个收藏夹`
-				});
-			} else {
-				toast.error('获取收藏夹失败');
-			}
-		} catch (error: unknown) {
-			console.error('获取收藏夹失败:', error);
-			const errorMessage = error instanceof Error ? error.message : '获取收藏夹失败';
-			toast.error('获取收藏夹失败', { description: errorMessage });
-		} finally {
-			loadingFavorites = false;
+		const result = await runRequest(() => api.getUserFavorites(), {
+			setLoading: (value) => (loadingFavorites = value),
+			context: '获取收藏夹失败'
+		});
+		if (!result) return;
+
+		if (result.data) {
+			userFavorites = result.data;
+			toast.success('获取收藏夹成功', {
+				description: `共获取到 ${userFavorites.length} 个收藏夹`
+			});
+		} else {
+			toast.error('获取收藏夹失败');
 		}
 	}
 
@@ -803,12 +798,18 @@
 			return;
 		}
 
+		const favoriteName = favorite.name || favorite.title;
+		if (!favoriteName) {
+			toast.error('无法选择收藏夹', { description: '收藏夹缺少标题' });
+			return;
+		}
+
 		sourceId = favorite.id.toString();
-		name = favorite.name || favorite.title;
+		name = favoriteName;
 		favoriteValidationResult = {
 			valid: true,
-			fid: favorite.id,
-			title: favorite.name || favorite.title,
+			fid: Number(favorite.id),
+			title: favoriteName,
 			message: '收藏夹验证成功'
 		};
 		toast.success('已选择收藏夹', { description: name });
@@ -821,6 +822,11 @@
 			toast.error('收藏夹已存在', {
 				description: `该收藏夹「${favorite.title}」已经添加过了`
 			});
+			return;
+		}
+
+		if (!favorite.title) {
+			toast.error('无法选择收藏夹', { description: '收藏夹缺少标题' });
 			return;
 		}
 
@@ -838,10 +844,13 @@
 
 	// 选择UP主并获取其收藏夹
 	async function selectUserAndFetchFavorites(user: SearchResultItem) {
+		if (!user.mid) {
+			toast.error('获取收藏夹失败', { description: '未找到 UP 主 ID' });
+			return;
+		}
 		selectedUserId = user.mid.toString();
 		selectedUserName = user.title; // 使用搜索结果中的title
 
-		loadingSearchedUserFavorites = true;
 		searchedUserFavorites = [];
 
 		// 关闭搜索结果
@@ -850,24 +859,33 @@
 		searchKeyword = '';
 		searchTotalResults = 0;
 
-		try {
-			const result = await api.getUserFavoritesByUid(selectedUserId);
-			if (result.data && result.data.length > 0) {
-				searchedUserFavorites = result.data;
-				toast.success('获取收藏夹成功', {
-					description: `从 ${selectedUserName} 获取到 ${searchedUserFavorites.length} 个收藏夹`
+		const result = await runRequest(() => api.getUserFavoritesByUid(selectedUserId), {
+			setLoading: (value) => (loadingSearchedUserFavorites = value),
+			context: '获取UP主收藏夹失败',
+			showErrorToast: false,
+			onError: () => {
+				toast.error('获取收藏夹失败', {
+					description: 'UP主可能没有公开收藏夹或网络错误'
 				});
-			} else {
-				toast.info('该UP主没有公开收藏夹');
 			}
-		} catch {
-			console.error('获取UP主收藏夹失败');
-			toast.error('获取收藏夹失败', {
-				description: 'UP主可能没有公开收藏夹或网络错误'
+		});
+		if (!result) return;
+
+		if (result.data && result.data.length > 0) {
+			searchedUserFavorites = result.data;
+			toast.success('获取收藏夹成功', {
+				description: `从 ${selectedUserName} 获取到 ${searchedUserFavorites.length} 个收藏夹`
 			});
-		} finally {
-			loadingSearchedUserFavorites = false;
+		} else {
+			toast.info('该UP主没有公开收藏夹');
 		}
+	}
+
+	function clearSearchedUserFavoritesSelection() {
+		selectedUserId = '';
+		selectedUserName = '';
+		searchedUserFavorites = [];
+		loadingSearchedUserFavorites = false;
 	}
 
 	// 验证收藏夹ID
@@ -891,29 +909,31 @@
 		validatingFavorite = true;
 		favoriteValidationResult = null;
 
-		try {
-			const result = await api.validateFavorite(fid.trim());
-			favoriteValidationResult = result.data;
-
-			if (result.data.valid && !name) {
-				// 如果验证成功且用户还没有填写名称，自动填入收藏夹标题
-				name = result.data.title;
+		const result = await runRequest(() => api.validateFavorite(fid.trim()), {
+			setLoading: (value) => (validatingFavorite = value),
+			showErrorToast: false,
+			onError: () => {
+				favoriteValidationResult = {
+					valid: false,
+					fid: parseInt(fid) || 0,
+					title: '',
+					message: '验证失败：网络错误或收藏夹不存在'
+				};
 			}
-		} catch {
-			favoriteValidationResult = {
-				valid: false,
-				fid: parseInt(fid) || 0,
-				title: '',
-				message: '验证失败：网络错误或收藏夹不存在'
-			};
-		} finally {
-			validatingFavorite = false;
+		});
+		if (!result) return;
+
+		favoriteValidationResult = result.data;
+
+		if (result.data.valid && !name) {
+			// 如果验证成功且用户还没有填写名称，自动填入收藏夹标题
+			name = result.data.title;
 		}
 	}
 
 	// 处理收藏夹ID变化
 	function handleFavoriteIdChange() {
-		clearTimeout(favoriteValidationTimeout);
+		if (favoriteValidationTimeout) clearTimeout(favoriteValidationTimeout);
 		if (sourceType === 'favorite' && sourceId.trim()) {
 			favoriteValidationTimeout = setTimeout(() => {
 				validateFavoriteId(sourceId);
@@ -925,7 +945,7 @@
 
 	// 处理UP主ID变化
 	function handleUpIdChange() {
-		clearTimeout(upIdTimeout);
+		if (upIdTimeout) clearTimeout(upIdTimeout);
 		if (upId.trim()) {
 			upIdTimeout = setTimeout(() => {
 				fetchUserCollections();
@@ -939,45 +959,49 @@
 	async function fetchUserCollections() {
 		if (!upId.trim()) return;
 
-		loadingCollections = true;
-		try {
-			const result = await api.getUserCollections(upId);
-			if (result.data && result.data.collections) {
-				userCollections = result.data.collections;
-				if (userCollections.length === 0) {
-					toast.info('该UP主暂无合集');
+		const result = await runRequest(() => api.getUserCollections(upId), {
+			setLoading: (value) => (loadingCollections = value),
+			context: '获取合集列表失败',
+			showErrorToast: false,
+			onError: (error) => {
+				// 根据错误类型提供更友好的提示
+				const errorMsg =
+					error && typeof error === 'object' && 'message' in error
+						? String(error.message)
+						: error instanceof Error
+							? error.message
+							: '';
+
+				let errorDescription = '';
+
+				if (errorMsg === 'Failed to fetch' || errorMsg.includes('ERR_EMPTY_RESPONSE')) {
+					errorDescription = '该UP主的合集可能需要登录访问，或暂时无法获取';
+				} else if (errorMsg.includes('403') || errorMsg.includes('Forbidden')) {
+					errorDescription = '该UP主的合集为私有，无法访问';
+				} else if (errorMsg.includes('404') || errorMsg.includes('Not Found')) {
+					errorDescription = 'UP主不存在或合集已被删除';
 				} else {
-					toast.success('获取合集列表成功', {
-						description: `共获取到 ${userCollections.length} 个合集`
-					});
+					errorDescription = '网络错误或服务暂时不可用，请稍后重试';
 				}
-			} else {
-				toast.error('获取合集列表失败');
+
+				toast.error('获取合集列表失败', { description: errorDescription });
 				userCollections = [];
 			}
-		} catch (error: unknown) {
-			console.error('获取合集列表失败:', error);
+		});
+		if (!result) return;
 
-			// 根据错误类型提供更友好的提示
-			let errorMessage = '获取合集列表失败';
-			let errorDescription = '';
-
-			const errorMsg = error instanceof Error ? error.message : '';
-
-			if (errorMsg === 'Failed to fetch' || errorMsg.includes('ERR_EMPTY_RESPONSE')) {
-				errorDescription = '该UP主的合集可能需要登录访问，或暂时无法获取';
-			} else if (errorMsg.includes('403') || errorMsg.includes('Forbidden')) {
-				errorDescription = '该UP主的合集为私有，无法访问';
-			} else if (errorMsg.includes('404') || errorMsg.includes('Not Found')) {
-				errorDescription = 'UP主不存在或合集已被删除';
+		if (result.data && result.data.collections) {
+			userCollections = result.data.collections;
+			if (userCollections.length === 0) {
+				toast.info('该UP主暂无合集');
 			} else {
-				errorDescription = '网络错误或服务暂时不可用，请稍后重试';
+				toast.success('获取合集列表成功', {
+					description: `共获取到 ${userCollections.length} 个合集`
+				});
 			}
-
-			toast.error(errorMessage, { description: errorDescription });
+		} else {
+			toast.error('获取合集列表失败');
 			userCollections = [];
-		} finally {
-			loadingCollections = false;
 		}
 	}
 
@@ -1004,12 +1028,14 @@
 	// 处理Season ID变化
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	function handleSeasonIdChange() {
-		clearTimeout(seasonIdTimeout);
+		if (seasonIdTimeout) clearTimeout(seasonIdTimeout);
 		if (sourceId.trim() && sourceType === 'bangumi') {
+			bangumiSeasonsFetchAttempted = false;
 			seasonIdTimeout = setTimeout(() => {
 				fetchBangumiSeasons();
 			}, 500);
 		} else {
+			bangumiSeasonsFetchAttempted = false;
 			bangumiSeasons = [];
 			selectedSeasons = [];
 		}
@@ -1019,122 +1045,117 @@
 	async function fetchBangumiSeasons() {
 		if (!sourceId.trim() || sourceType !== 'bangumi') return;
 
-		loadingSeasons = true;
-		try {
-			const result = await api.getBangumiSeasons(sourceId);
-			if (result.data && result.data.success) {
-				bangumiSeasons = result.data.data || [];
-				// 默认选中当前季度
-				if (bangumiSeasons.length > 0) {
-					const currentSeason = bangumiSeasons.find((s) => s.season_id === sourceId);
-					if (currentSeason) {
-						selectedSeasons = [currentSeason.season_id];
-					}
-				}
-				// 如果只有一个季度，自动选中它
-				if (bangumiSeasons.length === 1) {
-					selectedSeasons = [bangumiSeasons[0].season_id];
-				}
-			} else {
+		bangumiSeasonsFetchAttempted = true;
+		const result = await runRequest(() => api.getBangumiSeasons(sourceId), {
+			setLoading: (value) => (loadingSeasons = value),
+			context: '获取季度信息失败',
+			onError: () => {
 				bangumiSeasons = [];
+				selectedSeasons = [];
 			}
-		} catch (error: unknown) {
-			console.error('获取季度信息失败:', error);
-			const errorMessage = error instanceof Error ? error.message : '获取季度信息失败';
-			toast.error('获取季度信息失败', { description: errorMessage });
+		});
+		if (!result) return;
+
+		if (result.data && result.data.success) {
+			bangumiSeasons = result.data.data || [];
+			// 默认选中当前季度
+			if (bangumiSeasons.length > 0) {
+				const currentSeason = bangumiSeasons.find((s) => s.season_id === sourceId);
+				if (currentSeason) {
+					selectedSeasons = [currentSeason.season_id];
+				}
+			}
+			// 如果只有一个季度，自动选中它
+			if (bangumiSeasons.length === 1) {
+				selectedSeasons = [bangumiSeasons[0].season_id];
+			}
+		} else {
 			bangumiSeasons = [];
-			selectedSeasons = [];
-		} finally {
-			loadingSeasons = false;
 		}
 	}
 
 	// 获取现有番剧源列表（用于合并选择）
 	async function fetchExistingBangumiSources() {
-		loadingBangumiSources = true;
-		try {
-			const result = await api.getBangumiSourcesForMerge();
-			if (result.data && result.data.success) {
-				existingBangumiSources = result.data.bangumi_sources;
-			} else {
+		const result = await runRequest(() => api.getBangumiSourcesForMerge(), {
+			setLoading: (value) => (loadingBangumiSources = value),
+			context: '获取现有番剧源失败',
+			onError: () => {
 				existingBangumiSources = [];
 			}
-		} catch (error) {
-			console.error('获取现有番剧源失败:', error);
+		});
+		if (!result) return;
+
+		if (result.data && result.data.success) {
+			existingBangumiSources = result.data.bangumi_sources;
+		} else {
 			existingBangumiSources = [];
-		} finally {
-			loadingBangumiSources = false;
 		}
 	}
 
 	// 加载已有视频源（用于过滤）
 	async function loadExistingVideoSources() {
-		loadingExistingSources = true;
-		try {
-			const result = await api.getVideoSources();
-			if (result.data) {
-				existingVideoSources = result.data;
+		const result = await runRequest(() => api.getVideoSources(), {
+			setLoading: (value) => (loadingExistingSources = value),
+			context: '加载已有视频源失败'
+		});
+		if (!result?.data) return;
 
-				// 处理合集：存储 s_id_m_id 的组合
-				existingCollectionIds.clear();
-				result.data.collection?.forEach((c) => {
-					if (c.s_id && c.m_id) {
-						const key = `${c.s_id}_${c.m_id}`;
-						existingCollectionIds.add(key);
-					}
-				});
+		existingVideoSources = result.data;
 
-				// 处理收藏夹
-				existingFavoriteIds.clear();
-				result.data.favorite?.forEach((f) => {
-					if (f.f_id) {
-						existingFavoriteIds.add(f.f_id);
-					}
-				});
-
-				// 处理UP主投稿
-				existingSubmissionIds.clear();
-				result.data.submission?.forEach((s) => {
-					if (s.upper_id) {
-						existingSubmissionIds.add(s.upper_id);
-					}
-				});
-
-				// 处理番剧（主季度ID + 已选择的季度ID）
-				existingBangumiSeasonIds.clear();
-				result.data.bangumi?.forEach((b) => {
-					if (b.season_id) {
-						existingBangumiSeasonIds.add(b.season_id.toString());
-					}
-					// 如果有已选择的季度，也加入到过滤列表中
-					if (b.selected_seasons) {
-						try {
-							// 检查 selected_seasons 是字符串还是已经解析的数组
-							let selectedSeasons;
-							if (typeof b.selected_seasons === 'string') {
-								selectedSeasons = JSON.parse(b.selected_seasons);
-							} else {
-								selectedSeasons = b.selected_seasons;
-							}
-
-							if (Array.isArray(selectedSeasons)) {
-								selectedSeasons.forEach((seasonId) => {
-									// 确保统一转换为字符串进行比较
-									const seasonIdStr = seasonId.toString();
-									existingBangumiSeasonIds.add(seasonIdStr);
-								});
-							}
-						} catch (e) {
-							console.warn('解析selected_seasons失败:', b.selected_seasons, e);
-						}
-					}
-				});
+		// 处理合集：存储 s_id_m_id 的组合
+		existingCollectionIds.clear();
+		result.data.collection?.forEach((c) => {
+			if (c.s_id && c.m_id) {
+				const key = `${c.s_id}_${c.m_id}`;
+				existingCollectionIds.add(key);
 			}
-		} catch (error) {
-			console.error('加载已有视频源失败:', error);
-		} finally {
-			loadingExistingSources = false;
-		}
+		});
+
+		// 处理收藏夹
+		existingFavoriteIds.clear();
+		result.data.favorite?.forEach((f) => {
+			if (f.f_id) {
+				existingFavoriteIds.add(f.f_id);
+			}
+		});
+
+		// 处理UP主投稿
+		existingSubmissionIds.clear();
+		result.data.submission?.forEach((s) => {
+			if (s.upper_id) {
+				existingSubmissionIds.add(s.upper_id);
+			}
+		});
+
+		// 处理番剧（主季度ID + 已选择的季度ID）
+		existingBangumiSeasonIds.clear();
+		result.data.bangumi?.forEach((b) => {
+			if (b.season_id) {
+				existingBangumiSeasonIds.add(b.season_id.toString());
+			}
+			// 如果有已选择的季度，也加入到过滤列表中
+			if (b.selected_seasons) {
+				try {
+					// 检查 selected_seasons 是字符串还是已经解析的数组
+					let selectedSeasons;
+					if (typeof b.selected_seasons === 'string') {
+						selectedSeasons = JSON.parse(b.selected_seasons);
+					} else {
+						selectedSeasons = b.selected_seasons;
+					}
+
+					if (Array.isArray(selectedSeasons)) {
+						selectedSeasons.forEach((seasonId) => {
+							// 确保统一转换为字符串进行比较
+							const seasonIdStr = seasonId.toString();
+							existingBangumiSeasonIds.add(seasonIdStr);
+						});
+					}
+				} catch (e) {
+					console.warn('解析selected_seasons失败:', b.selected_seasons, e);
+				}
+			}
+		});
 	}
 
 	// 检查合集是否已存在
@@ -1149,8 +1170,10 @@
 	}
 
 	// 检查收藏夹是否已存在
-	function isFavoriteExists(fId: number): boolean {
-		return existingFavoriteIds.has(fId);
+	function isFavoriteExists(fId: number | string): boolean {
+		const favoriteId = typeof fId === 'string' ? Number.parseInt(fId, 10) : fId;
+		if (!Number.isFinite(favoriteId)) return false;
+		return existingFavoriteIds.has(favoriteId);
 	}
 
 	// 检查番剧季度是否已存在
@@ -1204,8 +1227,16 @@
 		isExisting: isBangumiSeasonExists(season.season_id)
 	}));
 
+	// 大列表/移动端禁用逐项动画，避免卡顿
+	let enableSearchAnimations = true;
+	let enableSeasonAnimations = true;
+
+	$: enableSearchAnimations = !isMobile && filteredSearchResults.length <= 60;
+	$: enableSeasonAnimations = !isMobile && filteredBangumiSeasons.length <= 40;
+
 	// 监听sourceType变化，清理季度相关状态
 	$: if (sourceType !== 'bangumi') {
+		bangumiSeasonsFetchAttempted = false;
 		bangumiSeasons = [];
 		selectedSeasons = [];
 		showMergeOptions = false;
@@ -1254,39 +1285,61 @@
 	}
 
 	// 统一的悬浮处理函数
+	let tooltipUpdateRaf: number | null = null;
+	let pendingTooltipPoint: { pageX: number; pageY: number } | null = null;
+
+	function scheduleTooltipUpdate(pageX: number, pageY: number, immediate = false) {
+		pendingTooltipPoint = { pageX, pageY };
+
+		if (immediate) {
+			updateTooltipPosition(pageX, pageY);
+			return;
+		}
+
+		if (tooltipUpdateRaf !== null) return;
+		tooltipUpdateRaf = requestAnimationFrame(() => {
+			tooltipUpdateRaf = null;
+			if (hoveredItem && pendingTooltipPoint) {
+				updateTooltipPosition(pendingTooltipPoint.pageX, pendingTooltipPoint.pageY);
+			}
+		});
+	}
+
+	function handleItemMouseEnter(type: 'search', data: SearchResultItem, event: MouseEvent): void;
+	function handleItemMouseEnter(type: 'season', data: BangumiSeasonInfo, event: MouseEvent): void;
 	function handleItemMouseEnter(
-		type: 'search' | 'season',
+		type: HoveredItem['type'],
 		data: SearchResultItem | BangumiSeasonInfo,
 		event: MouseEvent
 	) {
-		hoveredItem = { type, data };
-		updateTooltipPosition(event);
+		hoveredItem = { type, data } as HoveredItem;
+		scheduleTooltipUpdate(event.pageX, event.pageY, true);
 	}
 
 	function handleItemMouseMove(event: MouseEvent) {
 		if (hoveredItem) {
-			updateTooltipPosition(event);
+			scheduleTooltipUpdate(event.pageX, event.pageY);
 		}
 	}
 
-	function updateTooltipPosition(event: MouseEvent) {
+	function updateTooltipPosition(pageX: number, pageY: number) {
 		// 获取视窗尺寸
 		const viewportWidth = window.innerWidth;
 		const viewportHeight = window.innerHeight;
 		const tooltipWidth = 400; // 预估悬浮窗宽度
 		const tooltipHeight = 300; // 预估悬浮窗高度
 
-		let x = event.pageX + 20;
-		let y = event.pageY - 100;
+		let x = pageX + 20;
+		let y = pageY - 100;
 
 		// 防止悬浮窗超出右边界
 		if (x + tooltipWidth > viewportWidth) {
-			x = event.pageX - tooltipWidth - 20;
+			x = pageX - tooltipWidth - 20;
 		}
 
 		// 防止悬浮窗超出下边界
 		if (y + tooltipHeight > viewportHeight) {
-			y = event.pageY - tooltipHeight - 20;
+			y = pageY - tooltipHeight - 20;
 		}
 
 		// 防止悬浮窗超出上边界和左边界
@@ -1298,6 +1351,11 @@
 
 	function handleItemMouseLeave() {
 		hoveredItem = null;
+		pendingTooltipPoint = null;
+		if (tooltipUpdateRaf !== null) {
+			cancelAnimationFrame(tooltipUpdateRaf);
+			tooltipUpdateRaf = null;
+		}
 	}
 
 	// 为了向后兼容，保留旧的函数名但重定向到新的统一函数
@@ -1327,23 +1385,19 @@
 
 	// 获取关注的UP主列表
 	async function fetchUserFollowings() {
-		loadingFollowings = true;
-		try {
-			const result = await api.getUserFollowings();
-			if (result.data) {
-				userFollowings = result.data;
-				toast.success('获取关注UP主成功', {
-					description: `共获取到 ${userFollowings.length} 个UP主`
-				});
-			} else {
-				toast.error('获取关注UP主失败');
-			}
-		} catch (error: unknown) {
-			console.error('获取关注UP主失败:', error);
-			const errorMessage = error instanceof Error ? error.message : '获取关注UP主失败';
-			toast.error('获取关注UP主失败', { description: errorMessage });
-		} finally {
-			loadingFollowings = false;
+		const result = await runRequest(() => api.getUserFollowings(), {
+			setLoading: (value) => (loadingFollowings = value),
+			context: '获取关注UP主失败'
+		});
+		if (!result) return;
+
+		if (result.data) {
+			userFollowings = result.data;
+			toast.success('获取关注UP主成功', {
+				description: `共获取到 ${userFollowings.length} 个UP主`
+			});
+		} else {
+			toast.error('获取关注UP主失败');
 		}
 	}
 
@@ -1372,30 +1426,26 @@
 
 	// 获取关注的收藏夹列表
 	async function fetchSubscribedCollections() {
-		loadingSubscribedCollections = true;
-		try {
-			const result = await api.getSubscribedCollections();
-			if (result.data) {
-				subscribedCollections = result.data;
-				if (subscribedCollections.length === 0) {
-					toast.info('暂无关注的合集', {
-						description: '您还没有关注任何合集。关注合集后可以在这里快速选择添加。',
-						duration: 5000
-					});
-				} else {
-					toast.success('获取关注的合集成功', {
-						description: `共获取到 ${subscribedCollections.length} 个您关注的合集`
-					});
-				}
+		const result = await runRequest(() => api.getSubscribedCollections(), {
+			setLoading: (value) => (loadingSubscribedCollections = value),
+			context: '获取关注的合集失败'
+		});
+		if (!result) return;
+
+		if (result.data) {
+			subscribedCollections = result.data;
+			if (subscribedCollections.length === 0) {
+				toast.info('暂无关注的合集', {
+					description: '您还没有关注任何合集。关注合集后可以在这里快速选择添加。',
+					duration: 5000
+				});
 			} else {
-				toast.error('获取合集失败');
+				toast.success('获取关注的合集成功', {
+					description: `共获取到 ${subscribedCollections.length} 个您关注的合集`
+				});
 			}
-		} catch (error: unknown) {
-			console.error('获取合集失败:', error);
-			const errorMessage = error instanceof Error ? error.message : '获取合集失败';
-			toast.error('获取合集失败', { description: errorMessage });
-		} finally {
-			loadingSubscribedCollections = false;
+		} else {
+			toast.error('获取合集失败');
 		}
 	}
 
@@ -1491,32 +1541,35 @@
 			return;
 		}
 
-		isSearching = true;
-
-		try {
-			const response = await api.getSubmissionVideos({
-				up_id: sourceId,
-				page: 1,
-				page_size: 30, // 获取更多结果
-				keyword: submissionSearchQuery.trim()
-			});
-
-			if (response.data && response.data.videos) {
-				filteredSubmissionVideos = response.data.videos;
-			} else {
-				filteredSubmissionVideos = [];
+		const response = await runRequest(
+			() =>
+				api.getSubmissionVideos({
+					up_id: sourceId,
+					page: 1,
+					page_size: 30, // 获取更多结果
+					keyword: submissionSearchQuery.trim()
+				}),
+			{
+				setLoading: (value) => (isSearching = value),
+				context: '搜索失败',
+				showErrorToast: false,
+				onError: () => {
+					toast.error('搜索失败', {
+						description: '请稍后重试'
+					});
+					// 搜索失败时回退到本地过滤
+					filteredSubmissionVideos = submissionVideos.filter((video) =>
+						video.title.toLowerCase().includes(submissionSearchQuery.toLowerCase().trim())
+					);
+				}
 			}
-		} catch (error) {
-			console.error('搜索视频失败:', error);
-			toast.error('搜索失败', {
-				description: '请稍后重试'
-			});
-			// 搜索失败时回退到本地过滤
-			filteredSubmissionVideos = submissionVideos.filter((video) =>
-				video.title.toLowerCase().includes(submissionSearchQuery.toLowerCase().trim())
-			);
-		} finally {
-			isSearching = false;
+		);
+		if (!response) return;
+
+		if (response.data && response.data.videos) {
+			filteredSubmissionVideos = response.data.videos;
+		} else {
+			filteredSubmissionVideos = [];
 		}
 	}
 	/* eslint-enable svelte/infinite-reactive-loop */
@@ -1525,20 +1578,31 @@
 	async function loadSubmissionVideos() {
 		if (!sourceId) return;
 
-		submissionLoading = true;
 		submissionError = null;
 		submissionVideos = [];
 		currentLoadedPage = 0;
 		hasMoreVideos = true;
 		showLoadMoreButton = false;
 
-		try {
-			await loadVideosInBatch(INITIAL_LOAD_SIZE);
-		} catch (err) {
-			submissionError = err instanceof Error ? err.message : '网络请求失败';
-		} finally {
-			submissionLoading = false;
-		}
+		await runRequest(
+			async () => {
+				await loadVideosInBatch(INITIAL_LOAD_SIZE);
+				return true;
+			},
+			{
+				setLoading: (value) => (submissionLoading = value),
+				context: '加载投稿列表失败',
+				showErrorToast: false,
+				onError: (error) => {
+					submissionError =
+						error && typeof error === 'object' && 'message' in error
+							? String(error.message)
+							: error instanceof Error
+								? error.message
+								: '网络请求失败';
+				}
+			}
+		);
 	}
 
 	// 批量加载视频（串行请求，带延迟）
@@ -1601,18 +1665,17 @@
 	async function loadMoreSubmissionVideos() {
 		if (!hasMoreVideos || isLoadingMore) return;
 
-		isLoadingMore = true;
 		showLoadMoreButton = false; // 隐藏按钮
-		try {
-			await loadVideosInBatch(LOAD_MORE_SIZE);
-		} catch (err) {
-			console.error('加载更多视频失败:', err);
-			toast.error('加载更多视频失败', {
-				description: err instanceof Error ? err.message : '网络请求失败'
-			});
-		} finally {
-			isLoadingMore = false;
-		}
+		await runRequest(
+			async () => {
+				await loadVideosInBatch(LOAD_MORE_SIZE);
+				return true;
+			},
+			{
+				setLoading: (value) => (isLoadingMore = value),
+				context: '加载更多视频失败'
+			}
+		);
 	}
 
 	// 处理滚动事件，检测是否需要显示加载更多按钮
@@ -1801,7 +1864,7 @@
 
 	function clearBatchSelection() {
 		console.log('🧹 Clearing batch selection');
-		batchSelectedItems = new Map();
+		batchSelectedItems = new Map<string, BatchSelectedItem>();
 		console.log('✅ New empty Map created');
 	}
 
@@ -1830,7 +1893,7 @@
 				userFavorites.forEach((favorite) => {
 					const key = `favorite_${favorite.id}`;
 					// 跳过已添加的收藏夹
-					const isDisabled = existingFavoriteIds.has(favorite.id);
+					const isDisabled = isFavoriteExists(favorite.id);
 					if (!batchSelectedItems.has(key) && !isDisabled) {
 						toggleBatchSelection(key, favorite, 'favorite');
 					}
@@ -1886,20 +1949,20 @@
 			});
 			return;
 		}
-		batchAdding = true;
 		batchProgress = { current: 0, total: batchSelectedItems.size };
 
 		const selectedItems = Array.from(batchSelectedItems.entries());
-		let successCount = 0;
-		let failedCount = 0;
-		const failedItems: string[] = [];
 
-		try {
-			for (let i = 0; i < selectedItems.length; i++) {
-				const [itemKey, item] = selectedItems[i];
-				batchProgress.current = i + 1;
+		const batchResult = await runRequest(
+			async () => {
+				let successCount = 0;
+				let failedCount = 0;
+				const failedItems: string[] = [];
 
-				try {
+				for (let i = 0; i < selectedItems.length; i++) {
+					const [itemKey, item] = selectedItems[i];
+					batchProgress.current = i + 1;
+
 					// 构建添加视频源的参数
 					const params: AddVideoSourceRequest = {
 						source_type: getSourceTypeFromBatchItem(item),
@@ -1933,58 +1996,59 @@
 						params.cover = item.data.cover;
 					}
 
-					const result = await api.addVideoSource(params);
+					const result = await runRequest(() => api.addVideoSource(params), {
+						showErrorToast: false
+					});
 
-					if (result.data.success) {
+					if (result?.data.success) {
 						successCount++;
 					} else {
 						failedCount++;
 						failedItems.push(item.name);
 					}
-				} catch (error) {
-					failedCount++;
-					failedItems.push(item.name);
-					console.error(`添加视频源 ${item.name} 失败:`, error);
+
+					// 添加小延迟避免请求过于频繁
+					await new Promise((resolve) => setTimeout(resolve, 200));
 				}
 
-				// 添加小延迟避免请求过于频繁
-				await new Promise((resolve) => setTimeout(resolve, 200));
+				return { successCount, failedCount, failedItems };
+			},
+			{
+				setLoading: (value) => (batchAdding = value),
+				context: '批量添加失败'
 			}
+		);
 
-			// 显示结果
-			if (successCount > 0 && failedCount === 0) {
-				toast.success('批量添加完成', {
-					description: `成功添加 ${successCount} 个视频源`
-				});
-			} else if (successCount > 0) {
-				toast.success('批量添加部分成功', {
-					description: `成功添加 ${successCount} 个，失败 ${failedCount} 个`
-				});
-			} else {
-				toast.error('批量添加失败', {
-					description: '所有视频源都添加失败'
-				});
-			}
+		batchProgress = { current: 0, total: 0 };
+		if (!batchResult) return;
 
-			// 清空选择并关闭批量模式
-			clearBatchSelection();
-			batchMode = false;
-			batchDialogOpen = false;
+		const { successCount, failedCount } = batchResult;
 
-			// 如果有成功添加的，跳转到视频源管理页面
-			if (successCount > 0) {
-				setTimeout(() => {
-					goto('/video-sources');
-				}, 1000);
-			}
-		} catch (error) {
-			console.error('批量添加过程中发生错误:', error);
-			toast.error('批量添加失败', {
-				description: '添加过程中发生错误'
+		// 显示结果
+		if (successCount > 0 && failedCount === 0) {
+			toast.success('批量添加完成', {
+				description: `成功添加 ${successCount} 个视频源`
 			});
-		} finally {
-			batchAdding = false;
-			batchProgress = { current: 0, total: 0 };
+		} else if (successCount > 0) {
+			toast.success('批量添加部分成功', {
+				description: `成功添加 ${successCount} 个，失败 ${failedCount} 个`
+			});
+		} else {
+			toast.error('批量添加失败', {
+				description: '所有视频源都添加失败'
+			});
+		}
+
+		// 清空选择并关闭批量模式
+		clearBatchSelection();
+		batchMode = false;
+		batchDialogOpen = false;
+
+		// 如果有成功添加的，跳转到视频源管理页面
+		if (successCount > 0) {
+			setTimeout(() => {
+				goto('/video-sources');
+			}, 1000);
 		}
 	}
 
@@ -2032,8 +2096,6 @@
 <svelte:head>
 	<title>添加视频源 - Bili Sync</title>
 </svelte:head>
-
-<svelte:window bind:innerWidth />
 
 <div class="py-2">
 	<div class="mx-auto px-4">
@@ -3168,557 +3230,544 @@
 						class={isMobile ? 'mt-6 w-full' : 'min-w-[550px] flex-1'}
 						transition:fly={{ x: 300, duration: 300 }}
 					>
-						<div
-							class="bg-card rounded-lg border {isMobile
-								? ''
-								: 'h-full'} flex flex-col overflow-hidden {isMobile
-								? ''
-								: 'sticky top-6'} max-h-[calc(100vh-200px)]"
+						<SidePanel
+							{isMobile}
+							title="搜索结果"
+							subtitle={`共找到 ${searchTotalResults} 个结果`}
+							headerClass="bg-muted"
+							bodyClass="flex-1 overflow-hidden p-3"
+							footerClass="border-t p-3 text-center"
+							showFooter={searchResults.length > 0}
 						>
-							<div class="bg-muted flex items-center justify-between border-b p-4">
-								<div>
-									<span class="text-foreground text-base font-medium">搜索结果</span>
-									<span class="text-muted-foreground text-sm {isMobile ? 'block' : 'ml-2'}">
-										共找到 {searchTotalResults} 个结果
-									</span>
-								</div>
-								<div class="flex items-center gap-2">
-									{#if batchMode && sourceType === 'submission'}
-										<Button
-											size="sm"
-											variant="outline"
-											onclick={() => selectAllVisible('search')}
-											class="text-xs"
-										>
-											全选
-										</Button>
-									{/if}
-									<button
-										onclick={() => {
-											showSearchResults = false;
-											searchResults = [];
-											searchTotalResults = 0;
-										}}
-										class="text-muted-foreground hover:text-foreground p-1 text-xl"
+							{#snippet actions()}
+								{#if batchMode && sourceType === 'submission'}
+									<Button
+										size="sm"
+										variant="outline"
+										onclick={() => selectAllVisible('search')}
+										class="text-xs"
 									>
-										<X class="h-5 w-5" />
-									</button>
-								</div>
-							</div>
+										全选
+									</Button>
+								{/if}
+								<button
+									onclick={() => {
+										showSearchResults = false;
+										searchResults = [];
+										searchTotalResults = 0;
+									}}
+									class="text-muted-foreground hover:text-foreground p-1 text-xl"
+								>
+									<X class="h-5 w-5" />
+								</button>
+							{/snippet}
 
-							<div class="flex-1 overflow-hidden p-3">
-								<div class="seasons-grid-container h-full">
-									<div
-										class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
-										style={isMobile
-											? ''
-											: 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));'}
-									>
-										{#each filteredSearchResults as result, i (result.bvid || result.season_id || result.mid || i)}
-											{@const isBangumiExisting =
-												sourceType === 'bangumi' &&
-												result.season_id &&
-												isBangumiSeasonExists(result.season_id)}
-											{@const itemKey = `search_${result.bvid || result.season_id || result.mid || i}`}
-											<button
-												onclick={() => {
-													if (batchMode && sourceType === 'submission') {
+							<div class="seasons-grid-container h-full">
+								<div
+									class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
+									style={isMobile
+										? ''
+										: 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));'}
+								>
+									{#each filteredSearchResults as result, i (result.bvid || result.season_id || result.mid || i)}
+										{@const isBangumiExisting =
+											sourceType === 'bangumi' &&
+											!!result.season_id &&
+											isBangumiSeasonExists(result.season_id)}
+										{@const itemKey = `search_${result.bvid || result.season_id || result.mid || i}`}
+										<button
+											onclick={() => {
+												if (batchMode && sourceType === 'submission') {
+													toggleBatchSelection(itemKey, result, 'search');
+												} else {
+													selectSearchResult(result);
+												}
+											}}
+											onmouseenter={(e) => handleMouseEnter(result, e)}
+											onmouseleave={handleMouseLeave}
+											onmousemove={handleMouseMove}
+											class="hover:bg-muted relative flex transform items-start gap-3 rounded-lg border p-4 text-left transition-all duration-300 hover:scale-102 hover:shadow-md {isBangumiExisting
+												? 'opacity-60'
+												: ''} {batchMode && isBatchSelected(itemKey)
+												? 'bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950'
+												: ''}"
+											transition:fly={{
+												y: 50,
+												duration: enableSearchAnimations ? 300 : 0,
+												delay: enableSearchAnimations ? i * 50 : 0
+											}}
+											animate:flip={{ duration: enableSearchAnimations ? 300 : 0 }}
+											disabled={isBangumiExisting}
+										>
+											<!-- 批量模式下的复选框 -->
+											{#if batchMode && sourceType === 'submission'}
+												<BatchCheckbox
+													checked={batchCheckboxStates[itemKey] || false}
+													onclick={(e) => {
+														e.stopPropagation();
 														toggleBatchSelection(itemKey, result, 'search');
-													} else {
-														selectSearchResult(result);
-													}
-												}}
-												onmouseenter={(e) => handleMouseEnter(result, e)}
-												onmouseleave={handleMouseLeave}
-												onmousemove={handleMouseMove}
-												class="hover:bg-muted relative flex transform items-start gap-3 rounded-lg border p-4 text-left transition-all duration-300 hover:scale-102 hover:shadow-md {isBangumiExisting
-													? 'opacity-60'
-													: ''} {batchMode && isBatchSelected(itemKey)
-													? 'bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950'
-													: ''}"
-												transition:fly={{ y: 50, duration: 300, delay: i * 50 }}
-												animate:flip={{ duration: 300 }}
-												disabled={isBangumiExisting}
-											>
-												<!-- 批量模式下的复选框 -->
-												{#if batchMode && sourceType === 'submission'}
-													<div class="flex-shrink-0 pt-1">
-														<input
-															type="checkbox"
-															checked={batchCheckboxStates[itemKey] || false}
-															onclick={(e) => {
-																e.stopPropagation();
-																toggleBatchSelection(itemKey, result, 'search');
-															}}
-															class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-														/>
-													</div>
-												{/if}
-												{#if result.cover}
-													<img
-														src={processBilibiliImageUrl(result.cover)}
-														alt={result.title}
-														class="{sourceType === 'bangumi'
-															? 'h-20 w-14'
-															: 'h-14 w-20'} flex-shrink-0 rounded object-cover"
-														onerror={handleImageError}
-														loading="lazy"
-														crossorigin="anonymous"
-														referrerpolicy="no-referrer"
-													/>
-												{:else}
-													<div
-														class="{sourceType === 'bangumi'
-															? 'h-20 w-14'
-															: 'h-14 w-20'} bg-muted text-muted-foreground flex flex-shrink-0 items-center justify-center rounded text-xs"
-													>
-														无图片
-													</div>
-												{/if}
-												<div class="min-w-0 flex-1">
-													<div class="mb-1 flex items-center gap-2">
-														<h4 class="text-foreground flex-1 truncate text-sm font-medium">
-															<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-															{@html result.title}
-														</h4>
-														{#if result.result_type}
-															<span
-																class="flex-shrink-0 rounded px-1.5 py-0.5 text-xs {result.result_type ===
-																'media_bangumi'
-																	? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
-																	: result.result_type === 'media_ft'
-																		? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-																		: result.result_type === 'bili_user'
-																			? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-																			: result.result_type === 'video'
-																				? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-																				: 'text-foreground bg-gray-100 dark:bg-gray-800'}"
-															>
-																{result.result_type === 'media_bangumi'
-																	? '番剧'
-																	: result.result_type === 'media_ft'
-																		? '影视'
-																		: result.result_type === 'bili_user'
-																			? 'UP主'
-																			: result.result_type === 'video'
-																				? '视频'
-																				: result.result_type}
-															</span>
-														{/if}
-														<!-- 显示已存在标记 -->
-														{#if sourceType === 'submission' && result.mid && isSubmissionExists(Number(result.mid))}
-															<span
-																class="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-															>
-																已添加
-															</span>
-														{/if}
-														{#if isBangumiExisting}
-															<span
-																class="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-															>
-																已添加
-															</span>
-														{/if}
-													</div>
-													<p class="text-muted-foreground truncate text-xs">
-														{result.author}{#if result.result_type === 'bili_user' && result.follower !== undefined && result.follower !== null}
-															<span class="ml-2"
-																>· 粉丝: {formatSubmissionPlayCount(result.follower)}</span
-															>
-														{/if}
-													</p>
-													{#if result.description}
-														<p class="text-muted-foreground/70 mt-1 line-clamp-2 text-xs">
-															{result.description}
-														</p>
+													}}
+												/>
+											{/if}
+											<BiliImage
+												src={result.cover}
+												alt={result.title}
+												class="{sourceType === 'bangumi'
+													? 'h-20 w-14'
+													: 'h-14 w-20'} flex-shrink-0 rounded object-cover"
+												placeholder="无图片"
+											/>
+											<div class="min-w-0 flex-1">
+												<div class="mb-1 flex items-center gap-2">
+													<h4 class="text-foreground flex-1 truncate text-sm font-medium">
+														<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+														{@html result.title}
+													</h4>
+													{#if result.result_type}
+														<span
+															class="flex-shrink-0 rounded px-1.5 py-0.5 text-xs {result.result_type ===
+															'media_bangumi'
+																? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+																: result.result_type === 'media_ft'
+																	? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+																	: result.result_type === 'bili_user'
+																		? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+																		: result.result_type === 'video'
+																			? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+																			: 'text-foreground bg-gray-100 dark:bg-gray-800'}"
+														>
+															{result.result_type === 'media_bangumi'
+																? '番剧'
+																: result.result_type === 'media_ft'
+																	? '影视'
+																	: result.result_type === 'bili_user'
+																		? 'UP主'
+																		: result.result_type === 'video'
+																			? '视频'
+																			: result.result_type}
+														</span>
+													{/if}
+													<!-- 显示已存在标记 -->
+													{#if sourceType === 'submission' && result.mid && isSubmissionExists(Number(result.mid))}
+														<span
+															class="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+														>
+															已添加
+														</span>
+													{/if}
+													{#if isBangumiExisting}
+														<span
+															class="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+														>
+															已添加
+														</span>
 													{/if}
 												</div>
-											</button>
-										{/each}
-									</div>
+												<p class="text-muted-foreground truncate text-xs">
+													{result.author}{#if result.result_type === 'bili_user' && result.follower !== undefined && result.follower !== null}
+														<span class="ml-2"
+															>· 粉丝: {formatSubmissionPlayCount(result.follower)}</span
+														>
+													{/if}
+												</p>
+												{#if result.description}
+													<p class="text-muted-foreground/70 mt-1 line-clamp-2 text-xs">
+														{result.description}
+													</p>
+												{/if}
+											</div>
+										</button>
+									{/each}
 								</div>
 							</div>
-
-							{#if searchResults.length > 0}
-								<div class="border-t p-3 text-center">
-									<span class="text-muted-foreground text-xs">
-										共显示 {searchResults.length} 个结果
-										{#if searchTotalResults > searchResults.length}
-											（总共 {searchTotalResults} 个）
-										{/if}
-									</span>
-								</div>
-							{/if}
-						</div>
+							{#snippet footer()}
+								<span class="text-muted-foreground text-xs">
+									共显示 {searchResults.length} 个结果
+									{#if searchTotalResults > searchResults.length}
+										（总共 {searchTotalResults} 个）
+									{/if}
+								</span>
+							{/snippet}
+						</SidePanel>
 					</div>
 				{/if}
 
 				<!-- 关注UP主列表（移动到右侧） -->
 				{#if (sourceType === 'collection' || sourceType === 'submission') && userFollowings.length > 0}
 					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
-						<div
-							class="bg-card rounded-lg border {isMobile
-								? ''
-								: 'h-full'} flex flex-col overflow-hidden {isMobile
-								? ''
-								: 'sticky top-6'} max-h-126"
+						<SidePanel
+							{isMobile}
+							title="关注的UP主"
+							subtitle={`共 ${userFollowings.length} 个UP主`}
+							maxHeightClass="max-h-126"
+							headerClass="bg-blue-50 dark:bg-blue-950"
+							titleClass="text-base font-medium text-blue-800 dark:text-blue-200"
+							subtitleClass="text-sm text-blue-600 dark:text-blue-400"
+							showActions={batchMode}
 						>
-							<div
-								class="flex items-center justify-between border-b bg-blue-50 p-4 dark:bg-blue-950"
-							>
-								<div>
-									<span class="text-base font-medium text-blue-800 dark:text-blue-200"
-										>关注的UP主</span
-									>
-									<span
-										class="text-sm text-blue-600 dark:text-blue-400 {isMobile ? 'block' : 'ml-2'}"
-									>
-										共 {userFollowings.length} 个UP主
-									</span>
-								</div>
-								{#if batchMode}
-									<Button
-										size="sm"
-										variant="outline"
-										onclick={() => selectAllVisible('following')}
-										class="text-xs"
-									>
-										全选
-									</Button>
-								{/if}
-							</div>
-
-							<div class="flex-1 overflow-y-auto p-3">
-								<div
-									class="grid gap-3 {isMobile ? 'grid-cols-1' : ''}"
-									style={isMobile
-										? ''
-										: 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));'}
+							{#snippet actions()}
+								<Button
+									size="sm"
+									variant="outline"
+									onclick={() => selectAllVisible('following')}
+									class="text-xs"
 								>
-									{#each filteredUserFollowings as following (following.mid)}
-										{@const itemKey = `following_${following.mid}`}
-										{@const isDisabled =
-											sourceType === 'submission' && existingSubmissionIds.has(following.mid)}
-										<button
-											onclick={() => {
-												if (batchMode) {
-													toggleBatchSelection(itemKey, following, 'following');
-												} else {
-													selectFollowing(following);
-												}
-											}}
-											disabled={isDisabled}
-											class="hover:bg-muted rounded-lg border p-3 text-left transition-colors {isDisabled
-												? 'cursor-not-allowed opacity-60'
-												: ''} {batchMode && isBatchSelected(itemKey)
-												? 'bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950'
-												: ''}"
-										>
-											<div class="flex items-start gap-2">
-												<!-- 批量模式下的复选框 -->
-												{#if batchMode}
-													<div class="flex-shrink-0 pt-1">
-														<input
-															type="checkbox"
-															checked={batchCheckboxStates[itemKey] || false}
-															onclick={(e) => {
-																e.stopPropagation();
-																toggleBatchSelection(itemKey, following, 'following');
-															}}
-															class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-														/>
-													</div>
-												{/if}
-												{#if following.face}
-													<img
-														src={processBilibiliImageUrl(following.face)}
-														alt={following.name}
-														class="h-10 w-10 flex-shrink-0 rounded-full object-cover"
-														onerror={handleImageError}
-														loading="lazy"
-														crossorigin="anonymous"
-														referrerpolicy="no-referrer"
-													/>
-												{:else}
-													<div
-														class="bg-muted text-muted-foreground flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-xs"
-													>
-														头像
-													</div>
-												{/if}
-												<div class="min-w-0 flex-1">
-													<div class="mb-1 flex items-center gap-1">
-														<h4 class="truncate text-xs font-medium">{following.name}</h4>
-														{#if following.official_verify && following.official_verify.type >= 0}
-															<span
-																class="flex-shrink-0 rounded bg-yellow-100 px-1 py-0.5 text-xs text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300"
-															>
-																V
-															</span>
-														{/if}
-														{#if sourceType === 'submission' && existingSubmissionIds.has(following.mid)}
-															<span
-																class="flex-shrink-0 rounded bg-gray-100 px-1 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-															>
-																已添加
-															</span>
-														{/if}
-													</div>
-													<p class="text-muted-foreground mb-1 truncate text-xs">
-														UID: {following.mid}{#if following.follower !== undefined && following.follower !== null}
-															<span class="ml-2"
-																>· 粉丝: {formatSubmissionPlayCount(following.follower)}</span
-															>
-														{/if}
-													</p>
-													{#if following.sign}
-														<p class="text-muted-foreground line-clamp-1 text-xs">
-															{following.sign}
-														</p>
+									全选
+								</Button>
+							{/snippet}
+
+							<div
+								class="grid gap-3 {isMobile ? 'grid-cols-1' : ''}"
+								style={isMobile
+									? ''
+									: 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));'}
+							>
+								{#each filteredUserFollowings as following (following.mid)}
+									{@const itemKey = `following_${following.mid}`}
+									{@const isDisabled =
+										sourceType === 'submission' && existingSubmissionIds.has(following.mid)}
+									<SelectableCardButton
+										onclick={() => {
+											if (batchMode) {
+												toggleBatchSelection(itemKey, following, 'following');
+											} else {
+												selectFollowing(following);
+											}
+										}}
+										disabled={isDisabled}
+										selected={batchMode && isBatchSelected(itemKey)}
+										class="p-3"
+									>
+										<div class="flex items-start gap-2">
+											<!-- 批量模式下的复选框 -->
+											{#if batchMode}
+												<BatchCheckbox
+													checked={batchCheckboxStates[itemKey] || false}
+													onclick={(e) => {
+														e.stopPropagation();
+														toggleBatchSelection(itemKey, following, 'following');
+													}}
+												/>
+											{/if}
+											<BiliImage
+												src={following.face}
+												alt={following.name}
+												class="h-10 w-10 flex-shrink-0 rounded-full object-cover"
+												placeholder="头像"
+											/>
+											<div class="min-w-0 flex-1">
+												<div class="mb-1 flex items-center gap-1">
+													<h4 class="truncate text-xs font-medium">{following.name}</h4>
+													{#if following.official_verify && following.official_verify.type >= 0}
+														<span
+															class="flex-shrink-0 rounded bg-yellow-100 px-1 py-0.5 text-xs text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300"
+														>
+															V
+														</span>
+													{/if}
+													{#if sourceType === 'submission' && existingSubmissionIds.has(following.mid)}
+														<span
+															class="flex-shrink-0 rounded bg-gray-100 px-1 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+														>
+															已添加
+														</span>
 													{/if}
 												</div>
+												<p class="text-muted-foreground mb-1 truncate text-xs">
+													UID: {following.mid}{#if following.follower !== undefined && following.follower !== null}
+														<span class="ml-2"
+															>· 粉丝: {formatSubmissionPlayCount(following.follower)}</span
+														>
+													{/if}
+												</p>
+												{#if following.sign}
+													<p class="text-muted-foreground line-clamp-1 text-xs">
+														{following.sign}
+													</p>
+												{/if}
 											</div>
-										</button>
-									{/each}
-								</div>
+										</div>
+									</SelectableCardButton>
+								{/each}
 							</div>
-						</div>
+						</SidePanel>
 					</div>
 				{/if}
 
 				<!-- UP主合集列表（移动到右侧） -->
 				{#if sourceType === 'collection' && userCollections.length > 0}
 					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
-						<div
-							class="bg-card rounded-lg border {isMobile
-								? ''
-								: 'h-full'} flex flex-col overflow-hidden {isMobile
-								? ''
-								: 'sticky top-6'} max-h-[calc(100vh-200px)]"
+						<SidePanel
+							{isMobile}
+							title="UP主合集列表"
+							subtitle={`共 ${userCollections.length} 个合集`}
+							headerClass="bg-green-50 dark:bg-green-950"
+							titleClass="text-base font-medium text-green-800 dark:text-green-200"
+							subtitleClass="text-sm text-green-600 dark:text-green-400"
+							showActions={batchMode}
 						>
-							<div
-								class="flex items-center justify-between border-b bg-green-50 p-4 dark:bg-green-950"
-							>
-								<div>
-									<span class="text-base font-medium text-green-800 dark:text-green-200"
-										>UP主合集列表</span
-									>
-									<span
-										class="text-sm text-green-600 dark:text-green-400 {isMobile ? 'block' : 'ml-2'}"
-									>
-										共 {userCollections.length} 个合集
-									</span>
-								</div>
-								{#if batchMode}
-									<Button
-										size="sm"
-										variant="outline"
-										onclick={() => selectAllVisible('collection')}
-										class="text-xs"
-									>
-										全选
-									</Button>
-								{/if}
-							</div>
-
-							<div class="flex-1 overflow-y-auto p-3">
-								<div
-									class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
-									style={isMobile
-										? ''
-										: 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'}
+							{#snippet actions()}
+								<Button
+									size="sm"
+									variant="outline"
+									onclick={() => selectAllVisible('collection')}
+									class="text-xs"
 								>
-									{#each filteredUserCollections as collection (collection.sid)}
-										{@const itemKey = `collection_${collection.sid}`}
-										{@const isDisabled = isCollectionExists(
-											collection.sid,
-											collection.mid.toString()
-										)}
-										<button
-											onclick={() => {
-												if (batchMode) {
-													toggleBatchSelection(itemKey, collection, 'collection');
-												} else {
-													selectCollection(collection);
-												}
-											}}
-											disabled={isDisabled}
-											class="hover:bg-muted rounded-lg border p-4 text-left transition-colors {isDisabled
-												? 'cursor-not-allowed opacity-60'
-												: ''} {batchMode && isBatchSelected(itemKey)
-												? 'bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950'
-												: ''}"
-										>
-											<div class="flex items-start gap-3">
-												<!-- 批量模式下的复选框 -->
-												{#if batchMode}
-													<div class="flex-shrink-0 pt-1">
-														<input
-															type="checkbox"
-															checked={batchCheckboxStates[itemKey] || false}
-															onclick={(e) => {
-																e.stopPropagation();
-																toggleBatchSelection(itemKey, collection, 'collection');
-															}}
-															class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-														/>
-													</div>
-												{/if}
-												{#if collection.cover}
-													<img
-														src={processBilibiliImageUrl(collection.cover)}
-														alt={collection.name}
-														class="h-16 w-24 flex-shrink-0 rounded object-cover"
-														onerror={handleImageError}
-														loading="lazy"
-														crossorigin="anonymous"
-														referrerpolicy="no-referrer"
-													/>
-												{:else}
-													<div
-														class="bg-muted text-muted-foreground flex h-16 w-24 flex-shrink-0 items-center justify-center rounded text-xs"
+									全选
+								</Button>
+							{/snippet}
+
+							<div
+								class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
+								style={isMobile
+									? ''
+									: 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'}
+							>
+								{#each filteredUserCollections as collection (collection.sid)}
+									{@const itemKey = `collection_${collection.sid}`}
+									{@const isDisabled = isCollectionExists(
+										collection.sid,
+										collection.mid.toString()
+									)}
+									<SelectableCardButton
+										onclick={() => {
+											if (batchMode) {
+												toggleBatchSelection(itemKey, collection, 'collection');
+											} else {
+												selectCollection(collection);
+											}
+										}}
+										disabled={isDisabled}
+										selected={batchMode && isBatchSelected(itemKey)}
+										class="p-4"
+									>
+										<div class="flex items-start gap-3">
+											<!-- 批量模式下的复选框 -->
+											{#if batchMode}
+												<BatchCheckbox
+													checked={batchCheckboxStates[itemKey] || false}
+													onclick={(e) => {
+														e.stopPropagation();
+														toggleBatchSelection(itemKey, collection, 'collection');
+													}}
+												/>
+											{/if}
+											<BiliImage
+												src={collection.cover}
+												alt={collection.name}
+												class="h-16 w-24 flex-shrink-0 rounded object-cover"
+												placeholder="无封面"
+											/>
+											<div class="min-w-0 flex-1">
+												<div class="mb-1 flex items-center gap-2">
+													<h4 class="truncate text-sm font-medium">{collection.name}</h4>
+													<span
+														class="flex-shrink-0 rounded px-2 py-0.5 text-xs {collection.collection_type ===
+														'season'
+															? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+															: 'bg-blue-100 text-blue-700'}"
 													>
-														无封面
-													</div>
-												{/if}
-												<div class="min-w-0 flex-1">
-													<div class="mb-1 flex items-center gap-2">
-														<h4 class="truncate text-sm font-medium">{collection.name}</h4>
+														{collection.collection_type === 'season' ? '合集' : '系列'}
+													</span>
+													{#if isCollectionExists(collection.sid, collection.mid.toString())}
 														<span
-															class="flex-shrink-0 rounded px-2 py-0.5 text-xs {collection.collection_type ===
-															'season'
-																? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-																: 'bg-blue-100 text-blue-700'}"
+															class="flex-shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
 														>
-															{collection.collection_type === 'season' ? '合集' : '系列'}
+															已添加
 														</span>
-														{#if isCollectionExists(collection.sid, collection.mid.toString())}
-															<span
-																class="flex-shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-															>
-																已添加
-															</span>
-														{/if}
-													</div>
-													<p class="text-muted-foreground mb-1 text-xs">
-														ID: {collection.sid} (检查key: {collection.sid}_{collection.mid})
-													</p>
-													<p class="text-muted-foreground text-xs">共 {collection.total} 个视频</p>
-													{#if collection.description}
-														<p class="text-muted-foreground mt-1 line-clamp-2 text-xs">
-															{collection.description}
-														</p>
 													{/if}
 												</div>
+												<p class="text-muted-foreground mb-1 text-xs">
+													ID: {collection.sid} (检查key: {collection.sid}_{collection.mid})
+												</p>
+												<p class="text-muted-foreground text-xs">共 {collection.total} 个视频</p>
+												{#if collection.description}
+													<p class="text-muted-foreground mt-1 line-clamp-2 text-xs">
+														{collection.description}
+													</p>
+												{/if}
 											</div>
-										</button>
-									{/each}
-								</div>
+										</div>
+									</SelectableCardButton>
+								{/each}
 							</div>
-						</div>
+						</SidePanel>
 					</div>
 				{/if}
 
 				<!-- 收藏夹列表（移动到右侧） -->
 				{#if sourceType === 'favorite' && userFavorites.length > 0}
 					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
-						<div
-							class="bg-card rounded-lg border {isMobile
-								? ''
-								: 'h-full'} flex flex-col overflow-hidden {isMobile
-								? ''
-								: 'sticky top-6'} max-h-[calc(100vh-200px)]"
+						<SidePanel
+							{isMobile}
+							title="我的收藏夹"
+							subtitle={`共 ${userFavorites.length} 个收藏夹`}
+							headerClass="bg-yellow-50 dark:bg-yellow-950"
+							titleClass="text-base font-medium text-yellow-800 dark:text-yellow-200"
+							subtitleClass="text-sm text-yellow-600 dark:text-yellow-400"
+							showActions={batchMode}
 						>
+							{#snippet actions()}
+								<Button
+									size="sm"
+									variant="outline"
+									onclick={() => selectAllVisible('favorite')}
+									class="text-xs"
+								>
+									全选
+								</Button>
+							{/snippet}
+
 							<div
-								class="flex items-center justify-between border-b bg-yellow-50 p-4 dark:bg-yellow-950"
+								class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
+								style={isMobile
+									? ''
+									: 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'}
 							>
-								<div>
-									<span class="text-base font-medium text-yellow-800 dark:text-yellow-200"
-										>我的收藏夹</span
+								{#each filteredUserFavorites as favorite (favorite.id)}
+									{@const itemKey = `favorite_${favorite.id}`}
+									{@const isDisabled = existingFavoriteIds.has(Number(favorite.id))}
+									<SelectableCardButton
+										onclick={() => {
+											if (batchMode) {
+												toggleBatchSelection(itemKey, favorite, 'favorite');
+											} else {
+												selectFavorite(favorite);
+											}
+										}}
+										disabled={isDisabled}
+										selected={batchMode && isBatchSelected(itemKey)}
+										class="p-4"
 									>
-									<span
-										class="text-sm text-yellow-600 dark:text-yellow-400 {isMobile
-											? 'block'
-											: 'ml-2'}"
-									>
-										共 {userFavorites.length} 个收藏夹
-									</span>
-								</div>
-								{#if batchMode}
+										<div class="flex items-start gap-3">
+											<!-- 批量模式下的复选框 -->
+											{#if batchMode}
+												<BatchCheckbox
+													checked={batchCheckboxStates[itemKey] || false}
+													onclick={(e) => {
+														e.stopPropagation();
+														toggleBatchSelection(itemKey, favorite, 'favorite');
+													}}
+												/>
+											{/if}
+											<BiliImage
+												src={favorite.cover}
+												alt={favorite.name || favorite.title}
+												class="h-16 w-24 flex-shrink-0 rounded object-cover"
+												placeholder="无封面"
+											/>
+											<div class="min-w-0 flex-1">
+												<div class="mb-1 flex items-center gap-2">
+													<h4 class="truncate text-sm font-medium">
+														{favorite.name || favorite.title}
+													</h4>
+													{#if existingFavoriteIds.has(Number(favorite.id))}
+														<span
+															class="flex-shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+														>
+															已添加
+														</span>
+													{/if}
+												</div>
+												<p class="text-muted-foreground mb-1 text-xs">收藏夹ID: {favorite.id}</p>
+												<p class="text-muted-foreground mb-1 text-xs">
+													共 {favorite.media_count} 个视频
+												</p>
+												{#if favorite.created}
+													<p class="text-muted-foreground text-xs">
+														创建于 {new Date(favorite.created * 1000).toLocaleDateString()}
+													</p>
+												{/if}
+											</div>
+										</div>
+									</SelectableCardButton>
+								{/each}
+							</div>
+						</SidePanel>
+					</div>
+				{/if}
+
+				<!-- UP主收藏夹列表（移动到右侧） -->
+				{#if sourceType === 'favorite' && selectedUserId && (searchedUserFavorites.length > 0 || loadingSearchedUserFavorites)}
+					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
+						<SidePanel
+							{isMobile}
+							title={`${selectedUserName} 的收藏夹`}
+							subtitle={loadingSearchedUserFavorites
+								? '正在加载...'
+								: searchedUserFavorites.length > 0
+									? `共 ${searchedUserFavorites.length} 个收藏夹`
+									: '没有公开收藏夹'}
+							headerClass="bg-green-50 dark:bg-green-950"
+							titleClass="text-base font-medium text-green-800 dark:text-green-200"
+							subtitleClass="text-sm text-green-600 dark:text-green-400"
+						>
+							{#snippet actions()}
+								{#if batchMode && searchedUserFavorites.length > 0}
 									<Button
 										size="sm"
 										variant="outline"
-										onclick={() => selectAllVisible('favorite')}
+										onclick={() => selectAllVisible('searched-favorite')}
 										class="text-xs"
 									>
 										全选
 									</Button>
 								{/if}
-							</div>
+								<button
+									onclick={clearSearchedUserFavoritesSelection}
+									class="p-1 text-xl text-green-500 hover:text-green-700 dark:text-green-300"
+								>
+									<X class="h-5 w-5" />
+								</button>
+							{/snippet}
 
-							<div class="flex-1 overflow-y-auto p-3">
+							{#if loadingSearchedUserFavorites}
+								<div class="p-4 text-center">
+									<div class="text-sm text-green-700 dark:text-green-300">
+										正在获取收藏夹列表...
+									</div>
+								</div>
+							{:else if searchedUserFavorites.length > 0}
 								<div
 									class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
 									style={isMobile
 										? ''
 										: 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'}
 								>
-									{#each filteredUserFavorites as favorite (favorite.id)}
-										{@const itemKey = `favorite_${favorite.id}`}
+									{#each filteredSearchedUserFavorites as favorite (favorite.id)}
+										{@const itemKey = `searched-favorite_${favorite.id}`}
 										{@const isDisabled = existingFavoriteIds.has(Number(favorite.id))}
-										<button
+										<SelectableCardButton
 											onclick={() => {
 												if (batchMode) {
 													toggleBatchSelection(itemKey, favorite, 'favorite');
 												} else {
-													selectFavorite(favorite);
+													selectSearchedFavorite(favorite);
 												}
 											}}
 											disabled={isDisabled}
-											class="hover:bg-muted rounded-lg border p-4 text-left transition-colors {isDisabled
-												? 'cursor-not-allowed opacity-60'
-												: ''} {batchMode && isBatchSelected(itemKey)
-												? 'bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950'
-												: ''}"
+											selected={batchMode && isBatchSelected(itemKey)}
+											class="p-4"
 										>
 											<div class="flex items-start gap-3">
 												<!-- 批量模式下的复选框 -->
 												{#if batchMode}
-													<div class="flex-shrink-0 pt-1">
-														<input
-															type="checkbox"
-															checked={batchCheckboxStates[itemKey] || false}
-															onclick={(e) => {
-																e.stopPropagation();
-																toggleBatchSelection(itemKey, favorite, 'favorite');
-															}}
-															class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-														/>
-													</div>
-												{/if}
-												{#if favorite.cover}
-													<img
-														src={processBilibiliImageUrl(favorite.cover)}
-														alt={favorite.name || favorite.title}
-														class="h-16 w-24 flex-shrink-0 rounded object-cover"
-														onerror={handleImageError}
-														loading="lazy"
-														crossorigin="anonymous"
-														referrerpolicy="no-referrer"
+													<BatchCheckbox
+														checked={batchCheckboxStates[itemKey] || false}
+														onclick={(e) => {
+															e.stopPropagation();
+															toggleBatchSelection(itemKey, favorite, 'favorite');
+														}}
 													/>
-												{:else}
-													<div
-														class="bg-muted text-muted-foreground flex h-16 w-24 flex-shrink-0 items-center justify-center rounded text-xs"
-													>
-														无封面
-													</div>
 												{/if}
+												<div
+													class="bg-muted text-muted-foreground flex h-16 w-24 flex-shrink-0 items-center justify-center rounded text-xs"
+												>
+													收藏夹
+												</div>
 												<div class="min-w-0 flex-1">
 													<div class="mb-1 flex items-center gap-2">
-														<h4 class="truncate text-sm font-medium">
-															{favorite.name || favorite.title}
-														</h4>
+														<h4 class="truncate text-sm font-medium">{favorite.title}</h4>
 														{#if existingFavoriteIds.has(Number(favorite.id))}
 															<span
 																class="flex-shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
@@ -3727,471 +3776,301 @@
 															</span>
 														{/if}
 													</div>
-													<p class="text-muted-foreground mb-1 text-xs">收藏夹ID: {favorite.id}</p>
 													<p class="text-muted-foreground mb-1 text-xs">
+														收藏夹ID: {favorite.id}
+													</p>
+													<p class="text-muted-foreground text-xs">
 														共 {favorite.media_count} 个视频
 													</p>
-													{#if favorite.created}
-														<p class="text-muted-foreground text-xs">
-															创建于 {new Date(favorite.created * 1000).toLocaleDateString()}
-														</p>
-													{/if}
 												</div>
 											</div>
-										</button>
+										</SelectableCardButton>
 									{/each}
 								</div>
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				<!-- UP主收藏夹列表（移动到右侧） -->
-				{#if sourceType === 'favorite' && selectedUserId && (searchedUserFavorites.length > 0 || loadingSearchedUserFavorites)}
-					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
-						<div
-							class="bg-card rounded-lg border {isMobile
-								? ''
-								: 'h-full'} flex flex-col overflow-hidden {isMobile
-								? ''
-								: 'sticky top-6'} max-h-[calc(100vh-200px)]"
-						>
-							<div
-								class="flex items-center justify-between border-b bg-green-50 p-4 dark:bg-green-950"
-							>
-								<div>
-									<span class="text-base font-medium text-green-800 dark:text-green-200"
-										>{selectedUserName} 的收藏夹</span
-									>
-									<span
-										class="text-sm text-green-600 dark:text-green-400 {isMobile ? 'block' : 'ml-2'}"
-									>
-										{#if loadingSearchedUserFavorites}
-											正在加载...
-										{:else if searchedUserFavorites.length > 0}
-											共 {searchedUserFavorites.length} 个收藏夹
-										{:else}
-											没有公开收藏夹
-										{/if}
-									</span>
-								</div>
-								<div class="flex items-center gap-2">
-									{#if batchMode && searchedUserFavorites.length > 0}
+							{:else}
+								<EmptyState
+									icon={InfoIcon}
+									title="没有公开收藏夹"
+									description="该UP主没有公开收藏夹，或网络错误"
+									class="m-2"
+								>
+									{#snippet actions()}
 										<Button
+											type="button"
 											size="sm"
 											variant="outline"
-											onclick={() => selectAllVisible('searched-favorite')}
-											class="text-xs"
+											onclick={clearSearchedUserFavoritesSelection}
 										>
-											全选
+											重新选择UP主
 										</Button>
-									{/if}
-									<button
-										onclick={() => {
-											selectedUserId = '';
-											selectedUserName = '';
-											searchedUserFavorites = [];
-											loadingSearchedUserFavorites = false;
-										}}
-										class="p-1 text-xl text-green-500 hover:text-green-700 dark:text-green-300"
-									>
-										<X class="h-5 w-5" />
-									</button>
-								</div>
-							</div>
-
-							<div class="flex-1 overflow-y-auto p-3">
-								{#if loadingSearchedUserFavorites}
-									<div class="p-4 text-center">
-										<div class="text-sm text-green-700 dark:text-green-300">
-											正在获取收藏夹列表...
-										</div>
-									</div>
-								{:else if searchedUserFavorites.length > 0}
-									<div
-										class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
-										style={isMobile
-											? ''
-											: 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'}
-									>
-										{#each filteredSearchedUserFavorites as favorite (favorite.id)}
-											{@const itemKey = `searched-favorite_${favorite.id}`}
-											{@const isDisabled = existingFavoriteIds.has(Number(favorite.id))}
-											<button
-												onclick={() => {
-													if (batchMode) {
-														toggleBatchSelection(itemKey, favorite, 'favorite');
-													} else {
-														selectSearchedFavorite(favorite);
-													}
-												}}
-												disabled={isDisabled}
-												class="hover:bg-muted rounded-lg border p-4 text-left transition-colors {isDisabled
-													? 'cursor-not-allowed opacity-60'
-													: ''} {batchMode && isBatchSelected(itemKey)
-													? 'bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950'
-													: ''}"
-											>
-												<div class="flex items-start gap-3">
-													<!-- 批量模式下的复选框 -->
-													{#if batchMode}
-														<div class="flex-shrink-0 pt-1">
-															<input
-																type="checkbox"
-																checked={batchCheckboxStates[itemKey] || false}
-																onclick={(e) => {
-																	e.stopPropagation();
-																	toggleBatchSelection(itemKey, favorite, 'favorite');
-																}}
-																class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-															/>
-														</div>
-													{/if}
-													<div
-														class="bg-muted text-muted-foreground flex h-16 w-24 flex-shrink-0 items-center justify-center rounded text-xs"
-													>
-														收藏夹
-													</div>
-													<div class="min-w-0 flex-1">
-														<div class="mb-1 flex items-center gap-2">
-															<h4 class="truncate text-sm font-medium">{favorite.title}</h4>
-															{#if existingFavoriteIds.has(Number(favorite.id))}
-																<span
-																	class="flex-shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-																>
-																	已添加
-																</span>
-															{/if}
-														</div>
-														<p class="text-muted-foreground mb-1 text-xs">
-															收藏夹ID: {favorite.id}
-														</p>
-														<p class="text-muted-foreground text-xs">
-															共 {favorite.media_count} 个视频
-														</p>
-													</div>
-												</div>
-											</button>
-										{/each}
-									</div>
-								{:else}
-									<div class="p-4 text-center">
-										<div class="text-muted-foreground text-sm">该UP主没有公开的收藏夹</div>
-									</div>
-								{/if}
-							</div>
-						</div>
+									{/snippet}
+								</EmptyState>
+							{/if}
+						</SidePanel>
 					</div>
 				{/if}
 
 				<!-- 番剧季度选择区域（移动到右侧） -->
-				{#if sourceType === 'bangumi' && sourceId && !downloadAllSeasons && bangumiSeasons.length > 1}
+				{#if sourceType === 'bangumi' && sourceId && !downloadAllSeasons && (loadingSeasons || bangumiSeasons.length > 1 || (bangumiSeasonsFetchAttempted && bangumiSeasons.length === 0))}
 					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
-						<div
-							class="bg-card rounded-lg border {isMobile
-								? ''
-								: 'h-full'} flex flex-col overflow-hidden {isMobile
-								? ''
-								: 'sticky top-6'} max-h-[calc(100vh-200px)]"
+						<SidePanel
+							{isMobile}
+							title="选择要下载的季度"
+							subtitle={loadingSeasons
+								? '正在加载...'
+								: bangumiSeasons.length > 0
+									? `共 ${bangumiSeasons.length} 个相关季度`
+									: '暂无季度信息'}
+							headerClass="bg-purple-50 dark:bg-purple-950"
+							titleClass="text-base font-medium text-purple-800 dark:text-purple-200"
+							subtitleClass="text-sm text-purple-600 dark:text-purple-400"
+							bodyClass="flex-1 overflow-hidden p-3"
+							showActions={selectedSeasons.length > 0}
 						>
-							<div
-								class="flex items-center justify-between border-b bg-purple-50 p-4 dark:bg-purple-950"
-							>
-								<div>
-									<span class="text-base font-medium text-purple-800 dark:text-purple-200"
-										>选择要下载的季度</span
-									>
-									<span
-										class="text-sm text-purple-600 dark:text-purple-400 {isMobile
-											? 'block'
-											: 'ml-2'}"
-									>
-										{#if loadingSeasons}
-											正在加载...
-										{:else if bangumiSeasons.length > 0}
-											共 {bangumiSeasons.length} 个相关季度
-										{:else}
-											暂无季度信息
-										{/if}
-									</span>
-								</div>
-								{#if selectedSeasons.length > 0}
-									<span
-										class="rounded bg-purple-100 px-2 py-1 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"
-									>
-										已选择 {selectedSeasons.length} 个
-										{#if selectedSeasons.length === bangumiSeasons.length}
-											（全部）
-										{/if}
-									</span>
-								{/if}
-							</div>
+							{#snippet actions()}
+								<span
+									class="rounded bg-purple-100 px-2 py-1 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+								>
+									已选择 {selectedSeasons.length} 个
+									{#if selectedSeasons.length === bangumiSeasons.length}
+										（全部）
+									{/if}
+								</span>
+							{/snippet}
 
-							<div class="flex-1 overflow-hidden p-3">
-								{#if loadingSeasons}
-									<div class="p-4 text-center">
-										<div class="text-sm text-purple-700 dark:text-purple-300">
-											正在加载季度信息...
-										</div>
+							{#if loadingSeasons}
+								<div class="p-4 text-center">
+									<div class="text-sm text-purple-700 dark:text-purple-300">
+										正在加载季度信息...
 									</div>
-								{:else if bangumiSeasons.length > 0}
-									<div class="seasons-grid-container">
-										<div
-											class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
-											style={isMobile
-												? ''
-												: 'grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));'}
-										>
-											{#each filteredBangumiSeasons as season, i (season.season_id)}
-												<div
-													role="button"
-													tabindex="0"
-													class="relative rounded-lg border p-4 transition-all duration-300 {season.isExisting
-														? 'cursor-not-allowed bg-gray-50 opacity-60 dark:bg-gray-800'
-														: 'transform cursor-pointer hover:scale-102 hover:bg-purple-50 hover:shadow-md dark:hover:bg-purple-900'} {isMobile
-														? 'h-auto'
-														: 'h-[120px]'}"
-													onmouseenter={(e) =>
-														!season.isExisting && handleSeasonMouseEnter(season, e)}
-													onmouseleave={!season.isExisting ? handleSeasonMouseLeave : undefined}
-													onmousemove={!season.isExisting ? handleSeasonMouseMove : undefined}
-													onclick={() =>
-														!season.isExisting && toggleSeasonSelection(season.season_id)}
-													onkeydown={(e) =>
-														!season.isExisting &&
-														(e.key === 'Enter' || e.key === ' ') &&
-														toggleSeasonSelection(season.season_id)}
-													transition:fly={{ y: 50, duration: 300, delay: i * 100 }}
-													animate:flip={{ duration: 300 }}
-												>
-													<div class="flex gap-3 {isMobile ? '' : 'h-full'}">
-														{#if season.cover}
-															<img
-																src={processBilibiliImageUrl(season.cover)}
-																alt={season.season_title || season.title}
-																class="h-20 w-14 flex-shrink-0 rounded object-cover"
-																onerror={handleImageError}
-																loading="lazy"
-																crossorigin="anonymous"
-																referrerpolicy="no-referrer"
+								</div>
+							{:else if bangumiSeasons.length > 0}
+								<div class="seasons-grid-container">
+									<div
+										class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
+										style={isMobile
+											? ''
+											: 'grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));'}
+									>
+										{#each filteredBangumiSeasons as season, i (season.season_id)}
+											<div
+												role="button"
+												tabindex="0"
+												class="relative rounded-lg border p-4 transition-all duration-300 {season.isExisting
+													? 'cursor-not-allowed bg-gray-50 opacity-60 dark:bg-gray-800'
+													: 'transform cursor-pointer hover:scale-102 hover:bg-purple-50 hover:shadow-md dark:hover:bg-purple-900'} {isMobile
+													? 'h-auto'
+													: 'h-[120px]'}"
+												onmouseenter={(e) =>
+													!season.isExisting && handleSeasonMouseEnter(season, e)}
+												onmouseleave={!season.isExisting ? handleSeasonMouseLeave : undefined}
+												onmousemove={!season.isExisting ? handleSeasonMouseMove : undefined}
+												onclick={() =>
+													!season.isExisting && toggleSeasonSelection(season.season_id)}
+												onkeydown={(e) =>
+													!season.isExisting &&
+													(e.key === 'Enter' || e.key === ' ') &&
+													toggleSeasonSelection(season.season_id)}
+												transition:fly={{
+													y: 50,
+													duration: enableSeasonAnimations ? 300 : 0,
+													delay: enableSeasonAnimations ? i * 100 : 0
+												}}
+												animate:flip={{ duration: enableSeasonAnimations ? 300 : 0 }}
+											>
+												<div class="flex gap-3 {isMobile ? '' : 'h-full'}">
+													<BiliImage
+														src={season.cover}
+														alt={season.season_title}
+														class="h-20 w-14 flex-shrink-0 rounded object-cover"
+														placeholder="无封面"
+													/>
+													<div class="min-w-0 flex-1">
+														<div class="absolute top-3 right-3">
+															<input
+																type="checkbox"
+																id="season-{season.season_id}"
+																checked={selectedSeasons.includes(season.season_id)}
+																disabled={season.isExisting}
+																onchange={() => toggleSeasonSelection(season.season_id)}
+																class="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 {season.isExisting
+																	? 'cursor-not-allowed opacity-50'
+																	: ''}"
 															/>
-														{:else}
-															<div
-																class="bg-muted text-muted-foreground flex h-20 w-14 flex-shrink-0 items-center justify-center rounded text-xs"
-															>
-																无封面
+														</div>
+														<!-- 右下角集数标签 -->
+														{#if season.episode_count}
+															<div class="absolute right-3 bottom-3">
+																<span
+																	class="rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+																	>{season.episode_count}集</span
+																>
 															</div>
 														{/if}
-														<div class="min-w-0 flex-1">
-															<div class="absolute top-3 right-3">
-																<input
-																	type="checkbox"
-																	id="season-{season.season_id}"
-																	checked={selectedSeasons.includes(season.season_id)}
-																	disabled={season.isExisting}
-																	onchange={() => toggleSeasonSelection(season.season_id)}
-																	class="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 {season.isExisting
-																		? 'cursor-not-allowed opacity-50'
-																		: ''}"
-																/>
-															</div>
-															<!-- 右下角集数标签 -->
-															{#if season.episode_count}
-																<div class="absolute right-3 bottom-3">
-																	<span
-																		class="rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"
-																		>{season.episode_count}集</span
-																	>
-																</div>
+														<label for="season-{season.season_id}" class="cursor-pointer">
+															<h4 class="truncate pr-6 text-sm font-medium">
+																{season.full_title || season.season_title}
+															</h4>
+															{#if season.season_id === sourceId}
+																<span
+																	class="mt-1 inline-block rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+																	>当前</span
+																>
 															{/if}
-															<label for="season-{season.season_id}" class="cursor-pointer">
-																<h4 class="truncate pr-6 text-sm font-medium">
-																	{season.full_title || season.season_title || season.title}
-																</h4>
-																{#if season.season_id === sourceId}
-																	<span
-																		class="mt-1 inline-block rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"
-																		>当前</span
-																	>
-																{/if}
-																{#if season.isExisting}
-																	<span
-																		class="mt-1 ml-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-																		>已添加</span
-																	>
-																{/if}
-																<p class="text-muted-foreground mt-1 text-xs">
-																	Season ID: {season.season_id}
+															{#if season.isExisting}
+																<span
+																	class="mt-1 ml-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+																	>已添加</span
+																>
+															{/if}
+															<p class="text-muted-foreground mt-1 text-xs">
+																Season ID: {season.season_id}
+															</p>
+															{#if season.media_id}
+																<p class="text-muted-foreground text-xs">
+																	Media ID: {season.media_id}
 																</p>
-																{#if season.media_id}
-																	<p class="text-muted-foreground text-xs">
-																		Media ID: {season.media_id}
-																	</p>
-																{/if}
-															</label>
-														</div>
+															{/if}
+														</label>
 													</div>
 												</div>
-											{/each}
-										</div>
+											</div>
+										{/each}
 									</div>
-									{#if !loadingSeasons && bangumiSeasons.length > 0}
-										<p class="mt-3 text-center text-xs text-purple-600">
-											不选择则仅下载{isMobile ? '上方' : '左侧'}输入的当前季度
-										</p>
-									{/if}
-								{:else if sourceId}
-									<div class="p-4 text-center">
-										<div class="text-muted-foreground text-sm">暂无季度信息</div>
-										<div class="text-muted-foreground mt-1 text-xs">请检查Season ID是否正确</div>
-									</div>
+								</div>
+								{#if !loadingSeasons && bangumiSeasons.length > 0}
+									<p class="mt-3 text-center text-xs text-purple-600">
+										不选择则仅下载{isMobile ? '上方' : '左侧'}输入的当前季度
+									</p>
 								{/if}
-							</div>
-						</div>
+							{:else if sourceId}
+								<EmptyState
+									icon={InfoIcon}
+									title="暂无季度信息"
+									description="请检查 Season ID 是否正确"
+									class="m-2"
+								>
+									{#snippet actions()}
+										<Button type="button" size="sm" variant="outline" onclick={fetchBangumiSeasons}>
+											重新获取
+										</Button>
+									{/snippet}
+								</EmptyState>
+							{/if}
+						</SidePanel>
 					</div>
 				{/if}
 
 				<!-- 订阅的合集列表（仅合集类型时显示） -->
 				{#if sourceType === 'collection' && subscribedCollections.length > 0}
 					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
-						<div
-							class="bg-card rounded-lg border {isMobile
-								? ''
-								: 'h-full'} flex flex-col overflow-hidden {isMobile ? '' : 'sticky top-6'} max-h-96"
+						<SidePanel
+							{isMobile}
+							title="关注的合集"
+							subtitle={`共 ${subscribedCollections.length} 个合集`}
+							maxHeightClass="max-h-96"
+							headerClass="bg-purple-50 dark:bg-purple-950"
+							titleClass="text-base font-medium text-purple-800 dark:text-purple-200"
+							subtitleClass="text-sm text-purple-600 dark:text-purple-400"
+							showActions={batchMode}
 						>
-							<div
-								class="flex items-center justify-between border-b bg-purple-50 p-4 dark:bg-purple-950"
-							>
-								<div>
-									<span class="text-base font-medium text-purple-800 dark:text-purple-200"
-										>关注的合集</span
-									>
-									<span
-										class="text-sm text-purple-600 dark:text-purple-400 {isMobile
-											? 'block'
-											: 'ml-2'}"
-									>
-										共 {subscribedCollections.length} 个合集
-									</span>
-								</div>
-								{#if batchMode}
-									<Button
-										size="sm"
-										variant="outline"
-										onclick={() => selectAllVisible('subscribed-collection')}
-										class="text-xs"
-									>
-										全选
-									</Button>
-								{/if}
-							</div>
-
-							<div class="flex-1 overflow-y-auto p-3">
-								<div
-									class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
-									style={isMobile
-										? ''
-										: 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'}
+							{#snippet actions()}
+								<Button
+									size="sm"
+									variant="outline"
+									onclick={() => selectAllVisible('subscribed-collection')}
+									class="text-xs"
 								>
-									{#each subscribedCollections as collection (collection.sid)}
-										{@const itemKey = `subscribed-collection_${collection.sid}`}
-										{@const isExisting =
-											collection.collection_type === 'favorite'
-												? existingFavoriteIds.has(Number(collection.sid))
-												: isCollectionExists(collection.sid, collection.up_mid.toString())}
-										<button
-											onclick={() => {
-												if (batchMode) {
-													toggleBatchSelection(
-														itemKey,
-														collection,
-														collection.collection_type === 'favorite' ? 'favorite' : 'collection'
-													);
-												} else {
-													selectSubscribedCollection(collection);
-												}
-											}}
-											disabled={isExisting}
-											class="hover:bg-muted rounded-lg border p-4 text-left transition-colors {isExisting
-												? 'cursor-not-allowed opacity-60'
-												: ''} {batchMode && isBatchSelected(itemKey)
-												? 'bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950'
-												: ''}"
-										>
-											<div class="flex items-start gap-3">
-												<!-- 批量模式下的复选框 -->
-												{#if batchMode}
-													<div class="flex-shrink-0 pt-1">
-														<input
-															type="checkbox"
-															checked={batchCheckboxStates[itemKey] || false}
-															onclick={(e) => {
-																e.stopPropagation();
-																toggleBatchSelection(
-																	itemKey,
-																	collection,
-																	collection.collection_type === 'favorite'
-																		? 'favorite'
-																		: 'collection'
-																);
-															}}
-															class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-														/>
-													</div>
-												{/if}
-												{#if collection.cover}
-													<img
-														src={processBilibiliImageUrl(collection.cover)}
-														alt={collection.name}
-														class="h-16 w-24 flex-shrink-0 rounded object-cover"
-														onerror={handleImageError}
-														loading="lazy"
-														crossorigin="anonymous"
-														referrerpolicy="no-referrer"
-													/>
-												{:else}
-													<div
-														class="bg-muted text-muted-foreground flex h-16 w-24 flex-shrink-0 items-center justify-center rounded text-xs"
+									全选
+								</Button>
+							{/snippet}
+
+							<div
+								class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
+								style={isMobile
+									? ''
+									: 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'}
+							>
+								{#each subscribedCollections as collection (collection.sid)}
+									{@const itemKey = `subscribed-collection_${collection.sid}`}
+									{@const isExisting =
+										collection.collection_type === 'favorite'
+											? existingFavoriteIds.has(Number(collection.sid))
+											: isCollectionExists(collection.sid, collection.up_mid.toString())}
+									<SelectableCardButton
+										onclick={() => {
+											if (batchMode) {
+												toggleBatchSelection(
+													itemKey,
+													collection,
+													collection.collection_type === 'favorite' ? 'favorite' : 'collection'
+												);
+											} else {
+												selectSubscribedCollection(collection);
+											}
+										}}
+										disabled={isExisting}
+										selected={batchMode && isBatchSelected(itemKey)}
+										class="p-4"
+									>
+										<div class="flex items-start gap-3">
+											<!-- 批量模式下的复选框 -->
+											{#if batchMode}
+												<BatchCheckbox
+													checked={batchCheckboxStates[itemKey] || false}
+													onclick={(e) => {
+														e.stopPropagation();
+														toggleBatchSelection(
+															itemKey,
+															collection,
+															collection.collection_type === 'favorite' ? 'favorite' : 'collection'
+														);
+													}}
+												/>
+											{/if}
+											<BiliImage
+												src={collection.cover}
+												alt={collection.name}
+												class="h-16 w-24 flex-shrink-0 rounded object-cover"
+												placeholder={collection.collection_type === 'favorite'
+													? '收藏夹'
+													: '无封面'}
+											/>
+											<div class="min-w-0 flex-1">
+												<div class="mb-1 flex items-center gap-2">
+													<h4 class="truncate text-sm font-medium">{collection.name}</h4>
+													<span
+														class="flex-shrink-0 rounded px-2 py-0.5 text-xs {collection.collection_type ===
+														'favorite'
+															? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+															: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'}"
 													>
-														{collection.collection_type === 'favorite' ? '收藏夹' : '无封面'}
-													</div>
-												{/if}
-												<div class="min-w-0 flex-1">
-													<div class="mb-1 flex items-center gap-2">
-														<h4 class="truncate text-sm font-medium">{collection.name}</h4>
+														{collection.collection_type === 'favorite' ? '收藏夹' : '合集'}
+													</span>
+													{#if isExisting}
 														<span
-															class="flex-shrink-0 rounded px-2 py-0.5 text-xs {collection.collection_type ===
-															'favorite'
-																? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-																: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'}"
+															class="flex-shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
 														>
-															{collection.collection_type === 'favorite' ? '收藏夹' : '合集'}
+															已添加
 														</span>
-														{#if isExisting}
-															<span
-																class="flex-shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-															>
-																已添加
-															</span>
-														{/if}
-													</div>
-													<p class="text-muted-foreground mb-1 text-xs">ID: {collection.sid}</p>
-													<p class="text-muted-foreground mb-1 text-xs">
-														UP主: {collection.up_name}
-													</p>
-													<p class="text-muted-foreground text-xs">共 {collection.total} 个视频</p>
-													{#if collection.description}
-														<p class="text-muted-foreground mt-1 line-clamp-2 text-xs">
-															{collection.description}
-														</p>
 													{/if}
 												</div>
+												<p class="text-muted-foreground mb-1 text-xs">ID: {collection.sid}</p>
+												<p class="text-muted-foreground mb-1 text-xs">
+													UP主: {collection.up_name}
+												</p>
+												<p class="text-muted-foreground text-xs">共 {collection.total} 个视频</p>
+												{#if collection.description}
+													<p class="text-muted-foreground mt-1 line-clamp-2 text-xs">
+														{collection.description}
+													</p>
+												{/if}
 											</div>
-										</button>
-									{/each}
-								</div>
+										</div>
+									</SelectableCardButton>
+								{/each}
 							</div>
-						</div>
+						</SidePanel>
 					</div>
 				{/if}
 
@@ -4201,16 +4080,13 @@
 						class={isMobile ? 'mt-6 w-full' : 'flex-1'}
 						transition:fly={{ x: 300, duration: 300 }}
 					>
-						<div
-							class="bg-card rounded-lg border {isMobile
-								? ''
-								: 'h-full'} flex flex-col overflow-hidden {isMobile
-								? ''
-								: 'sticky top-6'} max-h-[750px]"
+						<SidePanel
+							{isMobile}
+							maxHeightClass="max-h-[750px]"
+							headerClass="bg-blue-50 dark:bg-blue-950"
+							bodyClass="flex min-h-0 flex-1 flex-col overflow-hidden"
 						>
-							<div
-								class="flex items-center justify-between border-b bg-blue-50 p-4 dark:bg-blue-950"
-							>
+							{#snippet header()}
 								<div>
 									<div class="flex items-center gap-2">
 										<span class="text-base font-medium text-blue-800 dark:text-blue-200"
@@ -4234,280 +4110,279 @@
 										{/if}
 									</span>
 								</div>
+							{/snippet}
+							{#snippet actions()}
 								<button
 									onclick={cancelSubmissionSelection}
 									class="p-1 text-xl text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-100"
 								>
 									<X class="h-5 w-5" />
 								</button>
-							</div>
+							{/snippet}
 
-							<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-								{#if submissionError}
-									<div class="m-3 rounded-lg border border-red-200 bg-red-50 p-4">
-										<div class="flex items-center gap-2">
+							{#if submissionError}
+								<div class="m-3 rounded-lg border border-red-200 bg-red-50 p-4">
+									<div class="flex items-center gap-2">
+										<svg
+											class="h-5 w-5 text-red-600"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="2"
+												d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+											/>
+										</svg>
+										<span class="text-sm font-medium text-red-800 dark:text-red-200">加载失败</span>
+									</div>
+									<p class="mt-1 text-sm text-red-700 dark:text-red-300">{submissionError}</p>
+									<button
+										type="button"
+										class="mt-2 text-sm text-red-600 underline hover:text-red-800 dark:text-red-400 dark:hover:text-red-200"
+										onclick={loadSubmissionVideos}
+									>
+										重试
+									</button>
+								</div>
+							{:else}
+								<!-- 搜索和操作栏 -->
+								<div class="flex-shrink-0 space-y-3 p-3">
+									<div class="flex gap-2">
+										<div class="relative flex-1">
+											<input
+												type="text"
+												bind:value={submissionSearchQuery}
+												placeholder="搜索视频标题（支持关键词搜索UP主所有视频）..."
+												class="w-full rounded-md border border-gray-300 px-3 py-2 pr-8 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+												disabled={isSearching}
+											/>
+											{#if isSearching}
+												<div class="absolute inset-y-0 right-0 flex items-center pr-3">
+													<svg
+														class="h-4 w-4 animate-spin text-blue-600"
+														fill="none"
+														viewBox="0 0 24 24"
+													>
+														<circle
+															class="opacity-25"
+															cx="12"
+															cy="12"
+															r="10"
+															stroke="currentColor"
+															stroke-width="4"
+														></circle>
+														<path
+															class="opacity-75"
+															fill="currentColor"
+															d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+														></path>
+													</svg>
+												</div>
+											{/if}
+										</div>
+									</div>
+
+									{#if submissionSearchQuery.trim()}
+										<div class="px-1 text-xs text-blue-600">
+											{isSearching
+												? '搜索中...'
+												: `搜索模式：在UP主所有视频中搜索 "${submissionSearchQuery}"`}
+										</div>
+									{/if}
+
+									<div class="flex items-center justify-between">
+										<div class="flex gap-2">
+											<button
+												type="button"
+												class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-3 py-1 text-sm font-medium"
+												onclick={selectAllSubmissions}
+												disabled={filteredSubmissionVideos.length === 0}
+											>
+												全选
+											</button>
+											<button
+												type="button"
+												class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-3 py-1 text-sm font-medium"
+												onclick={selectNoneSubmissions}
+												disabled={selectedSubmissionCount === 0}
+											>
+												全不选
+											</button>
+											<button
+												type="button"
+												class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-3 py-1 text-sm font-medium"
+												onclick={invertSubmissionSelection}
+												disabled={filteredSubmissionVideos.length === 0}
+											>
+												反选
+											</button>
+										</div>
+
+										<div class="text-muted-foreground text-sm">
+											已选择 {selectedSubmissionCount} / {filteredSubmissionVideos.length} 个视频
+										</div>
+									</div>
+								</div>
+
+								<!-- 视频列表 -->
+								<div
+									class="min-h-0 flex-1 overflow-y-auto p-3 pt-0"
+									bind:this={submissionScrollContainer}
+									onscroll={handleSubmissionScroll}
+								>
+									{#if submissionLoading && submissionVideos.length === 0}
+										<div class="flex items-center justify-center py-8">
 											<svg
-												class="h-5 w-5 text-red-600"
+												class="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400"
 												fill="none"
-												stroke="currentColor"
 												viewBox="0 0 24 24"
 											>
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													stroke-width="2"
-													d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-												/>
-											</svg>
-											<span class="text-sm font-medium text-red-800 dark:text-red-200"
-												>加载失败</span
-											>
-										</div>
-										<p class="mt-1 text-sm text-red-700 dark:text-red-300">{submissionError}</p>
-										<button
-											type="button"
-											class="mt-2 text-sm text-red-600 underline hover:text-red-800 dark:text-red-400 dark:hover:text-red-200"
-											onclick={loadSubmissionVideos}
-										>
-											重试
-										</button>
-									</div>
-								{:else}
-									<!-- 搜索和操作栏 -->
-									<div class="flex-shrink-0 space-y-3 p-3">
-										<div class="flex gap-2">
-											<div class="relative flex-1">
-												<input
-													type="text"
-													bind:value={submissionSearchQuery}
-													placeholder="搜索视频标题（支持关键词搜索UP主所有视频）..."
-													class="w-full rounded-md border border-gray-300 px-3 py-2 pr-8 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-													disabled={isSearching}
-												/>
-												{#if isSearching}
-													<div class="absolute inset-y-0 right-0 flex items-center pr-3">
-														<svg
-															class="h-4 w-4 animate-spin text-blue-600"
-															fill="none"
-															viewBox="0 0 24 24"
-														>
-															<circle
-																class="opacity-25"
-																cx="12"
-																cy="12"
-																r="10"
-																stroke="currentColor"
-																stroke-width="4"
-															></circle>
-															<path
-																class="opacity-75"
-																fill="currentColor"
-																d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-															></path>
-														</svg>
-													</div>
-												{/if}
-											</div>
-										</div>
-
-										{#if submissionSearchQuery.trim()}
-											<div class="px-1 text-xs text-blue-600">
-												{isSearching
-													? '搜索中...'
-													: `搜索模式：在UP主所有视频中搜索 "${submissionSearchQuery}"`}
-											</div>
-										{/if}
-
-										<div class="flex items-center justify-between">
-											<div class="flex gap-2">
-												<button
-													type="button"
-													class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-3 py-1 text-sm font-medium"
-													onclick={selectAllSubmissions}
-													disabled={filteredSubmissionVideos.length === 0}
-												>
-													全选
-												</button>
-												<button
-													type="button"
-													class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-3 py-1 text-sm font-medium"
-													onclick={selectNoneSubmissions}
-													disabled={selectedSubmissionCount === 0}
-												>
-													全不选
-												</button>
-												<button
-													type="button"
-													class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-3 py-1 text-sm font-medium"
-													onclick={invertSubmissionSelection}
-													disabled={filteredSubmissionVideos.length === 0}
-												>
-													反选
-												</button>
-											</div>
-
-											<div class="text-muted-foreground text-sm">
-												已选择 {selectedSubmissionCount} / {filteredSubmissionVideos.length} 个视频
-											</div>
-										</div>
-									</div>
-
-									<!-- 视频列表 -->
-									<div
-										class="min-h-0 flex-1 overflow-y-auto p-3 pt-0"
-										bind:this={submissionScrollContainer}
-										onscroll={handleSubmissionScroll}
-									>
-										{#if submissionLoading && submissionVideos.length === 0}
-											<div class="flex items-center justify-center py-8">
-												<svg
-													class="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400"
-													fill="none"
-													viewBox="0 0 24 24"
-												>
-													<circle
-														class="opacity-25"
-														cx="12"
-														cy="12"
-														r="10"
-														stroke="currentColor"
-														stroke-width="4"
-													></circle>
-													<path
-														class="opacity-75"
-														fill="currentColor"
-														d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-													></path>
-												</svg>
-												<span class="text-muted-foreground ml-2 text-sm">加载中...</span>
-											</div>
-										{:else if filteredSubmissionVideos.length === 0}
-											<div
-												class="text-muted-foreground flex flex-col items-center justify-center py-8"
-											>
-												<svg
-													class="mb-2 h-12 w-12"
-													fill="none"
+												<circle
+													class="opacity-25"
+													cx="12"
+													cy="12"
+													r="10"
 													stroke="currentColor"
-													viewBox="0 0 24 24"
-												>
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="2"
-														d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-													/>
-												</svg>
-												<p class="text-sm">没有找到视频</p>
-											</div>
-										{:else}
-											<div
-												class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
-												style={isMobile
-													? ''
-													: 'grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));'}
-											>
-												{#each filteredSubmissionVideos as video (video.bvid)}
-													<div
-														class="hover:bg-muted relative rounded-lg border p-4 transition-all duration-300 hover:shadow-md {selectedSubmissionVideos.has(
-															video.bvid
-														)
-															? 'border-blue-300 bg-blue-50'
-															: 'border-gray-200'} {isMobile ? 'h-auto' : 'h-[100px]'}"
+													stroke-width="4"
+												></circle>
+												<path
+													class="opacity-75"
+													fill="currentColor"
+													d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+												></path>
+											</svg>
+											<span class="text-muted-foreground ml-2 text-sm">加载中...</span>
+										</div>
+									{:else if filteredSubmissionVideos.length === 0}
+										<EmptyState
+											icon={Search}
+											iconClass="h-12 w-12"
+											title={submissionSearchQuery.trim() ? '没有找到视频' : '暂无投稿'}
+											description={submissionSearchQuery.trim()
+												? `没有找到包含 "${submissionSearchQuery}" 的视频`
+												: '该UP主暂无投稿'}
+											class="border-0 bg-transparent p-0 py-8"
+										>
+											{#snippet actions()}
+												{#if submissionSearchQuery.trim()}
+													<Button
+														type="button"
+														size="sm"
+														variant="outline"
+														onclick={() => (submissionSearchQuery = '')}
 													>
-														<div class="flex h-full gap-3">
-															<div class="relative flex-shrink-0">
-																<img
-																	src={processBilibiliImageUrl(video.cover)}
-																	alt={video.title}
-																	class="h-[63px] w-28 rounded object-cover"
-																	loading="lazy"
-																	crossorigin="anonymous"
-																	referrerpolicy="no-referrer"
-																	onerror={handleImageError}
-																/>
-															</div>
-															<div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-																<input
-																	type="checkbox"
-																	checked={selectedSubmissionVideos.has(video.bvid)}
-																	onchange={() => toggleSubmissionVideo(video.bvid)}
-																	class="absolute top-1 right-1 z-10 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:text-blue-400"
-																/>
-																<h4
-																	class="mb-1 line-clamp-2 flex-shrink-0 pr-6 text-sm font-medium text-gray-900"
-																>
-																	{video.title}
-																</h4>
-																<p
-																	class="text-muted-foreground mb-2 line-clamp-1 flex-shrink-0 text-xs"
-																>
-																	{video.description || '无简介'}
-																</p>
-																<div class="text-muted-foreground mt-auto text-xs">
-																	<div class="flex flex-wrap items-center gap-2">
-																		<span>🎬 {formatSubmissionPlayCount(video.view)}</span>
-																		<span>💬 {formatSubmissionPlayCount(video.danmaku)}</span>
-																		<span>📅 {formatSubmissionDate(video.pubtime)}</span>
-																		<span class="font-mono text-xs">{video.bvid}</span>
-																	</div>
+														清空搜索
+													</Button>
+												{/if}
+											{/snippet}
+										</EmptyState>
+									{:else}
+										<div
+											class="grid gap-4 {isMobile ? 'grid-cols-1' : ''}"
+											style={isMobile
+												? ''
+												: 'grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));'}
+										>
+											{#each filteredSubmissionVideos as video (video.bvid)}
+												<div
+													class="hover:bg-muted relative rounded-lg border p-4 transition-all duration-300 hover:shadow-md {selectedSubmissionVideos.has(
+														video.bvid
+													)
+														? 'border-blue-300 bg-blue-50'
+														: 'border-gray-200'} {isMobile ? 'h-auto' : 'h-[100px]'}"
+												>
+													<div class="flex h-full gap-3">
+														<div class="relative flex-shrink-0">
+															<BiliImage
+																src={video.cover}
+																alt={video.title}
+																class="h-[63px] w-28 rounded object-cover"
+																placeholder="无封面"
+															/>
+														</div>
+														<div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+															<input
+																type="checkbox"
+																checked={selectedSubmissionVideos.has(video.bvid)}
+																onchange={() => toggleSubmissionVideo(video.bvid)}
+																class="absolute top-1 right-1 z-10 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:text-blue-400"
+															/>
+															<h4
+																class="mb-1 line-clamp-2 flex-shrink-0 pr-6 text-sm font-medium text-gray-900"
+															>
+																{video.title}
+															</h4>
+															<p
+																class="text-muted-foreground mb-2 line-clamp-1 flex-shrink-0 text-xs"
+															>
+																{video.description || '无简介'}
+															</p>
+															<div class="text-muted-foreground mt-auto text-xs">
+																<div class="flex flex-wrap items-center gap-2">
+																	<span>🎬 {formatSubmissionPlayCount(video.view)}</span>
+																	<span>💬 {formatSubmissionPlayCount(video.danmaku)}</span>
+																	<span>📅 {formatSubmissionDate(video.pubtime)}</span>
+																	<span class="font-mono text-xs">{video.bvid}</span>
 																</div>
 															</div>
 														</div>
 													</div>
-												{/each}
-											</div>
+												</div>
+											{/each}
+										</div>
 
-											{#if submissionVideos.length > 0}
-												{#if showLoadMoreButton && hasMoreVideos}
-													<div class="py-4 text-center">
-														<button
-															type="button"
-															class="rounded-md border border-transparent bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-															onclick={loadMoreSubmissionVideos}
-															disabled={isLoadingMore}
-														>
-															{#if isLoadingMore}
-																<div class="flex items-center gap-2">
-																	<div
-																		class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
-																	></div>
-																	<span>加载中...</span>
-																</div>
-															{:else}
-																加载更多 ({submissionVideos.length}/{submissionTotalCount})
-															{/if}
-														</button>
-													</div>
-												{:else if submissionTotalCount > 0}
-													<div class="text-muted-foreground py-4 text-center text-sm">
-														已加载全部 {submissionTotalCount} 个视频
-													</div>
-												{/if}
+										{#if submissionVideos.length > 0}
+											{#if showLoadMoreButton && hasMoreVideos}
+												<div class="py-4 text-center">
+													<button
+														type="button"
+														class="rounded-md border border-transparent bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+														onclick={loadMoreSubmissionVideos}
+														disabled={isLoadingMore}
+													>
+														{#if isLoadingMore}
+															<div class="flex items-center gap-2">
+																<div
+																	class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+																></div>
+																<span>加载中...</span>
+															</div>
+														{:else}
+															加载更多 ({submissionVideos.length}/{submissionTotalCount})
+														{/if}
+													</button>
+												</div>
+											{:else if submissionTotalCount > 0}
+												<div class="text-muted-foreground py-4 text-center text-sm">
+													已加载全部 {submissionTotalCount} 个视频
+												</div>
 											{/if}
 										{/if}
-									</div>
+									{/if}
+								</div>
 
-									<!-- 确认按钮 -->
-									<div class="flex flex-shrink-0 justify-end gap-3 border-t p-4">
-										<button
-											type="button"
-											class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none"
-											onclick={cancelSubmissionSelection}
-										>
-											取消
-										</button>
-										<button
-											type="button"
-											class="rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none"
-											onclick={confirmSubmissionSelection}
-										>
-											确认选择 ({selectedSubmissionVideos.size} 个视频)
-										</button>
-									</div>
-								{/if}
-							</div>
-						</div>
+								<!-- 确认按钮 -->
+								<div class="flex flex-shrink-0 justify-end gap-3 border-t p-4">
+									<button
+										type="button"
+										class="bg-card text-foreground hover:bg-muted rounded-md border border-gray-300 px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none"
+										onclick={cancelSubmissionSelection}
+									>
+										取消
+									</button>
+									<button
+										type="button"
+										class="rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none"
+										onclick={confirmSubmissionSelection}
+									>
+										确认选择 ({selectedSubmissionVideos.size} 个视频)
+									</button>
+								</div>
+							{/if}
+						</SidePanel>
 					</div>
 				{/if}
 			</div>
@@ -4567,26 +4442,15 @@
 		{#if hoveredItem.type === 'search'}
 			<!-- 搜索结果详情内容 -->
 			<div class="flex gap-4">
-				{#if hoveredItem.data.cover}
-					<img
-						src={processBilibiliImageUrl(hoveredItem.data.cover)}
-						alt={hoveredItem.data.title}
-						class="{sourceType === 'bangumi'
-							? 'h-32 w-24'
-							: 'h-20 w-32'} flex-shrink-0 rounded object-cover"
-						loading="lazy"
-						crossorigin="anonymous"
-						referrerpolicy="no-referrer"
-					/>
-				{:else}
-					<div
-						class="{sourceType === 'bangumi'
-							? 'h-32 w-24'
-							: 'h-20 w-32'} bg-muted text-muted-foreground flex flex-shrink-0 items-center justify-center rounded text-sm"
-					>
-						无图片
-					</div>
-				{/if}
+				<BiliImage
+					src={hoveredItem.data.cover}
+					alt={hoveredItem.data.title}
+					class="{sourceType === 'bangumi'
+						? 'h-32 w-24'
+						: 'h-20 w-32'} flex-shrink-0 rounded object-cover"
+					placeholder="无图片"
+					placeholderClass="text-sm"
+				/>
 				<div class="min-w-0 flex-1">
 					<div class="mb-1 flex items-center gap-2">
 						<h4 class="flex-1 text-sm font-semibold">
@@ -4651,28 +4515,17 @@
 		{:else if hoveredItem.type === 'season'}
 			<!-- 季度选择详情内容 -->
 			<div class="flex gap-4">
-				{#if hoveredItem.data.cover}
-					<img
-						src={processBilibiliImageUrl(hoveredItem.data.cover)}
-						alt={hoveredItem.data.season_title || hoveredItem.data.title}
-						class="h-32 w-24 flex-shrink-0 rounded object-cover"
-						loading="lazy"
-						crossorigin="anonymous"
-						referrerpolicy="no-referrer"
-					/>
-				{:else}
-					<div
-						class="bg-muted text-muted-foreground flex h-32 w-24 flex-shrink-0 items-center justify-center rounded text-sm"
-					>
-						无封面
-					</div>
-				{/if}
+				<BiliImage
+					src={hoveredItem.data.cover}
+					alt={hoveredItem.data.season_title}
+					class="h-32 w-24 flex-shrink-0 rounded object-cover"
+					placeholder="无封面"
+					placeholderClass="text-sm"
+				/>
 				<div class="min-w-0 flex-1">
 					<div class="mb-1 flex items-center gap-2">
 						<h4 class="flex-1 text-sm font-semibold">
-							{hoveredItem.data.full_title ||
-								hoveredItem.data.season_title ||
-								hoveredItem.data.title}
+							{hoveredItem.data.full_title || hoveredItem.data.season_title}
 						</h4>
 						<span
 							class="flex-shrink-0 rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"
@@ -4798,14 +4651,10 @@
 {/if}
 
 <style>
-	/* 确保图片加载失败时的占位符正确显示 */
-	:global(.placeholder) {
-		flex-shrink: 0;
-	}
-
 	/* 限制描述文字的行数 */
 	.line-clamp-2 {
 		display: -webkit-box;
+		line-clamp: 2;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
@@ -4813,6 +4662,7 @@
 
 	.line-clamp-3 {
 		display: -webkit-box;
+		line-clamp: 3;
 		-webkit-line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
@@ -4820,6 +4670,7 @@
 
 	.line-clamp-4 {
 		display: -webkit-box;
+		line-clamp: 4;
 		-webkit-line-clamp: 4;
 		-webkit-box-orient: vertical;
 		overflow: hidden;

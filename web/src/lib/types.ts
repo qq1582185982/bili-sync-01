@@ -17,6 +17,7 @@ export interface VideosRequest {
 	favorite?: number;
 	submission?: number;
 	watch_later?: number;
+	bangumi?: number;
 	query?: string;
 	page?: number;
 	page_size?: number;
@@ -43,6 +44,7 @@ export interface VideoSource {
 	season_id?: string; // 番剧season_id
 	media_id?: string; // 番剧media_id
 	selected_seasons?: string[];
+	selected_videos?: string | null; // 投稿源：选中视频（JSON字符串）
 	// 新的双列表模式关键词过滤
 	blacklist_keywords?: string[]; // 黑名单关键词列表（匹配的视频将被排除）
 	whitelist_keywords?: string[]; // 白名单关键词列表（只下载匹配的视频）
@@ -181,6 +183,7 @@ export interface AddVideoSourceRequest {
 	up_id?: string;
 	name: string;
 	path: string;
+	cover?: string;
 	collection_type?: string;
 	media_id?: string;
 	ep_id?: string;
@@ -284,6 +287,8 @@ export interface ConfigResponse {
 	enable_auto_backoff?: boolean;
 	auto_backoff_base_seconds?: number;
 	auto_backoff_max_multiplier?: number;
+	source_delay_seconds?: number;
+	submission_source_delay_seconds?: number;
 	// 扫描已删除视频设置
 	scan_deleted_videos?: boolean;
 	// aria2监控配置
@@ -300,8 +305,10 @@ export interface ConfigResponse {
 	credential?: {
 		sessdata: string;
 		bili_jct: string;
-		buvid3: string;
+		buvid3?: string;
+		buvid4?: string;
 		dedeuserid: string;
+		dedeuserid_ckmd5?: string;
 		ac_time_value: string;
 	};
 	// UP主头像保存路径
@@ -311,6 +318,12 @@ export interface ConfigResponse {
 		enabled: boolean;
 		mode: string;
 		timeout: number;
+		auto_solve?: {
+			service?: string;
+			api_key?: string;
+			max_retries?: number;
+			solve_timeout?: number;
+		};
 	};
 	// AI重命名配置
 	ai_rename?: AiRenameConfig;
@@ -390,6 +403,8 @@ export interface UpdateConfigRequest {
 	enable_auto_backoff?: boolean;
 	auto_backoff_base_seconds?: number;
 	auto_backoff_max_multiplier?: number;
+	source_delay_seconds?: number;
+	submission_source_delay_seconds?: number;
 	// 扫描已删除视频设置
 	scan_deleted_videos?: boolean;
 	// aria2监控配置

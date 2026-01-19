@@ -13,10 +13,10 @@
 	import { toast } from 'svelte-sonner';
 	import api from '$lib/api';
 	import { wsManager } from '$lib/ws';
+	import { runRequest } from '$lib/utils/request.js';
 	import type {
 		DashBoardResponse,
 		SysInfo,
-		ApiError,
 		TaskStatus,
 		TaskControlStatusResponse,
 		LatestIngestItem
@@ -194,33 +194,21 @@
 	}
 
 	async function loadDashboard() {
-		loading = true;
-		try {
-			const response = await api.getDashboard();
-			dashboardData = response.data;
-		} catch (error) {
-			console.error('加载仪表盘数据失败:', error);
-			toast.error('加载仪表盘数据失败', {
-				description: (error as ApiError).message
-			});
-		} finally {
-			loading = false;
-		}
+		const response = await runRequest(() => api.getDashboard(), {
+			setLoading: (value) => (loading = value),
+			context: '加载仪表盘数据失败'
+		});
+		if (!response) return;
+		dashboardData = response.data;
 	}
 
 	async function loadLatestIngests() {
-		loadingLatestIngests = true;
-		try {
-			const response = await api.getLatestIngests(10);
-			latestIngests = response.data.items || [];
-		} catch (error) {
-			console.error('加载最新入库失败:', error);
-			toast.error('加载最新入库失败', {
-				description: (error as ApiError).message
-			});
-		} finally {
-			loadingLatestIngests = false;
-		}
+		const response = await runRequest(() => api.getLatestIngests(10), {
+			setLoading: (value) => (loadingLatestIngests = value),
+			context: '加载最新入库失败'
+		});
+		if (!response) return;
+		latestIngests = response.data.items || [];
 	}
 
 	// 加载任务控制状态
@@ -237,20 +225,17 @@
 	async function pauseAllTasks() {
 		if (loadingTaskControl) return;
 
-		loadingTaskControl = true;
-		try {
-			const response = await api.pauseScanning();
-			if (response.data.success) {
-				toast.success(response.data.message);
-				await loadTaskControlStatus();
-			} else {
-				toast.error('暂停任务失败');
-			}
-		} catch (error) {
-			console.error('暂停任务失败:', error);
-			toast.error('暂停任务失败');
-		} finally {
-			loadingTaskControl = false;
+		const response = await runRequest(() => api.pauseScanning(), {
+			setLoading: (value) => (loadingTaskControl = value),
+			context: '暂停任务失败'
+		});
+		if (!response) return;
+
+		if (response.data.success) {
+			toast.success(response.data.message);
+			await loadTaskControlStatus();
+		} else {
+			toast.error('暂停任务失败', { description: response.data.message });
 		}
 	}
 
@@ -258,20 +243,17 @@
 	async function resumeAllTasks() {
 		if (loadingTaskControl) return;
 
-		loadingTaskControl = true;
-		try {
-			const response = await api.resumeScanning();
-			if (response.data.success) {
-				toast.success(response.data.message);
-				await loadTaskControlStatus();
-			} else {
-				toast.error('恢复任务失败');
-			}
-		} catch (error) {
-			console.error('恢复任务失败:', error);
-			toast.error('恢复任务失败');
-		} finally {
-			loadingTaskControl = false;
+		const response = await runRequest(() => api.resumeScanning(), {
+			setLoading: (value) => (loadingTaskControl = value),
+			context: '恢复任务失败'
+		});
+		if (!response) return;
+
+		if (response.data.success) {
+			toast.success(response.data.message);
+			await loadTaskControlStatus();
+		} else {
+			toast.error('恢复任务失败', { description: response.data.message });
 		}
 	}
 
@@ -279,38 +261,30 @@
 	async function refreshTasks() {
 		if (loadingTaskRefresh) return;
 
-		loadingTaskRefresh = true;
-		try {
-			const response = await api.refreshScanning();
-			if (response.data.success) {
-				toast.success(response.data.message);
-				await loadTaskControlStatus();
-				// 刷新后同步刷新首页数据
-				await loadDashboard();
-				await loadLatestIngests();
-			} else {
-				toast.error('任务刷新失败');
-			}
-		} catch (error) {
-			console.error('任务刷新失败:', error);
-			toast.error('任务刷新失败');
-		} finally {
-			loadingTaskRefresh = false;
+		const response = await runRequest(() => api.refreshScanning(), {
+			setLoading: (value) => (loadingTaskRefresh = value),
+			context: '任务刷新失败'
+		});
+		if (!response) return;
+
+		if (response.data.success) {
+			toast.success(response.data.message);
+			await loadTaskControlStatus();
+			// 刷新后同步刷新首页数据
+			await loadDashboard();
+			await loadLatestIngests();
+		} else {
+			toast.error('任务刷新失败', { description: response.data.message });
 		}
 	}
 
 	async function loadInitialData() {
-		try {
-			// 加载任务控制状态
-			await loadTaskControlStatus();
-			// 加载仪表盘数据
-			await loadDashboard();
-			// 加载最新入库
-			await loadLatestIngests();
-		} catch (error) {
-			console.error('加载数据失败:', error);
-			toast.error('加载数据失败');
-		}
+		// 加载任务控制状态
+		await loadTaskControlStatus();
+		// 加载仪表盘数据
+		await loadDashboard();
+		// 加载最新入库
+		await loadLatestIngests();
 	}
 
 	onMount(() => {

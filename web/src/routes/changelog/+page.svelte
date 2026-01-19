@@ -12,8 +12,8 @@
 	// 设置面包屑导航
 	onMount(() => {
 		setBreadcrumb([
-			{ name: '总览', href: '/' },
-			{ name: '更新记录', href: '/changelog' }
+			{ label: '总览', href: '/' },
+			{ label: '更新记录', href: '/changelog' }
 		]);
 
 		// 处理iframe加载完成

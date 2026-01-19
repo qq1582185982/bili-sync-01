@@ -7,6 +7,8 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import api from '$lib/api';
+	import { runRequest } from '$lib/utils/request.js';
+	import { IsMobile } from '$lib/hooks/is-mobile.svelte.js';
 	import { RefreshCw, Download, AlertTriangle, XCircle, Info, Bug } from '@lucide/svelte';
 
 	// 日志级别类型
@@ -27,15 +29,15 @@
 	// }
 
 	// 响应式变量
-	let innerWidth = 0;
-	$: isMobile = innerWidth < 768;
+	const isMobileQuery = new IsMobile();
+	$: isMobile = isMobileQuery.current;
 
 	// 状态变量
 	let logs: LogEntry[] = [];
 	let filteredLogs: LogEntry[] = [];
 	let isLoading = false;
 	let autoRefresh = true;
-	let refreshInterval: number;
+	let refreshInterval: ReturnType<typeof setInterval> | null = null;
 	let currentTab = 'all';
 	let isAuthenticated = false;
 	let authError = '';
@@ -72,15 +74,89 @@
 			return false;
 		}
 
-		try {
-			// 尝试调用一个需要认证的API来验证Token
-			await api.getVideoSources();
-			return true;
-		} catch (error: unknown) {
-			console.error('认证验证失败:', error);
-			authError = '认证失败，请重新登录';
-			return false;
+		const response = await runRequest(() => api.getVideoSources(), {
+			context: '认证验证失败',
+			showErrorToast: false,
+			onError: () => {
+				authError = '认证失败，请重新登录';
+			}
+		});
+		return Boolean(response);
+	}
+
+	type ParsedLogsResponse = {
+		logs: LogEntry[];
+		total: number;
+		page: number;
+		per_page: number;
+		total_pages: number;
+	};
+
+	function parseLogsResponse(
+		result: unknown,
+		fallback: { page: number; perPage: number }
+	): ParsedLogsResponse {
+		const defaultResponse: ParsedLogsResponse = {
+			logs: [],
+			total: 0,
+			page: fallback.page,
+			per_page: fallback.perPage,
+			total_pages: 1
+		};
+
+		if (!result) return defaultResponse;
+		if (Array.isArray(result)) {
+			return {
+				logs: result as LogEntry[],
+				total: result.length,
+				page: 1,
+				per_page: result.length,
+				total_pages: 1
+			};
 		}
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const obj = result as any;
+		if (typeof obj !== 'object') return defaultResponse;
+
+		if (obj.status_code === 200 && obj.data && typeof obj.data === 'object') {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const data = obj.data as any;
+			const logs = Array.isArray(data.logs) ? (data.logs as LogEntry[]) : [];
+			return {
+				logs,
+				total: typeof data.total === 'number' ? data.total : logs.length,
+				page: typeof data.page === 'number' ? data.page : fallback.page,
+				per_page: typeof data.per_page === 'number' ? data.per_page : fallback.perPage,
+				total_pages: typeof data.total_pages === 'number' ? data.total_pages : 1
+			};
+		}
+
+		if (obj.success && obj.data && typeof obj.data === 'object') {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const data = obj.data as any;
+			const logs = Array.isArray(data.logs) ? (data.logs as LogEntry[]) : [];
+			return {
+				logs,
+				total: typeof data.total === 'number' ? data.total : logs.length,
+				page: typeof data.page === 'number' ? data.page : fallback.page,
+				per_page: typeof data.per_page === 'number' ? data.per_page : fallback.perPage,
+				total_pages: typeof data.total_pages === 'number' ? data.total_pages : 1
+			};
+		}
+
+		if (Array.isArray(obj.logs)) {
+			const logs = obj.logs as LogEntry[];
+			return {
+				logs,
+				total: typeof obj.total === 'number' ? obj.total : logs.length,
+				page: typeof obj.page === 'number' ? obj.page : fallback.page,
+				per_page: typeof obj.per_page === 'number' ? obj.per_page : fallback.perPage,
+				total_pages: typeof obj.total_pages === 'number' ? obj.total_pages : 1
+			};
+		}
+
+		return defaultResponse;
 	}
 
 	// 初始化面包屑
@@ -105,9 +181,9 @@
 	});
 
 	onDestroy(() => {
-		if (refreshInterval) {
-			clearInterval(refreshInterval);
-		}
+		if (!refreshInterval) return;
+		clearInterval(refreshInterval);
+		refreshInterval = null;
 	});
 
 	// 加载日志
@@ -116,106 +192,59 @@
 			return;
 		}
 
-		try {
-			isLoading = true;
-			authError = '';
-			const params = new URLSearchParams();
-			params.append('limit', perPage.toString());
-			params.append('page', page.toString());
+		authError = '';
+		const params = new URLSearchParams();
+		params.append('limit', perPage.toString());
+		params.append('page', page.toString());
 
-			if (level) {
-				params.append('level', level);
-			}
-
-			const token = localStorage.getItem('auth_token');
-			if (!token) {
-				throw new Error('未找到认证token');
-			}
-
-			// 使用fetch直接调用API
-			const response = await fetch(`/api/logs?${params.toString()}`, {
-				headers: {
-					Authorization: token,
-					'Content-Type': 'application/json'
-				}
-			});
-
-			if (!response.ok) {
-				if (response.status === 401) {
-					isAuthenticated = false;
-					authError = '认证失败，请重新登录';
-					return;
-				}
-				throw new Error(`HTTP ${response.status}: 加载日志失败`);
-			}
-
-			const result = await response.json();
-			console.log('API响应:', result);
-
-			// 修复数据解析逻辑 - 处理所有可能的响应格式
-			let logsArray: LogEntry[] = [];
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			let responseData: any = {};
-
-			if (result.status_code === 200 && result.data) {
-				// 新格式：{status_code: 200, data: {logs: [...], total: ...}}
-				responseData = result.data;
-				if (result.data.logs && Array.isArray(result.data.logs)) {
-					logsArray = result.data.logs;
-					console.log('从status_code格式获取数据，长度:', logsArray.length);
-				}
-			} else if (result.success && result.data) {
-				// 标准包装格式 {success: true, data: {logs: [...], total: ...}}
-				responseData = result.data;
-				if (result.data.logs && Array.isArray(result.data.logs)) {
-					logsArray = result.data.logs;
-					console.log('从success格式获取数据，长度:', logsArray.length);
-				}
-			} else if (result.logs && Array.isArray(result.logs)) {
-				// 直接格式 {logs: [...], total: ...}
-				responseData = result;
-				logsArray = result.logs;
-				console.log('从直接格式获取数据，长度:', logsArray.length);
-			} else if (Array.isArray(result)) {
-				// 纯数组格式 [...]
-				logsArray = result;
-				responseData = {
-					logs: result,
-					total: result.length,
-					page: 1,
-					per_page: result.length,
-					total_pages: 1
-				};
-				console.log('从数组格式获取数据，长度:', logsArray.length);
-			} else {
-				console.warn('无法识别的API响应格式:', result);
-				console.log('响应键:', Object.keys(result));
-			}
-
-			// 更新分页信息
-			logs = logsArray;
-			totalLogCount = responseData.total || logsArray.length;
-			currentPage = responseData.page || page;
-			totalPages = responseData.total_pages || 1;
-			perPage = responseData.per_page || perPage;
-
-			console.log('分页信息:', { currentPage, totalPages, perPage, total: totalLogCount });
-			console.log('最终设置的logs长度:', logs.length);
-			if (logs.length > 0) {
-				console.log('前几条日志:', logs.slice(0, 2));
-			}
-
-			filterLogs();
-		} catch (error: unknown) {
-			console.error('加载日志失败:', error);
-			const errorMessage = error instanceof Error ? error.message : '加载日志失败';
-			authError = errorMessage;
-			toast.error('加载日志失败', {
-				description: errorMessage
-			});
-		} finally {
-			isLoading = false;
+		if (level) {
+			params.append('level', level);
 		}
+
+		const parsed = await runRequest(
+			async () => {
+				const token = localStorage.getItem('auth_token');
+				if (!token) {
+					throw new Error('未找到认证token');
+				}
+
+				const response = await fetch(`/api/logs?${params.toString()}`, {
+					headers: {
+						Authorization: token,
+						'Content-Type': 'application/json'
+					}
+				});
+
+				if (!response.ok) {
+					if (response.status === 401) {
+						isAuthenticated = false;
+						authError = '认证失败，请重新登录';
+						return null;
+					}
+					throw new Error(`HTTP ${response.status}: 加载日志失败`);
+				}
+
+				const result = await response.json();
+				return parseLogsResponse(result, { page, perPage });
+			},
+			{
+				setLoading: (value) => (isLoading = value),
+				context: '加载日志失败',
+				onError: (error) => {
+					authError = error instanceof Error ? error.message : '加载日志失败';
+				}
+			}
+		);
+		if (!parsed) return;
+
+		// 更新分页信息
+		logs = parsed.logs;
+		totalLogCount = parsed.total;
+		currentPage = parsed.page;
+		totalPages = parsed.total_pages;
+		perPage = parsed.per_page;
+
+		filterLogs();
 	}
 
 	// 根据当前选项卡过滤日志
@@ -261,7 +290,9 @@
 		if (autoRefresh) {
 			refreshInterval = setInterval(() => handleRefresh(), 5000);
 		} else {
+			if (!refreshInterval) return;
 			clearInterval(refreshInterval);
+			refreshInterval = null;
 		}
 	}
 
@@ -269,139 +300,129 @@
 	async function exportLogs() {
 		if (!isAuthenticated) return;
 
-		try {
-			isLoading = true;
+		await runRequest(
+			async () => {
+				// 获取当前选择级别的所有日志
+				const params = new URLSearchParams();
+				// 使用较大的limit值来获取尽可能多的日志
+				params.append('limit', '50000');
+				params.append('page', '1');
 
-			// 获取当前选择级别的所有日志
-			const params = new URLSearchParams();
-			// 使用较大的limit值来获取尽可能多的日志
-			params.append('limit', '50000');
-			params.append('page', '1');
-
-			if (currentTab !== 'all') {
-				params.append('level', currentTab);
-			}
-
-			const token = localStorage.getItem('auth_token');
-			if (!token) {
-				throw new Error('未找到认证token');
-			}
-
-			const response = await fetch(`/api/logs?${params.toString()}`, {
-				headers: {
-					Authorization: token,
-					'Content-Type': 'application/json'
+				if (currentTab !== 'all') {
+					params.append('level', currentTab);
 				}
-			});
 
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}: 获取日志失败`);
+				const token = localStorage.getItem('auth_token');
+				if (!token) {
+					throw new Error('未找到认证token');
+				}
+
+				const response = await fetch(`/api/logs?${params.toString()}`, {
+					headers: {
+						Authorization: token,
+						'Content-Type': 'application/json'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: 获取日志失败`);
+				}
+
+				const result = await response.json();
+				const parsed = parseLogsResponse(result, { page: 1, perPage: 50000 });
+				const allLogs = parsed.logs;
+
+				if (allLogs.length === 0) {
+					toast.error('没有日志可导出');
+					return;
+				}
+
+				// 生成CSV内容
+				const csvContent = [
+					'时间,级别,消息,来源',
+					...allLogs.map(
+						(log) =>
+							`"${formatTimestamp(log.timestamp)}","${log.level}","${log.message.replace(/"/g, '""')}","${log.target || ''}"`
+					)
+				].join('\n');
+
+				// 创建文件名
+				const levelText = currentTab === 'all' ? '全部' : currentTab;
+				const fileName = `logs-${levelText}-${new Date().toISOString().split('T')[0]}.csv`;
+
+				// 下载文件
+				const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+				const link = document.createElement('a');
+				link.href = URL.createObjectURL(blob);
+				link.download = fileName;
+				link.click();
+
+				toast.success(`成功导出 ${allLogs.length} 条${levelText}日志（来自内存缓冲区）`);
+			},
+			{
+				setLoading: (value) => (isLoading = value),
+				context: '导出日志失败'
 			}
-
-			const result = await response.json();
-
-			// 解析响应数据
-			let allLogs: LogEntry[] = [];
-			if (result.status_code === 200 && result.data) {
-				allLogs = result.data.logs || [];
-			} else if (result.success && result.data) {
-				allLogs = result.data.logs || [];
-			} else if (result.logs && Array.isArray(result.logs)) {
-				allLogs = result.logs;
-			} else if (Array.isArray(result)) {
-				allLogs = result;
-			}
-
-			if (allLogs.length === 0) {
-				toast.error('没有日志可导出');
-				return;
-			}
-
-			// 生成CSV内容
-			const csvContent = [
-				'时间,级别,消息,来源',
-				...allLogs.map(
-					(log) =>
-						`"${formatTimestamp(log.timestamp)}","${log.level}","${log.message.replace(/"/g, '""')}","${log.target || ''}"`
-				)
-			].join('\n');
-
-			// 创建文件名
-			const levelText = currentTab === 'all' ? '全部' : currentTab;
-			const fileName = `logs-${levelText}-${new Date().toISOString().split('T')[0]}.csv`;
-
-			// 下载文件
-			const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-			const link = document.createElement('a');
-			link.href = URL.createObjectURL(blob);
-			link.download = fileName;
-			link.click();
-
-			toast.success(`成功导出 ${allLogs.length} 条${levelText}日志（来自内存缓冲区）`);
-		} catch (error: unknown) {
-			console.error('导出日志失败:', error);
-			toast.error('导出日志失败', {
-				description: error instanceof Error ? error.message : '未知错误'
-			});
-		} finally {
-			isLoading = false;
-		}
+		);
 	}
 
 	// 下载日志文件（从磁盘文件）
 	async function downloadLogFile() {
 		if (!isAuthenticated) return;
-		try {
-			isLoading = true;
-			const token = localStorage.getItem('auth_token');
-			if (!token) {
-				throw new Error('未找到认证token');
-			}
-
-			// 构建请求参数
-			const params = new URLSearchParams();
-			params.append('level', currentTab === 'all' ? 'all' : currentTab);
-
-			// 直接下载文件
-			const response = await fetch(`/api/logs/download?${params.toString()}`, {
-				headers: {
-					Authorization: token
+		await runRequest(
+			async () => {
+				const token = localStorage.getItem('auth_token');
+				if (!token) {
+					throw new Error('未找到认证token');
 				}
-			});
 
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}: 下载日志文件失败`);
-			}
+				// 构建请求参数
+				const params = new URLSearchParams();
+				params.append('level', currentTab === 'all' ? 'all' : currentTab);
 
-			// 从响应头获取文件名
-			const contentDisposition = response.headers.get('content-disposition');
-			let fileName = `logs-${currentTab}-${new Date().toISOString().split('T')[0]}.csv`;
-			if (contentDisposition) {
-				const matches = /filename="([^"]+)"/.exec(contentDisposition);
-				if (matches) {
-					fileName = matches[1];
+				// 直接下载文件
+				const response = await fetch(`/api/logs/download?${params.toString()}`, {
+					headers: {
+						Authorization: token
+					}
+				});
+
+				if (!response.ok) {
+					if (response.status === 401) {
+						isAuthenticated = false;
+						authError = '认证失败，请重新登录';
+						return;
+					}
+					throw new Error(`HTTP ${response.status}: 下载日志文件失败`);
 				}
+
+				// 从响应头获取文件名
+				const contentDisposition = response.headers.get('content-disposition');
+				let fileName = `logs-${currentTab}-${new Date().toISOString().split('T')[0]}.csv`;
+				if (contentDisposition) {
+					const matches = /filename="([^"]+)"/.exec(contentDisposition);
+					if (matches) {
+						fileName = matches[1];
+					}
+				}
+
+				// 下载文件
+				const blob = await response.blob();
+				const link = document.createElement('a');
+				link.href = URL.createObjectURL(blob);
+				link.download = fileName;
+				link.click();
+
+				// 清理URL对象
+				URL.revokeObjectURL(link.href);
+
+				toast.success(`成功下载完整日志文件`);
+			},
+			{
+				setLoading: (value) => (isLoading = value),
+				context: '下载日志文件失败'
 			}
-
-			// 下载文件
-			const blob = await response.blob();
-			const link = document.createElement('a');
-			link.href = URL.createObjectURL(blob);
-			link.download = fileName;
-			link.click();
-
-			// 清理URL对象
-			URL.revokeObjectURL(link.href);
-
-			toast.success(`成功下载完整日志文件`);
-		} catch (error: unknown) {
-			console.error('下载日志文件失败:', error);
-			toast.error('下载日志文件失败', {
-				description: error instanceof Error ? error.message : '未知错误'
-			});
-		} finally {
-			isLoading = false;
-		}
+		);
 	}
 
 	// 格式化时间戳
@@ -421,8 +442,6 @@
 		window.location.href = '/';
 	}
 </script>
-
-<svelte:window bind:innerWidth />
 
 {#if !isAuthenticated}
 	<!-- 未认证状态 -->

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import BiliImage from '$lib/components/bili-image.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { X } from '@lucide/svelte';
 	import api from '$lib/api';
@@ -49,29 +50,6 @@
 
 	// 已选中视频数量
 	$: selectedSubmissionCount = selectedSubmissionVideos.size;
-
-	// 处理B站图片URL
-	function processBilibiliImageUrl(url: string): string {
-		if (!url) return '';
-		if (url.startsWith('https://')) return url;
-		if (url.startsWith('//')) return 'https:' + url;
-		if (url.startsWith('http://')) return url.replace('http://', 'https://');
-		return url;
-	}
-
-	// 图片加载错误处理
-	function handleImageError(event: Event) {
-		const img = event.target as HTMLImageElement;
-		img.style.display = 'none';
-		const parent = img.parentElement;
-		if (parent && !parent.querySelector('.placeholder')) {
-			const placeholder = document.createElement('div');
-			placeholder.className =
-				'placeholder h-[63px] w-28 rounded bg-gray-200 flex items-center justify-center text-gray-400 text-xs';
-			placeholder.textContent = '无封面';
-			parent.appendChild(placeholder);
-		}
-	}
 
 	// 格式化时间
 	function formatSubmissionDate(pubtime: string): string {
@@ -579,14 +557,11 @@
 									onkeydown={(e) => e.key === 'Enter' && toggleSubmissionVideo(video.bvid)}
 								>
 									<div class="relative">
-										<img
-											src={processBilibiliImageUrl(video.cover)}
+										<BiliImage
+											src={video.cover}
 											alt={video.title}
 											class="aspect-video w-full rounded object-cover"
-											loading="lazy"
-											crossorigin="anonymous"
-											referrerpolicy="no-referrer"
-											onerror={handleImageError}
+											placeholder="无封面"
 										/>
 										<input
 											type="checkbox"

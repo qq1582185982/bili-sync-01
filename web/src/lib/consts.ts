@@ -10,4 +10,6 @@ export const VIDEO_SOURCES = {
 	SUBMISSION: { type: 'submission', title: '用户投稿', icon: UserIcon },
 	WATCH_LATER: { type: 'watch_later', title: '稍后再看', icon: ClockIcon },
 	BANGUMI: { type: 'bangumi', title: '番剧', icon: TvIcon }
-};
+} as const;
+
+export type VideoSourceType = (typeof VIDEO_SOURCES)[keyof typeof VIDEO_SOURCES]['type'];

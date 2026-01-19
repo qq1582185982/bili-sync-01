@@ -806,6 +806,8 @@ class ApiClient {
 			active_channel: string;
 			enable_scan_notifications: boolean;
 			serverchan_key?: string;
+			serverchan3_uid?: string;
+			serverchan3_sendkey?: string;
 			wecom_webhook_url?: string;
 			wecom_msgtype: string;
 			wecom_mention_all: boolean;
@@ -819,6 +821,8 @@ class ApiClient {
 			active_channel: string;
 			enable_scan_notifications: boolean;
 			serverchan_key?: string;
+			serverchan3_uid?: string;
+			serverchan3_sendkey?: string;
 			wecom_webhook_url?: string;
 			wecom_msgtype: string;
 			wecom_mention_all: boolean;
@@ -836,6 +840,8 @@ class ApiClient {
 		active_channel?: string;
 		enable_scan_notifications?: boolean;
 		serverchan_key?: string;
+		serverchan3_uid?: string;
+		serverchan3_sendkey?: string;
 		wecom_webhook_url?: string;
 		wecom_msgtype?: string;
 		wecom_mention_all?: boolean;
@@ -1197,8 +1203,15 @@ export const api = {
 	 * 更新推送通知配置
 	 */
 	updateNotificationConfig: (config: {
+		active_channel?: string;
 		enable_scan_notifications?: boolean;
 		serverchan_key?: string;
+		serverchan3_uid?: string;
+		serverchan3_sendkey?: string;
+		wecom_webhook_url?: string;
+		wecom_msgtype?: string;
+		wecom_mention_all?: boolean;
+		wecom_mentioned_list?: string[];
 		notification_min_videos?: number;
 	}) => apiClient.updateNotificationConfig(config),
 

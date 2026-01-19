@@ -20,14 +20,14 @@
 		AlertCircle
 	} from '@lucide/svelte';
 	import api from '$lib/api';
-	import { toast } from 'svelte-sonner';
 	import type { QueueStatusResponse } from '$lib/types';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
+	import { runRequest } from '$lib/utils/request.js';
 
 	let queueStatus: QueueStatusResponse | null = null;
 	let loading = true;
 	let error: string | null = null;
-	let refreshInterval: number | null = null;
+	let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
 	// 设置面包屑
 	setBreadcrumb([
@@ -37,26 +37,26 @@
 
 	// 获取队列状态
 	async function fetchQueueStatus() {
-		try {
-			const response = await api.getQueueStatus();
-			queueStatus = response.data;
-			error = null;
-		} catch (err: unknown) {
-			console.error('获取队列状态失败:', err);
-			const errorMessage = err instanceof Error ? err.message : '获取队列状态失败';
-			error = errorMessage;
-			toast.error('获取队列状态失败', {
-				description: errorMessage
-			});
-		} finally {
-			loading = false;
-		}
+		const response = await runRequest(() => api.getQueueStatus(), {
+			context: '获取队列状态失败',
+			onError: (err) => {
+				error =
+					err && typeof err === 'object' && 'message' in err
+						? String(err.message)
+						: '获取队列状态失败';
+			}
+		});
+		if (!response) return;
+
+		queueStatus = response.data;
+		error = null;
 	}
 
 	// 手动刷新
 	async function handleRefresh() {
 		loading = true;
 		await fetchQueueStatus();
+		loading = false;
 	}
 
 	// 格式化时间
@@ -114,7 +114,9 @@
 	}
 
 	onMount(() => {
-		fetchQueueStatus();
+		fetchQueueStatus().finally(() => {
+			loading = false;
+		});
 		// 每5秒自动刷新一次
 		refreshInterval = setInterval(fetchQueueStatus, 5000);
 	});

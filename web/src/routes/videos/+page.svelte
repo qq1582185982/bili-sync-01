@@ -16,7 +16,9 @@
 	import api from '$lib/api';
 	import type { VideoInfo } from '$lib/types';
 	import type { VideosResponse, VideoSourcesResponse, ApiError } from '$lib/types';
-	import { VIDEO_SOURCES } from '$lib/consts';
+	import { VIDEO_SOURCES, type VideoSourceType } from '$lib/consts';
+	import { runRequest } from '$lib/utils/request.js';
+	import { buildVideosRequest } from '$lib/utils/videos.js';
 	import {
 		appStateStore,
 		resetCurrentPage,
@@ -52,7 +54,7 @@
 
 	// 筛选状态
 	let showFilters = false;
-	let selectedSourceType = '';
+	let selectedSourceType: VideoSourceType | '' = '';
 	let selectedSourceId = '';
 	let showFailedOnly = false;
 	let currentSortBy: SortBy = 'id';
@@ -65,7 +67,7 @@
 	let batchDeleteDialogOpen = false;
 
 	function getApiParams(searchParams: URLSearchParams) {
-		let videoSource = null;
+		let videoSource: { type: VideoSourceType; id: string } | null = null;
 		for (const source of Object.values(VIDEO_SOURCES)) {
 			const value = searchParams.get(source.type);
 			if (value) {
@@ -90,49 +92,38 @@
 		sortBy: SortBy = 'id',
 		sortOrder: SortOrder = 'desc'
 	) {
-		loading = true;
-		try {
-			const params: Record<string, string | number | boolean> = {
-				page: pageNum,
-				page_size: pageSize,
-				sort_by: sortBy,
-				sort_order: sortOrder
-			};
-			if (query) {
-				params.query = query;
-			}
-			if (filter) {
-				params[filter.type] = parseInt(filter.id);
-			}
-			if (showFailedOnly) {
-				params.show_failed_only = true;
-			}
+		const params = buildVideosRequest({
+			page: pageNum,
+			pageSize,
+			query,
+			videoSource: filter,
+			showFailedOnly,
+			sortBy,
+			sortOrder
+		});
 
-			const result = await api.getVideos(params);
-			videosData = result.data;
-			// 更新视频列表信息，用于详情页导航
-			setVideoListInfo(
-				result.data.videos.map((v) => v.id),
-				result.data.total_count,
-				pageSize
-			);
-		} catch (error) {
-			console.error('加载视频失败:', error);
-			toast.error('加载视频失败', {
-				description: (error as ApiError).message
-			});
-		} finally {
-			loading = false;
-		}
+		const result = await runRequest(() => api.getVideos(params), {
+			setLoading: (value) => (loading = value),
+			context: '加载视频失败'
+		});
+		if (!result) return;
+
+		videosData = result.data;
+		// 更新视频列表信息，用于详情页导航
+		setVideoListInfo(
+			result.data.videos.map((v) => v.id),
+			result.data.total_count,
+			pageSize
+		);
 	}
 
 	async function loadVideoSources() {
-		try {
-			const result = await api.getVideoSources();
-			videoSources = result.data;
-		} catch (error) {
-			console.error('加载视频源失败:', error);
-		}
+		const result = await runRequest(() => api.getVideoSources(), {
+			showErrorToast: false,
+			onError: (error) => console.error('加载视频源失败:', error)
+		});
+		if (!result) return;
+		videoSources = result.data;
 	}
 
 	async function handlePageChange(pageNum: number) {
@@ -283,7 +274,7 @@
 		}
 	}
 
-	function handleSourceFilter(sourceType: string, sourceId: string) {
+	function handleSourceFilter(sourceType: VideoSourceType, sourceId: string) {
 		selectedSourceType = sourceType;
 		selectedSourceId = sourceId;
 		setAll(
@@ -578,7 +569,7 @@
 
 			<div class="space-y-3">
 				{#each Object.entries(VIDEO_SOURCES) as [sourceKey, sourceConfig] (sourceKey)}
-					{@const sources = videoSources[sourceConfig.type]}
+					{@const sources = videoSources[sourceConfig.type as VideoSourceType]}
 					{#if sources && sources.length > 0}
 						<div class="space-y-2">
 							<div class="flex items-center gap-2">
@@ -620,7 +611,7 @@
 				{@const sourceConfig = Object.values(VIDEO_SOURCES).find(
 					(config) => config.type === selectedSourceType
 				)}
-				{@const sources = videoSources[selectedSourceType]}
+				{@const sources = videoSources[selectedSourceType as VideoSourceType]}
 				{@const currentSource = sources?.find((s) => s.id.toString() === selectedSourceId)}
 				{#if sourceConfig && currentSource}
 					<Badge variant="secondary" class="flex items-center gap-1">
@@ -715,7 +706,7 @@
 					{@const sourceConfig = Object.values(VIDEO_SOURCES).find(
 						(config) => config.type === selectedSourceType
 					)}
-					{@const sources = videoSources[selectedSourceType]}
+					{@const sources = videoSources[selectedSourceType as VideoSourceType]}
 					{@const currentSource = sources?.find((s) => s.id.toString() === selectedSourceId)}
 					{#if sourceConfig && currentSource}
 						确定要重置「{currentSource.name}」视频源下的所有视频状态吗？此操作将清除失败状态并重新开始下载。

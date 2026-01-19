@@ -14,7 +14,9 @@
 		setTotalCount,
 		ToQuery
 	} from '$lib/stores/filter';
+	import { buildVideosRequest } from '$lib/utils/videos.js';
 	import type { ApiError, UpdateVideoStatusRequest, VideoResponse } from '$lib/types';
+	import { IsMobile } from '$lib/hooks/is-mobile.svelte.js';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import EditIcon from '@lucide/svelte/icons/edit';
@@ -38,14 +40,14 @@
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let onlinePlayInfo: any = null;
 	let loadingPlayInfo = false;
-	// let _isFullscreen = false; // 未使用，已注释 // 是否全屏模式
+	let isFullscreen = false; // 是否全屏模式
 	let deleteDialogOpen = false;
 	let deleting = false;
 
 	// 响应式相关
-	let innerWidth: number;
+	const isMobileQuery = new IsMobile();
 	let isMobile: boolean = false;
-	$: isMobile = innerWidth < 768; // sm断点
+	$: isMobile = isMobileQuery.current;
 
 	// 视频导航相关
 	$: currentVideoId = videoData?.video.id ?? 0;
@@ -112,21 +114,15 @@
 
 	async function loadPageVideos(pageNum: number) {
 		const state = get(appStateStore);
-		const params: Record<string, string | number | boolean> = {
+		const params = buildVideosRequest({
 			page: pageNum,
-			page_size: state.pageSize,
-			sort_by: state.sortBy,
-			sort_order: state.sortOrder
-		};
-		if (state.query) {
-			params.query = state.query;
-		}
-		if (state.videoSource) {
-			params[state.videoSource.type] = parseInt(state.videoSource.id);
-		}
-		if (state.showFailedOnly) {
-			params.show_failed_only = true;
-		}
+			pageSize: state.pageSize,
+			query: state.query,
+			videoSource: state.videoSource,
+			showFailedOnly: state.showFailedOnly,
+			sortBy: state.sortBy,
+			sortOrder: state.sortOrder
+		});
 
 		const result = await api.getVideos(params);
 		setCurrentPage(pageNum);
@@ -174,7 +170,7 @@
 	}
 
 	async function loadVideoDetail() {
-		const videoId = parseInt($page.params.id);
+		const videoId = Number.parseInt($page.params.id ?? '', 10);
 		if (isNaN(videoId)) {
 			error = '无效的视频ID';
 			toast.error('无效的视频ID');
@@ -213,21 +209,15 @@
 		const maxPages = 100; // 防止无限循环
 
 		while (currentPage < maxPages) {
-			const params: Record<string, string | number | boolean> = {
+			const params = buildVideosRequest({
 				page: currentPage,
-				page_size: pageSize,
-				sort_by: state.sortBy || 'id',
-				sort_order: state.sortOrder || 'desc'
-			};
-			if (state.query) {
-				params.query = state.query;
-			}
-			if (state.videoSource) {
-				params[state.videoSource.type] = parseInt(state.videoSource.id);
-			}
-			if (state.showFailedOnly) {
-				params.show_failed_only = true;
-			}
+				pageSize,
+				query: state.query,
+				videoSource: state.videoSource,
+				showFailedOnly: state.showFailedOnly,
+				sortBy: state.sortBy,
+				sortOrder: state.sortOrder
+			});
 
 			const result = await api.getVideos(params);
 			const videoIds = result.data.videos.map((v) => v.id);
@@ -526,8 +516,6 @@
 	<title>{videoData?.video.name || '视频详情'} - Bili Sync</title>
 </svelte:head>
 
-<svelte:window bind:innerWidth />
-
 {#if loading}
 	<div class="flex items-center justify-center py-12">
 		<div class="text-muted-foreground">加载中...</div>
@@ -620,6 +608,7 @@
 			<VideoCard
 				video={{
 					id: videoData.video.id,
+					bvid: videoData.video.bvid,
 					name: videoData.video.name,
 					upper_name: videoData.video.upper_name,
 					path: videoData.video.path,
@@ -676,6 +665,7 @@
 								<VideoCard
 									video={{
 										id: pageInfo.id,
+										bvid: videoData.video.bvid,
 										name: `P${pageInfo.pid}: ${pageInfo.name}`,
 										upper_name: '',
 										path: '',
@@ -831,14 +821,18 @@
 												onplay={() => {
 													// 同步播放音频
 													if (isDashSeparatedStream()) {
-														const audio = document.querySelector('#sync-audio');
+														const audio = document.querySelector(
+															'#sync-audio'
+														) as HTMLAudioElement | null;
 														if (audio) audio.play();
 													}
 												}}
 												onpause={() => {
 													// 同步暂停音频
 													if (isDashSeparatedStream()) {
-														const audio = document.querySelector('#sync-audio');
+														const audio = document.querySelector(
+															'#sync-audio'
+														) as HTMLAudioElement | null;
 														if (audio) audio.pause();
 													}
 												}}

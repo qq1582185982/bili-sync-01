@@ -1,11 +1,5 @@
 <script lang="ts">
-	import {
-		Sheet,
-		SheetContent,
-		SheetHeader,
-		SheetTitle,
-		SheetDescription
-	} from '$lib/components/ui/sheet';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 
 	export let open: boolean = false;
 	export let onOpenChange: (open: boolean) => void;
@@ -18,15 +12,13 @@
 	export { className as class };
 </script>
 
-<Sheet {open} {onOpenChange}>
-	<SheetContent
-		side={isMobile ? 'bottom' : 'right'}
+<AlertDialog.Root {open} {onOpenChange}>
+	<AlertDialog.Content
 		class="{isMobile
-			? 'h-[95vh] max-h-[95vh] w-full max-w-none overflow-hidden rounded-t-lg'
-			: '!inset-y-0 !right-0 !h-screen !w-screen !max-w-none'} [&>button]:hidden {className}"
+			? 'h-[90vh]'
+			: 'h-[calc(100vh-2rem)] sm:max-w-5xl'} flex w-full flex-col gap-0 overflow-hidden p-0 [&>button]:hidden {className}"
 	>
-		{#if !isMobile && backgroundImage}
-			<!-- 桌面端背景图 -->
+		{#if backgroundImage}
 			<div class="absolute inset-0 z-0 overflow-hidden">
 				<img
 					src={backgroundImage}
@@ -35,48 +27,38 @@
 					style="opacity: 0.6; filter: contrast(1.1) brightness(0.9);"
 					loading="lazy"
 				/>
-				<div
-					class="absolute inset-0"
-					style="background: linear-gradient(to bottom right, rgba(255,255,255,0.85), rgba(255,255,255,0.5));"
-				></div>
+				<div class="from-background/85 to-background/50 absolute inset-0 bg-gradient-to-br"></div>
 			</div>
 		{/if}
-		<div class="flex h-full items-center justify-center {isMobile ? '' : 'p-8'} relative z-10">
-			<div
-				class="{isMobile
-					? 'bg-background h-full w-full max-w-none rounded-t-lg'
-					: 'bg-card/95 w-full max-w-4xl rounded-lg border shadow-2xl backdrop-blur-sm'} relative overflow-hidden"
-			>
-				<SheetHeader
-					class="{isMobile
-						? 'bg-background/95 sticky top-0 z-20 border-b p-4 backdrop-blur-sm'
-						: 'border-b p-6'} relative"
-				>
-					<SheetTitle class={isMobile ? 'text-lg' : 'text-xl'}>{title}</SheetTitle>
+
+		<AlertDialog.Header class="{isMobile ? 'border-b p-4' : 'border-b p-6'} relative z-10">
+			<div class="flex flex-col gap-1.5 pr-8">
+				<slot name="header">
+					<AlertDialog.Title>{title}</AlertDialog.Title>
 					{#if description}
-						<SheetDescription class={isMobile ? 'text-sm' : ''}>{description}</SheetDescription>
+						<AlertDialog.Description>{description}</AlertDialog.Description>
 					{/if}
-					<!-- 自定义关闭按钮 -->
-					<button
-						onclick={() => onOpenChange(false)}
-						class="ring-offset-background focus:ring-ring absolute {isMobile
-							? 'top-3 right-3'
-							: 'top-2 right-2'} rounded-sm p-1 opacity-70 transition-opacity hover:bg-gray-100 hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-none disabled:pointer-events-none"
-						type="button"
-					>
-						<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M6 18L18 6M6 6l12 12"
-							/>
-						</svg>
-						<span class="sr-only">关闭</span>
-					</button>
-				</SheetHeader>
-				<slot />
+				</slot>
 			</div>
+			<button
+				onclick={() => onOpenChange(false)}
+				class="ring-offset-background focus:ring-ring absolute top-2 right-2 rounded-sm p-1 opacity-70 transition-opacity hover:bg-gray-100 hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-none disabled:pointer-events-none dark:hover:bg-gray-800"
+				type="button"
+			>
+				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M6 18L18 6M6 6l12 12"
+					/>
+				</svg>
+				<span class="sr-only">关闭</span>
+			</button>
+		</AlertDialog.Header>
+
+		<div class="relative z-10 flex min-h-0 flex-1 flex-col">
+			<slot />
 		</div>
-	</SheetContent>
-</Sheet>
+	</AlertDialog.Content>
+</AlertDialog.Root>

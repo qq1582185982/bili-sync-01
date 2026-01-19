@@ -6,9 +6,10 @@
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import { toast } from 'svelte-sonner';
 	import api from '$lib/api';
-	import type { ApiError } from '$lib/types';
-	import { VIDEO_SOURCES } from '$lib/consts';
+	import { VIDEO_SOURCES, type VideoSourceType } from '$lib/consts';
 	import { videoSourceStore, setVideoSources } from '$lib/stores/video-source';
+	import { runRequest } from '$lib/utils/request.js';
+	import { IsMobile } from '$lib/hooks/is-mobile.svelte.js';
 	import DeleteVideoSourceDialog from '$lib/components/delete-video-source-dialog.svelte';
 	import ResetPathDialog from '$lib/components/reset-path-dialog.svelte';
 	import SubmissionSelectionDialog from '$lib/components/submission-selection-dialog.svelte';
@@ -38,10 +39,10 @@
 	let loading = false;
 
 	// 响应式相关
-	let innerWidth: number;
+	const isMobileQuery = new IsMobile();
 	let isMobile: boolean = false;
 	// let isTablet: boolean = false; // 未使用，已注释
-	$: isMobile = innerWidth < 768; // sm断点
+	$: isMobile = isMobileQuery.current;
 	// $: isTablet = innerWidth >= 768 && innerWidth < 1024; // md断点 - 未使用
 
 	// 折叠状态管理 - 默认所有分类都是折叠状态
@@ -109,18 +110,43 @@
 	};
 
 	async function loadVideoSources() {
-		loading = true;
-		try {
-			const response = await api.getVideoSources();
-			setVideoSources(response.data);
-		} catch (error) {
-			console.error('加载视频源失败:', error);
-			toast.error('加载视频源失败', {
-				description: (error as ApiError).message
-			});
-		} finally {
-			loading = false;
+		const response = await runRequest(() => api.getVideoSources(), {
+			setLoading: (value) => (loading = value),
+			context: '加载视频源失败'
+		});
+		if (!response) return;
+		setVideoSources(response.data);
+	}
+
+	type UpdateResult = { success: boolean; message: string };
+	type SuccessToast = { title: string; description?: string };
+
+	async function updateAndReload<T extends UpdateResult>(
+		action: () => Promise<{ data: T }>,
+		{
+			successToast,
+			errorTitle = '设置更新失败'
+		}: {
+			successToast?: (data: T) => SuccessToast;
+			errorTitle?: string;
+		} = {}
+	) {
+		const result = await runRequest(action, { context: errorTitle });
+		if (!result) return;
+
+		if (!result.data.success) {
+			toast.error(errorTitle, { description: result.data.message });
+			return;
 		}
+
+		const toastInfo = successToast ? successToast(result.data) : { title: result.data.message };
+		if (toastInfo.description) {
+			toast.success(toastInfo.title, { description: toastInfo.description });
+		} else {
+			toast.success(toastInfo.title);
+		}
+
+		await loadVideoSources();
 	}
 
 	// 切换视频源启用状态
@@ -130,18 +156,10 @@
 		currentEnabled: boolean,
 		_sourceName: string // eslint-disable-line @typescript-eslint/no-unused-vars
 	) {
-		try {
-			const result = await api.updateVideoSourceEnabled(sourceType, sourceId, !currentEnabled);
-			if (result.data.success) {
-				toast.success(result.data.message);
-				await loadVideoSources();
-			} else {
-				toast.error('操作失败', { description: result.data.message });
-			}
-		} catch (error: unknown) {
-			console.error('切换视频源状态失败:', error);
-			toast.error('操作失败', { description: error.message });
-		}
+		await updateAndReload(
+			() => api.updateVideoSourceEnabled(sourceType, sourceId, !currentEnabled),
+			{ errorTitle: '操作失败' }
+		);
 	}
 
 	// 打开删除确认对话框
@@ -176,22 +194,16 @@
 		sourceId: number,
 		currentScanDeleted: boolean
 	) {
-		try {
-			const newScanDeleted = !currentScanDeleted;
-			const result = await api.updateVideoSourceScanDeleted(sourceType, sourceId, newScanDeleted);
-
-			if (result.data.success) {
-				toast.success('设置更新成功', {
-					description: result.data.message
-				});
-				await loadVideoSources();
-			} else {
-				toast.error('设置更新失败', { description: result.data.message });
+		const newScanDeleted = !currentScanDeleted;
+		await updateAndReload(
+			() => api.updateVideoSourceScanDeleted(sourceType, sourceId, newScanDeleted),
+			{
+				successToast: () => ({
+					title: '设置更新成功',
+					description: newScanDeleted ? '已启用扫描已删除视频' : '已禁用扫描已删除视频'
+				})
 			}
-		} catch (error: unknown) {
-			console.error('设置更新失败:', error);
-			toast.error('设置更新失败', { description: error.message });
-		}
+		);
 	}
 
 	// 切换仅下载音频设置
@@ -200,24 +212,19 @@
 		sourceId: number,
 		currentAudioOnly: boolean
 	) {
-		try {
-			const newAudioOnly = !currentAudioOnly;
-			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
-				audio_only: newAudioOnly
-			});
-
-			if (result.data.success) {
-				toast.success('设置更新成功', {
+		const newAudioOnly = !currentAudioOnly;
+		await updateAndReload(
+			() =>
+				api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+					audio_only: newAudioOnly
+				}),
+			{
+				successToast: () => ({
+					title: '设置更新成功',
 					description: newAudioOnly ? '已启用仅下载音频模式' : '已禁用仅下载音频模式'
-				});
-				await loadVideoSources();
-			} else {
-				toast.error('设置更新失败', { description: result.data.message });
+				})
 			}
-		} catch (error: unknown) {
-			console.error('设置更新失败:', error);
-			toast.error('设置更新失败', { description: (error as Error).message });
-		}
+		);
 	}
 
 	// 切换仅保留M4A设置
@@ -226,24 +233,19 @@
 		sourceId: number,
 		currentAudioOnlyM4aOnly: boolean
 	) {
-		try {
-			const newAudioOnlyM4aOnly = !currentAudioOnlyM4aOnly;
-			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
-				audio_only_m4a_only: newAudioOnlyM4aOnly
-			});
-
-			if (result.data.success) {
-				toast.success('设置更新成功', {
+		const newAudioOnlyM4aOnly = !currentAudioOnlyM4aOnly;
+		await updateAndReload(
+			() =>
+				api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+					audio_only_m4a_only: newAudioOnlyM4aOnly
+				}),
+			{
+				successToast: () => ({
+					title: '设置更新成功',
 					description: newAudioOnlyM4aOnly ? '已启用仅保留M4A模式' : '已禁用仅保留M4A模式'
-				});
-				await loadVideoSources();
-			} else {
-				toast.error('设置更新失败', { description: result.data.message });
+				})
 			}
-		} catch (error: unknown) {
-			console.error('设置更新失败:', error);
-			toast.error('设置更新失败', { description: (error as Error).message });
-		}
+		);
 	}
 
 	// 切换平铺目录设置
@@ -252,24 +254,19 @@
 		sourceId: number,
 		currentFlatFolder: boolean
 	) {
-		try {
-			const newFlatFolder = !currentFlatFolder;
-			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
-				flat_folder: newFlatFolder
-			});
-
-			if (result.data.success) {
-				toast.success('设置更新成功', {
+		const newFlatFolder = !currentFlatFolder;
+		await updateAndReload(
+			() =>
+				api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+					flat_folder: newFlatFolder
+				}),
+			{
+				successToast: () => ({
+					title: '设置更新成功',
 					description: newFlatFolder ? '已启用平铺目录模式' : '已禁用平铺目录模式'
-				});
-				await loadVideoSources();
-			} else {
-				toast.error('设置更新失败', { description: result.data.message });
+				})
 			}
-		} catch (error: unknown) {
-			console.error('设置更新失败:', error);
-			toast.error('设置更新失败', { description: (error as Error).message });
-		}
+		);
 	}
 
 	// 切换下载弹幕设置
@@ -278,24 +275,19 @@
 		sourceId: number,
 		currentDownloadDanmaku: boolean
 	) {
-		try {
-			const newDownloadDanmaku = !currentDownloadDanmaku;
-			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
-				download_danmaku: newDownloadDanmaku
-			});
-
-			if (result.data.success) {
-				toast.success('设置更新成功', {
+		const newDownloadDanmaku = !currentDownloadDanmaku;
+		await updateAndReload(
+			() =>
+				api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+					download_danmaku: newDownloadDanmaku
+				}),
+			{
+				successToast: () => ({
+					title: '设置更新成功',
 					description: newDownloadDanmaku ? '已启用弹幕下载' : '已禁用弹幕下载'
-				});
-				await loadVideoSources();
-			} else {
-				toast.error('设置更新失败', { description: result.data.message });
+				})
 			}
-		} catch (error: unknown) {
-			console.error('设置更新失败:', error);
-			toast.error('设置更新失败', { description: (error as Error).message });
-		}
+		);
 	}
 
 	// 切换下载字幕设置
@@ -304,24 +296,19 @@
 		sourceId: number,
 		currentDownloadSubtitle: boolean
 	) {
-		try {
-			const newDownloadSubtitle = !currentDownloadSubtitle;
-			const result = await api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
-				download_subtitle: newDownloadSubtitle
-			});
-
-			if (result.data.success) {
-				toast.success('设置更新成功', {
+		const newDownloadSubtitle = !currentDownloadSubtitle;
+		await updateAndReload(
+			() =>
+				api.updateVideoSourceDownloadOptions(sourceType, sourceId, {
+					download_subtitle: newDownloadSubtitle
+				}),
+			{
+				successToast: () => ({
+					title: '设置更新成功',
 					description: newDownloadSubtitle ? '已启用字幕下载' : '已禁用字幕下载'
-				});
-				await loadVideoSources();
-			} else {
-				toast.error('设置更新失败', { description: result.data.message });
+				})
 			}
-		} catch (error: unknown) {
-			console.error('设置更新失败:', error);
-			toast.error('设置更新失败', { description: (error as Error).message });
-		}
+		);
 	}
 
 	// 打开AI提示词设置对话框
@@ -389,25 +376,16 @@
 	async function handleConfirmDelete(event: CustomEvent<{ deleteLocalFiles: boolean }>) {
 		const { deleteLocalFiles } = event.detail;
 
-		try {
-			const result = await api.deleteVideoSource(
-				deleteSourceInfo.type,
-				deleteSourceInfo.id,
-				deleteLocalFiles
-			);
-			if (result.data.success) {
-				toast.success('删除成功', {
-					description:
-						result.data.message + (deleteLocalFiles ? '，本地文件已删除' : '，本地文件已保留')
-				});
-				await loadVideoSources();
-			} else {
-				toast.error('删除失败', { description: result.data.message });
+		await updateAndReload(
+			() => api.deleteVideoSource(deleteSourceInfo.type, deleteSourceInfo.id, deleteLocalFiles),
+			{
+				errorTitle: '删除失败',
+				successToast: (data) => ({
+					title: '删除成功',
+					description: data.message + (deleteLocalFiles ? '，本地文件已删除' : '，本地文件已保留')
+				})
 			}
-		} catch (error: unknown) {
-			console.error('删除视频源失败:', error);
-			toast.error('删除失败', { description: error.message });
-		}
+		);
 	}
 
 	// 取消删除
@@ -425,26 +403,18 @@
 	) {
 		const request = event.detail;
 
-		try {
-			const result = await api.resetVideoSourcePath(
-				resetPathSourceInfo.type,
-				resetPathSourceInfo.id,
-				request
-			);
-			if (result.data.success) {
-				toast.success('路径重设成功', {
+		await updateAndReload(
+			() => api.resetVideoSourcePath(resetPathSourceInfo.type, resetPathSourceInfo.id, request),
+			{
+				errorTitle: '路径重设失败',
+				successToast: (data) => ({
+					title: '路径重设成功',
 					description:
-						result.data.message +
-						(request.apply_rename_rules ? `，已移动 ${result.data.moved_files_count} 个文件` : '')
-				});
-				await loadVideoSources();
-			} else {
-				toast.error('路径重设失败', { description: result.data.message });
+						data.message +
+						(request.apply_rename_rules ? `，已移动 ${data.moved_files_count} 个文件` : '')
+				})
 			}
-		} catch (error: unknown) {
-			console.error('路径重设失败:', error);
-			toast.error('路径重设失败', { description: error.message });
-		}
+		);
 	}
 
 	// 取消路径重设
@@ -455,10 +425,15 @@
 	// 打开投稿选择对话框
 	function handleSelectSubmissionVideos(
 		sourceId: number,
-		upperId: number,
+		upperId: number | undefined,
 		upperName: string,
-		selectedVideosJson: string | null
+		selectedVideosJson: string | null | undefined
 	) {
+		if (!upperId) {
+			toast.error('无法选择历史投稿', { description: '缺少 UP 主 ID' });
+			return;
+		}
+
 		let selectedVideos: string[] = [];
 		if (selectedVideosJson) {
 			try {
@@ -550,8 +525,6 @@
 	<title>视频源管理 - Bili Sync</title>
 </svelte:head>
 
-<svelte:window bind:innerWidth />
-
 <div class="space-y-6">
 	<!-- 页面头部 -->
 	<div class="flex {isMobile ? 'flex-col gap-4' : 'flex-row items-center justify-between gap-4'}">
@@ -578,7 +551,9 @@
 		<!-- 视频源分类展示 -->
 		<div class="grid gap-6">
 			{#each Object.entries(VIDEO_SOURCES) as [sourceKey, sourceConfig] (sourceKey)}
-				{@const sources = $videoSourceStore ? $videoSourceStore[sourceConfig.type] : []}
+				{@const sources = $videoSourceStore
+					? $videoSourceStore[sourceConfig.type as VideoSourceType]
+					: []}
 				<Card>
 					<CardHeader class="cursor-pointer" onclick={() => toggleCollapse(sourceKey)}>
 						<CardTitle class="flex items-center gap-2">
