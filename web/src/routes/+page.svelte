@@ -7,7 +7,7 @@
 	import * as Chart from '$lib/components/ui/chart/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import MyChartTooltip from '$lib/components/custom/my-chart-tooltip.svelte';
-	import { curveNatural } from 'd3-shape';
+	import { curveMonotoneX } from 'd3-shape';
 	import { BarChart, AreaChart } from 'layerchart';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import { toast } from 'svelte-sonner';
@@ -326,16 +326,16 @@
 			...memoryHistory.slice(-19),
 			{
 				time: new Date(),
-				used: sysInfo.used_memory,
-				process: sysInfo.process_memory
+				used: Math.min(Math.max(sysInfo.used_memory, 0), sysInfo.total_memory),
+				process: Math.min(Math.max(sysInfo.process_memory, 0), sysInfo.total_memory)
 			}
 		];
 		cpuHistory = [
 			...cpuHistory.slice(-19),
 			{
 				time: new Date(),
-				used: sysInfo.used_cpu,
-				process: sysInfo.process_cpu
+				used: Math.min(Math.max(sysInfo.used_cpu, 0), 100),
+				process: Math.min(Math.max(sysInfo.process_cpu, 0), 100)
 			}
 		];
 	}
@@ -763,6 +763,7 @@
 										data={memoryHistory}
 										x="time"
 										axis="x"
+										yDomain={sysInfo?.total_memory ? [0, sysInfo.total_memory] : undefined}
 										series={[
 											{
 												key: 'used',
@@ -777,7 +778,7 @@
 										]}
 										props={{
 											area: {
-												curve: curveNatural,
+												curve: curveMonotoneX,
 												line: { class: 'stroke-1' },
 												'fill-opacity': 0.4
 											},
@@ -839,6 +840,7 @@
 										data={cpuHistory}
 										x="time"
 										axis="x"
+										yDomain={[0, 100]}
 										series={[
 											{
 												key: 'used',
@@ -853,7 +855,7 @@
 										]}
 										props={{
 											area: {
-												curve: curveNatural,
+												curve: curveMonotoneX,
 												line: { class: 'stroke-1' },
 												'fill-opacity': 0.4
 											},
