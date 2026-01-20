@@ -746,7 +746,16 @@ pub async fn fetch_video_details(
 
             // 4. 使用合并后的信息处理所有视频
             for video_model in videos {
-                if let Err(e) = process_bangumi_video(video_model, &existing_episodes, connection, video_source).await {
+                if let Err(e) = process_bangumi_video(
+                    bili_client,
+                    video_model,
+                    &existing_episodes,
+                    connection,
+                    video_source,
+                    token.clone(),
+                )
+                .await
+                {
                     error!("处理番剧视频失败: {}", e);
                 }
             }
@@ -3558,7 +3567,7 @@ pub async fn download_page(
     bili_client: &BiliClient,
     video_source: &VideoSourceEnum,
     video_model: &video::Model,
-    page_model: page::Model,
+    mut page_model: page::Model,
     connection: &DatabaseConnection,
     semaphore: &Semaphore,
     downloader: &UnifiedDownloader,
@@ -3731,6 +3740,58 @@ pub async fn download_page(
         }),
         _ => None,
     };
+
+    // 某些异常情况下（如番剧季信息未拉到该EP的CID），page.cid 可能会被写入占位值（<=0），导致后续弹幕/字幕/视频流请求失败。
+    // 这里做一次“就地自愈”：优先用 video.cid 修复（番剧单集/单P视频应一致），必要时再从API补全。
+    let needs_valid_cid = separate_status[1] || separate_status[3] || separate_status[4];
+    if needs_valid_cid && page_model.cid <= 0 {
+        let mut repaired = false;
+
+        if let Some(video_cid) = video_model.cid.filter(|cid| *cid > 0) {
+            info!(
+                "检测到分页CID无效，使用视频缓存CID修复: 视频「{}」 page_id={} cid={} -> {}",
+                &video_model.name, page_model.id, page_model.cid, video_cid
+            );
+            page_model.cid = video_cid;
+            let update_page = page::ActiveModel {
+                id: sea_orm::ActiveValue::Unchanged(page_model.id),
+                cid: Set(video_cid),
+                ..Default::default()
+            };
+            update_page.update(connection).await?;
+            repaired = true;
+        } else if is_bangumi {
+            if let Some(ep_id) = video_model.ep_id.as_deref() {
+                if let Some((cid, duration)) = get_bangumi_info_from_api(bili_client, ep_id, token.clone()).await {
+                    if cid > 0 {
+                        info!(
+                            "检测到番剧分页CID无效，已从API重新获取: 视频「{}」 EP{} -> CID={}, Duration={}s",
+                            &video_model.name, ep_id, cid, duration
+                        );
+                        page_model.cid = cid;
+                        if duration > 0 {
+                            page_model.duration = duration;
+                        }
+                        let update_page = page::ActiveModel {
+                            id: sea_orm::ActiveValue::Unchanged(page_model.id),
+                            cid: Set(page_model.cid),
+                            duration: Set(page_model.duration),
+                            ..Default::default()
+                        };
+                        update_page.update(connection).await?;
+                        repaired = true;
+                    }
+                }
+            }
+        }
+
+        if !repaired {
+            warn!(
+                "分页CID无效且无法自动修复，后续依赖CID的任务可能失败: 视频「{}」 page_id={} pid={} cid={}",
+                &video_model.name, page_model.id, page_model.pid, page_model.cid
+            );
+        }
+    }
     let page_info = PageInfo {
         cid: page_model.cid,
         duration: page_model.duration,
@@ -5171,7 +5232,15 @@ async fn get_existing_episodes_for_season(
         if let Some(ep_id) = video.ep_id {
             // 每个番剧视频通常只有一个page（单集）
             if let Some(page) = pages.first() {
-                episodes_map.insert(ep_id, (page.cid, page.duration));
+                // 只缓存有效CID，避免把历史的异常占位值（如-1）当作有效缓存，导致后续无法自愈
+                if page.cid > 0 {
+                    episodes_map.insert(ep_id, (page.cid, page.duration));
+                } else {
+                    warn!(
+                        "发现无效的番剧分集缓存，将忽略: season_id={} ep_id={} page_id={} cid={}",
+                        season_id, ep_id, page.id, page.cid
+                    );
+                }
             }
         }
     }
@@ -5537,28 +5606,45 @@ async fn get_season_info_from_api(
 
 /// 处理单个番剧视频
 async fn process_bangumi_video(
+    bili_client: &BiliClient,
     video_model: video::Model,
     episodes_map: &HashMap<String, (i64, u32)>,
     connection: &DatabaseConnection,
     video_source: &VideoSourceEnum,
+    token: CancellationToken,
 ) -> Result<()> {
-    let txn = connection.begin().await?;
-
-    let (actual_cid, duration) = if let Some(ep_id) = &video_model.ep_id {
-        match episodes_map.get(ep_id) {
-            Some(&info) => {
-                debug!("使用缓存信息: EP{} -> CID={}, Duration={}s", ep_id, info.0, info.1);
-                info
-            }
-            None => {
-                warn!("找不到分集 {} 的信息，使用默认值", ep_id);
-                (-1, 1440) // 默认值
-            }
-        }
-    } else {
-        error!("番剧 {} 缺少EP ID", video_model.name);
-        (-1, 1440)
+    let Some(ep_id) = video_model.ep_id.as_deref() else {
+        warn!(
+            "番剧「{}」缺少EP ID，跳过详情填充（保留未填充状态便于下次重试）",
+            video_model.name
+        );
+        return Ok(());
     };
+
+    let info = match episodes_map.get(ep_id).copied() {
+        Some((cid, duration)) if cid > 0 => {
+            debug!("使用缓存信息: EP{} -> CID={}, Duration={}s", ep_id, cid, duration);
+            Some((cid, duration))
+        }
+        _ => {
+            warn!("找不到分集 {} 的有效信息，尝试从番剧API补全", ep_id);
+            get_bangumi_info_from_api(bili_client, ep_id, token.clone())
+                .await
+                .filter(|(cid, _)| *cid > 0)
+        }
+    };
+
+    let Some((actual_cid, duration)) = info else {
+        warn!(
+            "番剧「{}」(EP{}) 无法获取CID，跳过详情填充（保留未填充状态便于下次重试）",
+            video_model.name, ep_id
+        );
+        return Ok(());
+    };
+
+    let should_update_video_cid = video_model.cid.is_none();
+
+    let txn = connection.begin().await?;
 
     let page_info = PageInfo {
         cid: actual_cid,
@@ -5575,6 +5661,9 @@ async fn process_bangumi_video(
     // 更新视频状态
     let mut video_active_model: bili_sync_entity::video::ActiveModel = video_model.into();
     video_source.set_relation_id(&mut video_active_model);
+    if should_update_video_cid {
+        video_active_model.cid = Set(Some(actual_cid));
+    }
     video_active_model.single_page = Set(Some(true)); // 番剧的每一集都是单页
     video_active_model.tags = Set(Some(serde_json::Value::Array(vec![]))); // 空标签数组
     video_active_model.save(&txn).await?;
