@@ -55,13 +55,29 @@ fn normalize_file_path(path: &str) -> String {
 /// # 参数
 /// - `deleted_path`: 已删除的文件夹路径
 /// - `stop_at`: 停止清理的父目录路径（避免删除配置的基础路径）
-fn cleanup_empty_parent_dirs(deleted_path: &str, _stop_at: &str) {
+fn cleanup_empty_parent_dirs(deleted_path: &str, stop_at: &str) {
     use std::fs;
     use std::path::Path;
 
-    let mut current_path = Path::new(deleted_path).parent();
+    let stop_at_norm = normalize_file_path(stop_at).trim_end_matches('/').to_string();
+    if stop_at_norm.is_empty() {
+        return;
+    }
+
+    let deleted_path_norm = normalize_file_path(deleted_path).trim_end_matches('/').to_string();
+    if deleted_path_norm == stop_at_norm {
+        info!("已删除路径等于停止目录，跳过父目录清理: {}", stop_at_norm);
+        return;
+    }
+
+    let mut current_path = Path::new(&deleted_path_norm).parent();
     while let Some(parent) = current_path {
         let parent_str = parent.to_string_lossy().to_string();
+        let parent_norm = normalize_file_path(&parent_str).trim_end_matches('/').to_string();
+        if parent_norm == stop_at_norm {
+            info!("已达到停止清理目录: {}", parent_norm);
+            break;
+        }
 
         // 检查父目录是否为空
         if parent.exists() {
@@ -148,6 +164,51 @@ mod rename_tests {
         // 应该将所有斜杠转换为下划线
         assert_eq!(result, "普通视频标题_带斜杠");
         assert!(!result.contains('/'));
+    }
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("bili-sync-{}-{}", prefix, uuid::Uuid::new_v4()));
+        dir
+    }
+
+    #[test]
+    fn test_cleanup_empty_parent_dirs_stops_at_stop_at() {
+        let root = unique_temp_dir("cleanup-stop-at");
+        let base = root.join("base");
+        let sub1 = base.join("sub1");
+        let sub2 = sub1.join("sub2");
+
+        fs::create_dir_all(&sub2).unwrap();
+        fs::remove_dir_all(&sub2).unwrap();
+
+        cleanup_empty_parent_dirs(sub2.to_string_lossy().as_ref(), base.to_string_lossy().as_ref());
+
+        assert!(base.exists(), "不应删除 stop_at 目录");
+        assert!(!sub1.exists(), "应清理空的中间父目录");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_cleanup_empty_parent_dirs_deleted_equals_stop_at_noop() {
+        let root = unique_temp_dir("cleanup-noop");
+        let base = root.join("base");
+
+        fs::create_dir_all(&base).unwrap();
+
+        cleanup_empty_parent_dirs(base.to_string_lossy().as_ref(), base.to_string_lossy().as_ref());
+
+        assert!(base.exists(), "deleted_path 等于 stop_at 时应直接返回");
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
 
@@ -2719,7 +2780,7 @@ pub async fn delete_video_internal(db: Arc<DatabaseConnection>, video_id: i32) -
     }
 
     // 删除本地文件 - 根据page表中的路径精确删除
-    let deleted_files = delete_video_files_from_pages(db.clone(), video_id).await?;
+    let deleted_files = delete_video_files_from_pages(db.as_ref(), video_id).await?;
 
     if deleted_files > 0 {
         info!("已删除 {} 个视频文件", deleted_files);
@@ -2761,13 +2822,13 @@ pub async fn delete_video_internal(db: Arc<DatabaseConnection>, video_id: i32) -
 }
 
 /// 根据page表精确删除视频文件
-async fn delete_video_files_from_pages(db: Arc<DatabaseConnection>, video_id: i32) -> Result<usize, ApiError> {
+async fn delete_video_files_from_pages(conn: &impl ConnectionTrait, video_id: i32) -> Result<usize, ApiError> {
     use tokio::fs;
 
     // 获取该视频的所有页面（分P）
     let pages = page::Entity::find()
         .filter(page::Column::VideoId.eq(video_id))
-        .all(db.as_ref())
+        .all(conn)
         .await?;
 
     let mut deleted_count = 0;
@@ -2817,13 +2878,13 @@ async fn delete_video_files_from_pages(db: Arc<DatabaseConnection>, video_id: i3
     }
 
     // 还要删除视频的NFO文件和其他可能的相关文件
-    let video = video::Entity::find_by_id(video_id).one(db.as_ref()).await?;
+    let video = video::Entity::find_by_id(video_id).one(conn).await?;
 
     if let Some(video) = video {
         // 获取页面信息来删除基于视频文件名的相关文件
         let pages = page::Entity::find()
             .filter(page::Column::VideoId.eq(video_id))
-            .all(db.as_ref())
+            .all(conn)
             .await?;
 
         for page in &pages {
@@ -2927,7 +2988,7 @@ async fn delete_video_files_from_pages(db: Arc<DatabaseConnection>, video_id: i3
                             let video_base_name = if is_collection && config.collection_use_season_structure {
                                 // 合集：使用合集名称
                                 match collection::Entity::find_by_id(video.collection_id.unwrap_or(0))
-                                    .one(db.as_ref())
+                                    .one(conn)
                                     .await
                                 {
                                     Ok(Some(coll)) => coll.name,
@@ -3029,28 +3090,26 @@ pub async fn delete_video_source_internal(
                 .all(&txn)
                 .await?;
 
-            // 删除孤立视频的页面数据
-            for video in &orphaned_videos {
-                page::Entity::delete_many()
-                    .filter(page::Column::VideoId.eq(video.id))
-                    .exec(&txn)
-                    .await?;
-            }
-
-            // 删除孤立视频记录
-            if !orphaned_videos.is_empty() {
-                video::Entity::delete_many()
-                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
-                    .exec(&txn)
-                    .await?;
-            }
-
             // 如果需要删除本地文件
             if delete_local_files {
                 // 添加安全检查
                 let base_path = &collection.path;
                 if base_path.is_empty() || base_path == "/" || base_path == "\\" {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
+                } else if orphaned_videos.is_empty() {
+                    info!("合集 {} 没有找到需要删除的本地文件", collection.name);
+                } else if collection.flat_folder {
+                    info!("开始删除合集 {} 的本地文件（平铺目录）", collection.name);
+
+                    let mut deleted_files = 0usize;
+                    for video in &orphaned_videos {
+                        match delete_video_files_from_pages(&txn, video.id).await {
+                            Ok(count) => deleted_files += count,
+                            Err(e) => warn!("删除合集视频文件失败: video_id={} - {:?}", video.id, e),
+                        }
+                    }
+
+                    info!("合集 {} 删除完成，共删除 {} 个文件", collection.name, deleted_files);
                 } else {
                     // 删除合集相关的具体视频文件夹，而不是删除整个合集基础目录
                     info!("开始删除合集 {} 的相关文件夹", collection.name);
@@ -3058,8 +3117,18 @@ pub async fn delete_video_source_internal(
                     // 获取所有相关的视频记录来确定需要删除的具体文件夹
                     let mut deleted_folders = std::collections::HashSet::new();
                     let mut total_deleted_size = 0u64;
+                    let normalized_base_path = normalize_file_path(base_path).trim_end_matches('/').to_string();
 
-                    for video in &videos {
+                    for video in &orphaned_videos {
+                        let normalized_video_path = normalize_file_path(&video.path).trim_end_matches('/').to_string();
+                        if normalized_video_path == normalized_base_path {
+                            warn!("检测到视频路径等于基础目录，按文件方式删除避免误删: {}", video.path);
+                            if let Err(e) = delete_video_files_from_pages(&txn, video.id).await {
+                                warn!("删除合集视频文件失败: video_id={} - {:?}", video.id, e);
+                            }
+                            continue;
+                        }
+
                         // 对于每个视频，删除其对应的文件夹
                         let video_path = std::path::Path::new(&video.path);
 
@@ -3110,6 +3179,22 @@ pub async fn delete_video_source_internal(
                 }
             }
 
+            // 删除孤立视频的页面数据
+            for video in &orphaned_videos {
+                page::Entity::delete_many()
+                    .filter(page::Column::VideoId.eq(video.id))
+                    .exec(&txn)
+                    .await?;
+            }
+
+            // 删除孤立视频记录
+            if !orphaned_videos.is_empty() {
+                video::Entity::delete_many()
+                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
+                    .exec(&txn)
+                    .await?;
+            }
+
             // 删除数据库中的记录
             collection::Entity::delete_by_id(id).exec(&txn).await?;
 
@@ -3157,27 +3242,25 @@ pub async fn delete_video_source_internal(
                 .all(&txn)
                 .await?;
 
-            // 删除孤立视频的页面数据
-            for video in &orphaned_videos {
-                page::Entity::delete_many()
-                    .filter(page::Column::VideoId.eq(video.id))
-                    .exec(&txn)
-                    .await?;
-            }
-
-            // 删除孤立视频记录
-            if !orphaned_videos.is_empty() {
-                video::Entity::delete_many()
-                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
-                    .exec(&txn)
-                    .await?;
-            }
-
             // 如果需要删除本地文件
             if delete_local_files {
                 let base_path = &favorite.path;
                 if base_path.is_empty() || base_path == "/" || base_path == "\\" {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
+                } else if orphaned_videos.is_empty() {
+                    info!("收藏夹 {} 没有找到需要删除的本地文件", favorite.name);
+                } else if favorite.flat_folder {
+                    info!("开始删除收藏夹 {} 的本地文件（平铺目录）", favorite.name);
+
+                    let mut deleted_files = 0usize;
+                    for video in &orphaned_videos {
+                        match delete_video_files_from_pages(&txn, video.id).await {
+                            Ok(count) => deleted_files += count,
+                            Err(e) => warn!("删除收藏夹视频文件失败: video_id={} - {:?}", video.id, e),
+                        }
+                    }
+
+                    info!("收藏夹 {} 删除完成，共删除 {} 个文件", favorite.name, deleted_files);
                 } else {
                     // 删除收藏夹相关的具体视频文件夹，而不是删除整个收藏夹基础目录
                     info!("开始删除收藏夹 {} 的相关文件夹", favorite.name);
@@ -3185,8 +3268,18 @@ pub async fn delete_video_source_internal(
                     // 获取所有相关的视频记录来确定需要删除的具体文件夹
                     let mut deleted_folders = std::collections::HashSet::new();
                     let mut total_deleted_size = 0u64;
+                    let normalized_base_path = normalize_file_path(base_path).trim_end_matches('/').to_string();
 
-                    for video in &videos {
+                    for video in &orphaned_videos {
+                        let normalized_video_path = normalize_file_path(&video.path).trim_end_matches('/').to_string();
+                        if normalized_video_path == normalized_base_path {
+                            warn!("检测到视频路径等于基础目录，按文件方式删除避免误删: {}", video.path);
+                            if let Err(e) = delete_video_files_from_pages(&txn, video.id).await {
+                                warn!("删除收藏夹视频文件失败: video_id={} - {:?}", video.id, e);
+                            }
+                            continue;
+                        }
+
                         // 对于每个视频，删除其对应的文件夹
                         let video_path = std::path::Path::new(&video.path);
 
@@ -3235,6 +3328,22 @@ pub async fn delete_video_source_internal(
                         info!("收藏夹 {} 没有找到需要删除的本地文件夹", favorite.name);
                     }
                 }
+            }
+
+            // 删除孤立视频的页面数据
+            for video in &orphaned_videos {
+                page::Entity::delete_many()
+                    .filter(page::Column::VideoId.eq(video.id))
+                    .exec(&txn)
+                    .await?;
+            }
+
+            // 删除孤立视频记录
+            if !orphaned_videos.is_empty() {
+                video::Entity::delete_many()
+                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
+                    .exec(&txn)
+                    .await?;
             }
 
             // 删除数据库中的记录
@@ -3287,27 +3396,28 @@ pub async fn delete_video_source_internal(
                 .all(&txn)
                 .await?;
 
-            // 删除孤立视频的页面数据
-            for video in &orphaned_videos {
-                page::Entity::delete_many()
-                    .filter(page::Column::VideoId.eq(video.id))
-                    .exec(&txn)
-                    .await?;
-            }
-
-            // 删除孤立视频记录
-            if !orphaned_videos.is_empty() {
-                video::Entity::delete_many()
-                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
-                    .exec(&txn)
-                    .await?;
-            }
-
             // 如果需要删除本地文件
             if delete_local_files {
                 let base_path = &submission.path;
                 if base_path.is_empty() || base_path == "/" || base_path == "\\" {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
+                } else if orphaned_videos.is_empty() {
+                    info!("UP主投稿 {} 没有找到需要删除的本地文件", submission.upper_name);
+                } else if submission.flat_folder {
+                    info!("开始删除UP主投稿 {} 的本地文件（平铺目录）", submission.upper_name);
+
+                    let mut deleted_files = 0usize;
+                    for video in &orphaned_videos {
+                        match delete_video_files_from_pages(&txn, video.id).await {
+                            Ok(count) => deleted_files += count,
+                            Err(e) => warn!("删除UP主投稿视频文件失败: video_id={} - {:?}", video.id, e),
+                        }
+                    }
+
+                    info!(
+                        "UP主投稿 {} 删除完成，共删除 {} 个文件",
+                        submission.upper_name, deleted_files
+                    );
                 } else {
                     // 删除UP主投稿相关的具体视频文件夹，而不是删除整个UP主投稿基础目录
                     info!("开始删除UP主投稿 {} 的相关文件夹", submission.upper_name);
@@ -3315,8 +3425,18 @@ pub async fn delete_video_source_internal(
                     // 获取所有相关的视频记录来确定需要删除的具体文件夹
                     let mut deleted_folders = std::collections::HashSet::new();
                     let mut total_deleted_size = 0u64;
+                    let normalized_base_path = normalize_file_path(base_path).trim_end_matches('/').to_string();
 
-                    for video in &videos {
+                    for video in &orphaned_videos {
+                        let normalized_video_path = normalize_file_path(&video.path).trim_end_matches('/').to_string();
+                        if normalized_video_path == normalized_base_path {
+                            warn!("检测到视频路径等于基础目录，按文件方式删除避免误删: {}", video.path);
+                            if let Err(e) = delete_video_files_from_pages(&txn, video.id).await {
+                                warn!("删除UP主投稿视频文件失败: video_id={} - {:?}", video.id, e);
+                            }
+                            continue;
+                        }
+
                         // 对于每个视频，删除其对应的文件夹
                         let video_path = std::path::Path::new(&video.path);
 
@@ -3367,6 +3487,22 @@ pub async fn delete_video_source_internal(
                 }
             }
 
+            // 删除孤立视频的页面数据
+            for video in &orphaned_videos {
+                page::Entity::delete_many()
+                    .filter(page::Column::VideoId.eq(video.id))
+                    .exec(&txn)
+                    .await?;
+            }
+
+            // 删除孤立视频记录
+            if !orphaned_videos.is_empty() {
+                video::Entity::delete_many()
+                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
+                    .exec(&txn)
+                    .await?;
+            }
+
             // 删除数据库中的记录
             submission::Entity::delete_by_id(id).exec(&txn).await?;
 
@@ -3414,27 +3550,25 @@ pub async fn delete_video_source_internal(
                 .all(&txn)
                 .await?;
 
-            // 删除孤立视频的页面数据
-            for video in &orphaned_videos {
-                page::Entity::delete_many()
-                    .filter(page::Column::VideoId.eq(video.id))
-                    .exec(&txn)
-                    .await?;
-            }
-
-            // 删除孤立视频记录
-            if !orphaned_videos.is_empty() {
-                video::Entity::delete_many()
-                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
-                    .exec(&txn)
-                    .await?;
-            }
-
             // 如果需要删除本地文件
             if delete_local_files {
                 let base_path = &watch_later.path;
                 if base_path.is_empty() || base_path == "/" || base_path == "\\" {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
+                } else if orphaned_videos.is_empty() {
+                    info!("稍后再看没有找到需要删除的本地文件");
+                } else if watch_later.flat_folder {
+                    info!("开始删除稍后再看的本地文件（平铺目录）");
+
+                    let mut deleted_files = 0usize;
+                    for video in &orphaned_videos {
+                        match delete_video_files_from_pages(&txn, video.id).await {
+                            Ok(count) => deleted_files += count,
+                            Err(e) => warn!("删除稍后再看视频文件失败: video_id={} - {:?}", video.id, e),
+                        }
+                    }
+
+                    info!("稍后再看删除完成，共删除 {} 个文件", deleted_files);
                 } else {
                     // 删除稍后再看相关的具体视频文件夹，而不是删除整个稍后再看基础目录
                     info!("开始删除稍后再看的相关文件夹");
@@ -3442,8 +3576,18 @@ pub async fn delete_video_source_internal(
                     // 获取所有相关的视频记录来确定需要删除的具体文件夹
                     let mut deleted_folders = std::collections::HashSet::new();
                     let mut total_deleted_size = 0u64;
+                    let normalized_base_path = normalize_file_path(base_path).trim_end_matches('/').to_string();
 
-                    for video in &videos {
+                    for video in &orphaned_videos {
+                        let normalized_video_path = normalize_file_path(&video.path).trim_end_matches('/').to_string();
+                        if normalized_video_path == normalized_base_path {
+                            warn!("检测到视频路径等于基础目录，按文件方式删除避免误删: {}", video.path);
+                            if let Err(e) = delete_video_files_from_pages(&txn, video.id).await {
+                                warn!("删除稍后再看视频文件失败: video_id={} - {:?}", video.id, e);
+                            }
+                            continue;
+                        }
+
                         // 对于每个视频，删除其对应的文件夹
                         let video_path = std::path::Path::new(&video.path);
 
@@ -3491,6 +3635,22 @@ pub async fn delete_video_source_internal(
                         info!("稍后再看没有找到需要删除的本地文件夹");
                     }
                 }
+            }
+
+            // 删除孤立视频的页面数据
+            for video in &orphaned_videos {
+                page::Entity::delete_many()
+                    .filter(page::Column::VideoId.eq(video.id))
+                    .exec(&txn)
+                    .await?;
+            }
+
+            // 删除孤立视频记录
+            if !orphaned_videos.is_empty() {
+                video::Entity::delete_many()
+                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
+                    .exec(&txn)
+                    .await?;
             }
 
             // 删除数据库中的记录
@@ -3546,27 +3706,25 @@ pub async fn delete_video_source_internal(
                 .all(&txn)
                 .await?;
 
-            // 删除孤立视频的页面数据
-            for video in &orphaned_videos {
-                page::Entity::delete_many()
-                    .filter(page::Column::VideoId.eq(video.id))
-                    .exec(&txn)
-                    .await?;
-            }
-
-            // 删除孤立视频记录
-            if !orphaned_videos.is_empty() {
-                video::Entity::delete_many()
-                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
-                    .exec(&txn)
-                    .await?;
-            }
-
             // 如果需要删除本地文件
             if delete_local_files {
                 let base_path = &bangumi.path;
                 if base_path.is_empty() || base_path == "/" || base_path == "\\" {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
+                } else if orphaned_videos.is_empty() {
+                    info!("番剧 {} 没有找到需要删除的本地文件", bangumi.name);
+                } else if bangumi.flat_folder {
+                    info!("开始删除番剧 {} 的本地文件（平铺目录）", bangumi.name);
+
+                    let mut deleted_files = 0usize;
+                    for video in &orphaned_videos {
+                        match delete_video_files_from_pages(&txn, video.id).await {
+                            Ok(count) => deleted_files += count,
+                            Err(e) => warn!("删除番剧视频文件失败: video_id={} - {:?}", video.id, e),
+                        }
+                    }
+
+                    info!("番剧 {} 删除完成，共删除 {} 个文件", bangumi.name, deleted_files);
                 } else {
                     // 删除番剧相关的季度文件夹，而不是删除整个番剧基础目录
                     info!("开始删除番剧 {} 的相关文件夹", bangumi.name);
@@ -3574,8 +3732,18 @@ pub async fn delete_video_source_internal(
                     // 获取所有相关的视频记录来确定需要删除的具体文件夹
                     let mut deleted_folders = std::collections::HashSet::new();
                     let mut total_deleted_size = 0u64;
+                    let normalized_base_path = normalize_file_path(base_path).trim_end_matches('/').to_string();
 
-                    for video in &videos {
+                    for video in &orphaned_videos {
+                        let normalized_video_path = normalize_file_path(&video.path).trim_end_matches('/').to_string();
+                        if normalized_video_path == normalized_base_path {
+                            warn!("检测到视频路径等于基础目录，按文件方式删除避免误删: {}", video.path);
+                            if let Err(e) = delete_video_files_from_pages(&txn, video.id).await {
+                                warn!("删除番剧视频文件失败: video_id={} - {:?}", video.id, e);
+                            }
+                            continue;
+                        }
+
                         // 对于每个视频，删除其对应的文件夹
                         let video_path = std::path::Path::new(&video.path);
 
@@ -3624,6 +3792,22 @@ pub async fn delete_video_source_internal(
                         info!("番剧 {} 没有找到需要删除的本地文件夹", bangumi.name);
                     }
                 }
+            }
+
+            // 删除孤立视频的页面数据
+            for video in &orphaned_videos {
+                page::Entity::delete_many()
+                    .filter(page::Column::VideoId.eq(video.id))
+                    .exec(&txn)
+                    .await?;
+            }
+
+            // 删除孤立视频记录
+            if !orphaned_videos.is_empty() {
+                video::Entity::delete_many()
+                    .filter(video::Column::Id.is_in(orphaned_videos.iter().map(|v| v.id)))
+                    .exec(&txn)
+                    .await?;
             }
 
             // 删除数据库中的记录
