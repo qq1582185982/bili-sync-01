@@ -24,6 +24,26 @@ static DATA: &[char] = &[
     'm', 'U', 'S', 'D', 'Q', 'X', '9', 'R', 'd', 'o', 'Z', 'f',
 ];
 
+const PLAYURL_QUALITY_LEVELS: [u32; 10] = [127, 126, 125, 120, 116, 112, 80, 64, 32, 16];
+
+fn build_playurl_quality_fallback_levels(mut max_qn: u32, mut min_qn: u32) -> Vec<u32> {
+    if max_qn < min_qn {
+        std::mem::swap(&mut max_qn, &mut min_qn);
+    }
+
+    let levels = PLAYURL_QUALITY_LEVELS
+        .iter()
+        .copied()
+        .filter(|qn| *qn <= max_qn && *qn >= min_qn)
+        .collect::<Vec<_>>();
+
+    if levels.is_empty() {
+        vec![max_qn]
+    } else {
+        levels
+    }
+}
+
 pub struct Video<'a> {
     client: &'a BiliClient,
     pub aid: String,
@@ -580,6 +600,167 @@ impl<'a> Video<'a> {
         Err(anyhow!("无法获取任何质量的视频流"))
     }
 
+    /// 按指定画质范围（最高-最低）进行质量回退的页面分析器获取
+    pub async fn get_page_analyzer_with_fallback_in_range(
+        &self,
+        page: &PageInfo,
+        max_qn: u32,
+        min_qn: u32,
+    ) -> Result<PageAnalyzer> {
+        if max_qn >= 127 && min_qn <= 16 {
+            return self.get_page_analyzer_with_fallback(page).await;
+        }
+
+        let quality_levels = build_playurl_quality_fallback_levels(max_qn, min_qn);
+
+        for (attempt, qn) in quality_levels.iter().enumerate() {
+            let qn_str = qn.to_string();
+            tracing::debug!(
+                "尝试获取视频流 (尝试 {}/{}): qn={}",
+                attempt + 1,
+                quality_levels.len(),
+                qn_str
+            );
+
+            match self.get_page_analyzer_with_quality(page, &qn_str).await {
+                Ok(analyzer) => {
+                    tracing::debug!("✓ 成功获取视频流: qn={}", qn_str);
+                    return Ok(analyzer);
+                }
+                Err(e) => {
+                    // 检查是否为风控验证错误
+                    if let Some(crate::bilibili::BiliError::RiskControlVerificationRequired(v_voucher)) =
+                        e.downcast_ref::<crate::bilibili::BiliError>()
+                    {
+                        tracing::warn!("检测到风控，开始验证流程: v_voucher={}", v_voucher);
+
+                        // 尝试进行验证流程
+                        match self.handle_risk_control_verification(v_voucher.clone()).await {
+                            Ok(gaia_vtoken) => {
+                                tracing::info!("风控验证成功，已获取gaia_vtoken，重试获取视频流");
+                                self.client.set_gaia_vtoken(gaia_vtoken);
+
+                                // 重试当前质量级别
+                                match self.get_page_analyzer_with_quality(page, &qn_str).await {
+                                    Ok(analyzer) => {
+                                        tracing::info!("✓ 风控验证后成功获取视频流: qn={}", qn_str);
+                                        return Ok(analyzer);
+                                    }
+                                    Err(retry_err) => {
+                                        tracing::warn!("风控验证后重试失败: {}", retry_err);
+                                        // 继续尝试下一个质量级别
+                                    }
+                                }
+                            }
+                            Err(verify_err) => {
+                                tracing::error!("风控验证失败，视频: {}, 错误: {}", self.bvid, verify_err);
+
+                                // 检查是否是端口冲突问题
+                                if verify_err.to_string().contains("os error 10048") {
+                                    tracing::warn!("检测到端口冲突，建议检查其他验证进程");
+                                }
+
+                                return Err(verify_err);
+                            }
+                        }
+                    }
+
+                    // 检查是否为充电专享视频错误（包括试看视频），如果是则不输出详细的质量级别失败日志
+                    let (is_charging_video_error, is_trial_video) = {
+                        if let Some(bili_err) = e.downcast_ref::<crate::bilibili::BiliError>() {
+                            match bili_err {
+                                crate::bilibili::BiliError::RequestFailed(87007 | 87008, msg) => {
+                                    (true, msg.contains("试看视频"))
+                                }
+                                crate::bilibili::BiliError::RequestFailed(code, msg) => {
+                                    // 检查其他可能的充电专享视频错误码或消息
+                                    let is_charging = msg.contains("充电专享")
+                                        || msg.contains("需要充电")
+                                        || msg.contains("试看视频")
+                                        || msg.contains("大会员专享")
+                                        || (*code == -403 && msg.contains("access denied"));
+                                    (is_charging, msg.contains("试看视频"))
+                                }
+                                _ => (false, false),
+                            }
+                        } else {
+                            // 检查非BiliError类型的错误是否可能是充电专享视频错误
+                            let error_str = e.to_string().to_lowercase();
+                            let is_charging = error_str.contains("充电专享")
+                                || error_str.contains("需要充电")
+                                || error_str.contains("试看视频")
+                                || error_str.contains("大会员专享")
+                                || error_str.contains("access denied");
+                            (is_charging, error_str.contains("试看视频"))
+                        }
+                    };
+
+                    if !is_charging_video_error {
+                        tracing::debug!("× 质量 qn={} 获取失败: {}", qn_str, e);
+                    } else if attempt == 0 && is_trial_video {
+                        // 只在第一次尝试时记录试看视频信息
+                        tracing::info!("检测到试看视频，需要充电才能观看完整版");
+                    }
+
+                    if attempt == quality_levels.len() - 1 {
+                        // 最后一次尝试也失败了
+                        if is_charging_video_error {
+                            if !is_trial_video {
+                                tracing::info!("视频需要充电才能观看");
+                            }
+                            // 对于充电专享视频，统一返回87007错误以便上层正确处理
+                            return Err(crate::bilibili::BiliError::RequestFailed(
+                                87007,
+                                "充电专享视频，需要为UP主充电才能观看".to_string(),
+                            )
+                            .into());
+                        } else {
+                            tracing::error!("所有质量级别都获取失败");
+
+                            // 检查是否为HTTP 412风控错误
+                            let error_str = e.to_string();
+                            if error_str.contains("412 Precondition Failed") {
+                                // 先检查视频是否已被删除
+                                if let Ok(exists) = self.check_video_exists().await {
+                                    if !exists {
+                                        tracing::warn!("检测到HTTP 412但视频已被删除，返回404错误而非风控");
+                                        return Err(crate::bilibili::BiliError::RequestFailed(
+                                            -404,
+                                            "视频已被删除".to_string(),
+                                        )
+                                        .into());
+                                    }
+                                }
+                                tracing::warn!("检测到HTTP 412风控错误，转换为风控异常");
+                                return Err(crate::bilibili::BiliError::RiskControlOccurred.into());
+                            }
+
+                            // 检查是否可能是隐蔽的充电专享视频（API成功但实际是试看片段）
+                            let error_str_lower = error_str.to_lowercase();
+                            if error_str_lower.contains("检测到试看")
+                                || error_str_lower.contains("试看模式")
+                                || error_str_lower.contains("试看片段")
+                            {
+                                tracing::info!("检测到隐蔽的充电专享视频（试看片段模式）");
+                                return Err(crate::bilibili::BiliError::RequestFailed(
+                                    87008,
+                                    "充电专享视频（试看片段），需要为UP主充电才能观看".to_string(),
+                                )
+                                .into());
+                            }
+                        }
+                        return Err(e);
+                    }
+                    // 继续尝试下一个质量级别
+                    continue;
+                }
+            }
+        }
+
+        // 理论上不会到达这里
+        Err(anyhow!("无法获取任何质量的视频流"))
+    }
+
     /// 带API降级的视频流获取（普通视频->番剧API）
     /// 当普通视频API返回 -404 "啥都木有" 时，自动尝试番剧API
     /// 如果缺少ep_id，会先尝试从视频详情API获取epid信息
@@ -641,6 +822,100 @@ impl<'a> Video<'a> {
                     if let Some(epid) = epid_to_use {
                         tracing::debug!("使用epid {} 尝试番剧API降级", epid);
                         match self.get_bangumi_page_analyzer_with_fallback(page, &epid).await {
+                            Ok(analyzer) => {
+                                tracing::debug!("✓ 番剧API降级成功，获取到播放地址");
+                                Ok(analyzer)
+                            }
+                            Err(bangumi_err) => {
+                                tracing::warn!("× 番剧API降级也失败: {}", bangumi_err);
+                                // 返回原始的普通视频API错误，因为这更能反映真实情况
+                                Err(e)
+                            }
+                        }
+                    } else {
+                        tracing::warn!("无法获取epid，无法降级到番剧API");
+                        Err(e)
+                    }
+                } else {
+                    // 不是-404错误或不包含特定消息，直接返回原错误
+                    tracing::debug!("普通视频API失败，但不符合降级条件: {}", e);
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    /// 带API降级的视频流获取（普通视频->番剧API），并按指定画质范围（最高-最低）进行质量回退
+    pub async fn get_page_analyzer_with_api_fallback_in_range(
+        &self,
+        page: &PageInfo,
+        ep_id: Option<&str>,
+        max_qn: u32,
+        min_qn: u32,
+    ) -> Result<PageAnalyzer> {
+        if max_qn >= 127 && min_qn <= 16 {
+            return self.get_page_analyzer_with_api_fallback(page, ep_id).await;
+        }
+
+        tracing::debug!("开始API降级获取视频流，BVID: {}, CID: {}", self.bvid, page.cid);
+
+        // 首先尝试普通视频API
+        match self
+            .get_page_analyzer_with_fallback_in_range(page, max_qn, min_qn)
+            .await
+        {
+            Ok(analyzer) => {
+                tracing::debug!("✓ 普通视频API成功获取播放地址");
+                Ok(analyzer)
+            }
+            Err(e) => {
+                // 检查错误类型，判断是否需要降级到番剧API
+                let should_fallback_to_bangumi = if let Some(crate::bilibili::BiliError::RequestFailed(-404, msg)) =
+                    e.downcast_ref::<crate::bilibili::BiliError>()
+                {
+                    // -404 错误，检查消息是否包含"啥都木有"或其他表示内容不存在的关键词
+                    let msg_lower = msg.to_lowercase();
+                    msg_lower.contains("啥都木有")
+                        || msg_lower.contains("nothing found")
+                        || msg_lower.contains("not found")
+                        || msg_lower.contains("无内容")
+                        || msg_lower.contains("视频不存在")
+                } else {
+                    false
+                };
+
+                if should_fallback_to_bangumi {
+                    tracing::debug!("普通视频API返回-404错误，尝试降级到番剧API: {}", e);
+
+                    // 获取epid：优先使用传入的ep_id，如果没有则从视频详情API获取
+                    let epid_to_use = if let Some(provided_epid) = ep_id {
+                        tracing::debug!("使用提供的ep_id: {}", provided_epid);
+                        Some(provided_epid.to_string())
+                    } else {
+                        tracing::debug!("缺少ep_id，尝试从视频详情API获取epid信息");
+                        match self.get_video_detail_for_epid().await {
+                            Ok(Some(epid)) => {
+                                tracing::debug!("✓ 成功从视频详情API获取到epid: {}", epid);
+                                Some(epid)
+                            }
+                            Ok(None) => {
+                                tracing::warn!("视频详情API中未找到epid信息，无法降级到番剧API");
+                                None
+                            }
+                            Err(detail_err) => {
+                                tracing::warn!("调用视频详情API失败: {}", detail_err);
+                                None
+                            }
+                        }
+                    };
+
+                    // 如果有epid，尝试番剧API降级
+                    if let Some(epid) = epid_to_use {
+                        tracing::debug!("使用epid {} 尝试番剧API降级", epid);
+                        match self
+                            .get_bangumi_page_analyzer_with_fallback_in_range(page, &epid, max_qn, min_qn)
+                            .await
+                        {
                             Ok(analyzer) => {
                                 tracing::debug!("✓ 番剧API降级成功，获取到播放地址");
                                 Ok(analyzer)
@@ -1046,6 +1321,110 @@ impl<'a> Video<'a> {
                         tracing::debug!("× 番剧质量 qn={} 获取失败: {}", qn, e);
                     } else {
                         tracing::debug!("× 番剧质量 qn={} 获取失败: 充电专享视频", qn);
+                    }
+
+                    if attempt == quality_levels.len() - 1 {
+                        // 最后一次尝试也失败了
+                        if is_charging_video_error {
+                            tracing::info!("番剧需要充电才能观看");
+                            // 对于充电专享番剧，统一返回87007错误以便上层正确处理
+                            return Err(crate::bilibili::BiliError::RequestFailed(
+                                87007,
+                                "充电专享视频，需要为UP主充电才能观看".to_string(),
+                            )
+                            .into());
+                        } else {
+                            tracing::error!("所有番剧质量级别都获取失败");
+
+                            // 检查是否为HTTP 412风控错误
+                            let error_str = e.to_string();
+                            if error_str.contains("412 Precondition Failed") {
+                                // 先检查视频是否已被删除
+                                if let Ok(exists) = self.check_video_exists().await {
+                                    if !exists {
+                                        tracing::warn!("检测到番剧HTTP 412但视频已被删除，返回404错误而非风控");
+                                        return Err(crate::bilibili::BiliError::RequestFailed(
+                                            -404,
+                                            "视频已被删除".to_string(),
+                                        )
+                                        .into());
+                                    }
+                                }
+                                tracing::warn!("检测到番剧HTTP 412风控错误，转换为风控异常");
+                                return Err(crate::bilibili::BiliError::RiskControlOccurred.into());
+                            }
+                        }
+                        return Err(e);
+                    }
+                    // 继续尝试下一个质量级别
+                    continue;
+                }
+            }
+        }
+
+        // 理论上不会到达这里
+        Err(anyhow!("无法获取任何质量的番剧视频流"))
+    }
+
+    /// 按指定画质范围（最高-最低）进行质量回退的番剧页面分析器获取
+    pub async fn get_bangumi_page_analyzer_with_fallback_in_range(
+        &self,
+        page: &PageInfo,
+        ep_id: &str,
+        max_qn: u32,
+        min_qn: u32,
+    ) -> Result<PageAnalyzer> {
+        if max_qn >= 127 && min_qn <= 16 {
+            return self.get_bangumi_page_analyzer_with_fallback(page, ep_id).await;
+        }
+
+        let quality_levels = build_playurl_quality_fallback_levels(max_qn, min_qn);
+
+        for (attempt, qn) in quality_levels.iter().enumerate() {
+            let qn_str = qn.to_string();
+            tracing::debug!(
+                "尝试获取番剧视频流 (尝试 {}/{}): qn={}",
+                attempt + 1,
+                quality_levels.len(),
+                qn_str
+            );
+
+            match self.get_bangumi_page_analyzer_with_quality(page, ep_id, &qn_str).await {
+                Ok(analyzer) => {
+                    tracing::debug!("✓ 成功获取番剧视频流: qn={}", qn_str);
+                    return Ok(analyzer);
+                }
+                Err(e) => {
+                    // 检查是否为充电专享视频错误，如果是则不输出详细的质量级别失败日志
+                    let is_charging_video_error = {
+                        if let Some(bili_err) = e.downcast_ref::<crate::bilibili::BiliError>() {
+                            match bili_err {
+                                crate::bilibili::BiliError::RequestFailed(87007 | 87008, _) => true,
+                                crate::bilibili::BiliError::RequestFailed(code, msg) => {
+                                    // 检查其他可能的充电专享视频错误码或消息
+                                    msg.contains("充电专享")
+                                        || msg.contains("需要充电")
+                                        || msg.contains("试看视频")
+                                        || msg.contains("大会员专享")
+                                        || (*code == -403 && msg.contains("access denied"))
+                                }
+                                _ => false,
+                            }
+                        } else {
+                            // 检查非BiliError类型的错误是否可能是充电专享视频错误
+                            let error_str = e.to_string().to_lowercase();
+                            error_str.contains("充电专享")
+                                || error_str.contains("需要充电")
+                                || error_str.contains("试看视频")
+                                || error_str.contains("大会员专享")
+                                || error_str.contains("access denied")
+                        }
+                    };
+
+                    if !is_charging_video_error {
+                        tracing::debug!("× 番剧质量 qn={} 获取失败: {}", qn_str, e);
+                    } else {
+                        tracing::debug!("× 番剧质量 qn={} 获取失败: 充电专享视频", qn_str);
                     }
 
                     if attempt == quality_levels.len() - 1 {
@@ -1609,5 +1988,14 @@ mod tests {
     fn test_bvid_to_aid() {
         assert_eq!(bvid_to_aid("BV1Tr421n746"), 1401752220u64);
         assert_eq!(bvid_to_aid("BV1sH4y1s7fe"), 1051892992u64);
+    }
+
+    #[test]
+    fn test_build_playurl_quality_fallback_levels_range() {
+        assert_eq!(build_playurl_quality_fallback_levels(16, 16), vec![16]);
+        assert_eq!(build_playurl_quality_fallback_levels(80, 16), vec![80, 64, 32, 16]);
+        assert_eq!(build_playurl_quality_fallback_levels(116, 80), vec![116, 112, 80]);
+        // 传入反向范围时应自动纠正
+        assert_eq!(build_playurl_quality_fallback_levels(16, 80), vec![80, 64, 32, 16]);
     }
 }

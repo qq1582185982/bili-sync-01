@@ -4056,6 +4056,12 @@ pub async fn fetch_page_video(
 
     let bili_video = Video::new(bili_client, video_model.bvid.clone());
 
+    // 获取用户配置的筛选选项（用于按画质范围请求播放地址，避免拿到高画质单流后被过滤导致无视频流）
+    let config = crate::config::reload_config();
+    let filter_option = &config.filter_option;
+    let max_qn = filter_option.video_max_quality as u32;
+    let min_qn = filter_option.video_min_quality as u32;
+
     // 获取视频流信息 - 使用带API降级机制的调用
     let mut streams = tokio::select! {
         biased;
@@ -4066,7 +4072,9 @@ pub async fn fetch_page_video(
                 // 番剧视频使用番剧专用API的回退机制
                 let ep_id = video_model.ep_id.as_ref().unwrap();
                 debug!("使用带质量回退的番剧API获取播放地址: ep_id={}", ep_id);
-                bili_video.get_bangumi_page_analyzer_with_fallback(page_info, ep_id).await
+                bili_video
+                    .get_bangumi_page_analyzer_with_fallback_in_range(page_info, ep_id, max_qn, min_qn)
+                    .await
             } else {
                 // 普通视频使用API降级机制（普通视频API -> 番剧API）
                 debug!("使用API降级机制获取播放地址（普通视频API -> 番剧API）");
@@ -4077,7 +4085,9 @@ pub async fn fetch_page_video(
                 } else {
                     debug!("视频缺少ep_id，如遇-404错误将尝试从视频详情API获取epid");
                 }
-                bili_video.get_page_analyzer_with_api_fallback(page_info, ep_id).await
+                bili_video
+                    .get_page_analyzer_with_api_fallback_in_range(page_info, ep_id, max_qn, min_qn)
+                    .await
             }
         } => res
     }?;
@@ -4086,10 +4096,6 @@ pub async fn fetch_page_video(
     ensure_parent_dir_for_file(page_path).await?;
 
     // UnifiedDownloader会自动选择最佳下载方式
-
-    // 获取用户配置的筛选选项
-    let config = crate::config::reload_config();
-    let filter_option = &config.filter_option;
 
     // 简化的配置调试日志
     debug!("=== 视频下载配置 ===");
