@@ -21,6 +21,9 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
     echo "Unsupported platform: $TARGETPLATFORM" && exit 1; \
     fi
 
+# 写入镜像构建时间（用于 /api/updates/beta 的本地时间对比，避免“编译时间 < 推送时间”导致误判）
+RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > /app/image-built-at.txt
+
 # 清理压缩文件并设置权限
 RUN rm -f ./bili-sync-rs-Linux-*.tar.gz && \
     chmod +x ./bili-sync-rs

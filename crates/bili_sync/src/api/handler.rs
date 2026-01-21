@@ -126,6 +126,21 @@ mod beta_image_update_tests {
         let push_at = find_tag_push_at(&value, "beta").unwrap();
         assert_eq!(push_at, "2026-01-21T16:11:50.924+08:00");
     }
+
+    #[test]
+    fn test_get_local_built_time_utc_uses_env_override() {
+        let key = "BILI_SYNC_IMAGE_BUILT_AT";
+        let original = std::env::var(key).ok();
+
+        std::env::set_var(key, "2026-01-21T09:02:18Z");
+        let dt = get_local_built_time_utc().expect("应能获取本地构建时间");
+        assert_eq!(dt.to_rfc3339(), "2026-01-21T09:02:18+00:00");
+
+        match original {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
 }
 
 fn parse_http_date_to_utc(value: &str) -> Option<DateTime<Utc>> {
@@ -147,9 +162,42 @@ fn parse_http_date_to_utc(value: &str) -> Option<DateTime<Utc>> {
 }
 
 fn get_local_built_time_utc() -> Result<DateTime<Utc>> {
-    let parsed = DateTime::parse_from_rfc2822(built_info::BUILT_TIME_UTC)
-        .context("解析本地构建时间失败（built::BUILT_TIME_UTC）")?;
-    Ok(parsed.with_timezone(&Utc))
+    // 1) 优先读取容器/镜像注入的构建时间（用于 Docker 环境避免误判）
+    // 期望格式：RFC3339（例如 2026-01-21T17:02:18+08:00 或 2026-01-21T09:02:18Z）
+    if let Ok(value) = std::env::var("BILI_SYNC_IMAGE_BUILT_AT") {
+        if let Ok(parsed) = DateTime::parse_from_rfc3339(value.trim()) {
+            return Ok(parsed.with_timezone(&Utc));
+        }
+    }
+
+    // 2) Docker 镜像内标记文件（Dockerfile 写入）
+    if let Ok(value) = std::fs::read_to_string("/app/image-built-at.txt") {
+        if let Ok(parsed) = DateTime::parse_from_rfc3339(value.trim()) {
+            return Ok(parsed.with_timezone(&Utc));
+        }
+    }
+
+    let mut candidates: Vec<DateTime<Utc>> = Vec::new();
+
+    // 3) Rust 编译时间（built.rs）
+    let built_rs_time = DateTime::parse_from_rfc2822(built_info::BUILT_TIME_UTC)
+        .context("解析本地构建时间失败（built::BUILT_TIME_UTC）")?
+        .with_timezone(&Utc);
+    candidates.push(built_rs_time);
+
+    // 4) 可执行文件的修改时间（某些发布流程会以打包/构建镜像时间写入文件 mtime）
+    if let Ok(exe) = std::env::current_exe() {
+        if let Ok(metadata) = std::fs::metadata(exe) {
+            if let Ok(modified) = metadata.modified() {
+                candidates.push(DateTime::<Utc>::from(modified));
+            }
+        }
+    }
+
+    candidates
+        .into_iter()
+        .max()
+        .ok_or_else(|| anyhow!("无法获取本地构建时间"))
 }
 
 async fn fetch_cnb_beta_remote_pushed_at(client: &reqwest::Client) -> Result<DateTime<Utc>> {
@@ -567,7 +615,11 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
             let local = DateTime::parse_from_rfc3339(local).ok().map(|d| d.with_timezone(&Utc));
             let remote = DateTime::parse_from_rfc3339(remote).ok().map(|d| d.with_timezone(&Utc));
             match (local, remote) {
-                (Some(local_dt), Some(remote_dt)) => remote_dt > local_dt,
+                // 允许一定的时间误差，避免“构建时间/推送时间”相差几分钟导致误判有更新
+                (Some(local_dt), Some(remote_dt)) => {
+                    let diff_seconds = (remote_dt - local_dt).num_seconds();
+                    diff_seconds > 2 * 60
+                }
                 _ => false,
             }
         }
