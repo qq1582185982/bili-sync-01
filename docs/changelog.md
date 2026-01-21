@@ -11,6 +11,9 @@
   - 默认禁用 flv.js worker，避免部分环境下 worker 初始化异常导致黑屏
   - 播放出错自动回退到 `transmux=1` 兼容模式
   - 改用本地 UMD 脚本加载 flv.js，规避打包后模块初始化异常
+- **修复老视频 FLV（hdflv2）下载被误判为风控（Docker 更易触发）**
+  - `playurl` 返回 `format=hdflv2` 且只有 `durl` 时，正确识别为 FLV 混合流，不再错误走 `dash/video` 分析路径
+  - `dash/video` 缺失时不再误判为风控，改为“视频流为空”错误分类，避免中止所有下载任务
 - **当前版本按钮增加 beta 镜像更新角标提示**
   - 登录后对比 `docker.cnb.cool/sviplk.com/docker/bili-sync:beta` 仓库推送时间与本地构建时间，若仓库更新则显示角标提醒
 

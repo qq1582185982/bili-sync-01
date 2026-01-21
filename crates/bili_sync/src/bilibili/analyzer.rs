@@ -203,18 +203,18 @@ impl PageAnalyzer {
     }
 
     fn is_flv_stream(&self) -> bool {
-        self.info.get("durl").is_some() && self.info["format"].as_str().is_some_and(|f| f.starts_with("flv"))
+        self.info.get("durl").is_some() && self.info["format"].as_str().is_some_and(|f| f.contains("flv"))
     }
 
     fn is_html5_mp4_stream(&self) -> bool {
         self.info.get("durl").is_some()
-            && self.info["format"].as_str().is_some_and(|f| f.starts_with("mp4"))
+            && self.info["format"].as_str().is_some_and(|f| f.contains("mp4"))
             && self.info["is_html5"].as_bool().is_some_and(|b| b)
     }
 
     fn is_episode_try_mp4_stream(&self) -> bool {
         self.info.get("durl").is_some()
-            && self.info["format"].as_str().is_some_and(|f| f.starts_with("mp4"))
+            && self.info["format"].as_str().is_some_and(|f| f.contains("mp4"))
             && self.info["is_html5"].as_bool().is_none_or(|b| !b)
     }
 
@@ -282,7 +282,7 @@ impl PageAnalyzer {
             .info
             .pointer_mut("/dash/video")
             .and_then(|v| v.as_array_mut())
-            .ok_or(BiliError::RiskControlOccurred)?
+            .ok_or_else(|| BiliError::VideoStreamEmpty("API响应中未找到dash/video数组".to_string()))?
             .iter_mut()
             .enumerate()
         {
@@ -612,6 +612,7 @@ impl PageAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_quality_order() {
@@ -674,5 +675,35 @@ mod tests {
                 "https://other-xxx.com/video.mp4",
             ]
         );
+    }
+
+    #[test]
+    fn test_hdflv2_is_treated_as_flv_stream() {
+        let mut analyzer = PageAnalyzer::new(json!({
+            "format": "hdflv2",
+            "durl": [{"url": "https://example.com/video.flv"}]
+        }));
+
+        let best = analyzer
+            .best_stream(&FilterOption::default())
+            .expect("should pick flv stream");
+        match best {
+            BestStream::Mixed(Stream::Flv(url)) => assert_eq!(url, "https://example.com/video.flv"),
+            other => panic!("unexpected best stream: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_missing_dash_video_is_not_risk_control() {
+        let mut analyzer = PageAnalyzer::new(json!({
+            "dash": {"audio": []}
+        }));
+
+        let err = analyzer.best_stream(&FilterOption::default()).unwrap_err();
+        let bili_err = err.downcast_ref::<BiliError>().expect("should be BiliError");
+        match bili_err {
+            BiliError::VideoStreamEmpty(msg) => assert!(msg.contains("dash/video")),
+            other => panic!("unexpected bili error: {:?}", other),
+        }
     }
 }
