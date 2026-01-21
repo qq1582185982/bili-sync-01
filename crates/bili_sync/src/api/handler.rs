@@ -59,6 +59,74 @@ const CNB_REGISTRY_TOKEN_ENDPOINT: &str = "https://docker.cnb.cool/service/token
 const CNB_REGISTRY_SERVICE: &str = "cnb-registry";
 const CNB_BILI_SYNC_REPOSITORY: &str = "sviplk.com/docker/bili-sync";
 const CNB_BETA_TAG: &str = "beta";
+const CNB_PACKAGES_PAGE_URL: &str = "https://cnb.cool/sviplk.com/docker/-/packages/docker/docker/bili-sync";
+
+fn extract_next_data_json(html: &str) -> Option<&str> {
+    let marker = "id=\"__NEXT_DATA__\"";
+    let marker_index = html.find(marker)?;
+    let after_marker = &html[marker_index..];
+    let tag_close_index = after_marker.find('>')?;
+    let json_start = marker_index + tag_close_index + 1;
+    let json_end = html[json_start..].find("</script>")? + json_start;
+    Some(&html[json_start..json_end])
+}
+
+fn find_tag_push_at<'a>(value: &'a serde_json::Value, tag_name: &str) -> Option<&'a str> {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(tags) = map.get("tags").and_then(|v| v.as_array()) {
+                for tag in tags {
+                    if tag.get("name").and_then(|v| v.as_str()) == Some(tag_name) {
+                        if let Some(push_at) = tag
+                            .get("last_pusher")
+                            .and_then(|v| v.get("push_at"))
+                            .and_then(|v| v.as_str())
+                        {
+                            return Some(push_at);
+                        }
+
+                        if let Some(push_at) = tag.get("push_at").and_then(|v| v.as_str()) {
+                            return Some(push_at);
+                        }
+                    }
+                }
+            }
+
+            map.values().find_map(|v| find_tag_push_at(v, tag_name))
+        }
+        serde_json::Value::Array(values) => values.iter().find_map(|v| find_tag_push_at(v, tag_name)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod beta_image_update_tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_next_data_json_and_find_tag_push_at_from_last_pusher() {
+        let html = r#"
+            <html>
+              <script id="__NEXT_DATA__" type="application/json">
+                {"props":{"pageProps":{"package":{"tags":[{"name":"beta","last_pusher":{"push_at":"2026-01-21T16:11:50.924+08:00"}}]}}}}
+              </script>
+            </html>
+        "#;
+
+        let json = extract_next_data_json(html).expect("应能提取 __NEXT_DATA__ JSON");
+        let value: serde_json::Value = serde_json::from_str(json).expect("__NEXT_DATA__ 应为合法 JSON");
+        let push_at = find_tag_push_at(&value, "beta").expect("应能找到 beta push_at");
+        assert_eq!(push_at, "2026-01-21T16:11:50.924+08:00");
+    }
+
+    #[test]
+    fn test_find_tag_push_at_from_direct_field() {
+        let json = r#"{"tags":[{"name":"beta","push_at":"2026-01-21T16:11:50.924+08:00"}]}"#;
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        let push_at = find_tag_push_at(&value, "beta").unwrap();
+        assert_eq!(push_at, "2026-01-21T16:11:50.924+08:00");
+    }
+}
 
 fn parse_http_date_to_utc(value: &str) -> Option<DateTime<Utc>> {
     let trimmed = value.trim();
@@ -85,6 +153,46 @@ fn get_local_built_time_utc() -> Result<DateTime<Utc>> {
 }
 
 async fn fetch_cnb_beta_remote_pushed_at(client: &reqwest::Client) -> Result<DateTime<Utc>> {
+    match fetch_cnb_beta_remote_pushed_at_via_registry(client).await {
+        Ok(dt) => Ok(dt),
+        Err(registry_err) => {
+            warn!(error = ?registry_err, "通过 CNB registry 获取推送时间失败，尝试网页兜底");
+            match fetch_cnb_beta_remote_pushed_at_via_packages_page(client).await {
+                Ok(dt) => Ok(dt),
+                Err(page_err) => Err(page_err).context(format!("CNB registry 错误: {registry_err:#}")),
+            }
+        }
+    }
+}
+
+async fn fetch_cnb_beta_remote_pushed_at_via_packages_page(client: &reqwest::Client) -> Result<DateTime<Utc>> {
+    let html = client
+        .get(CNB_PACKAGES_PAGE_URL)
+        .header(reqwest::header::ACCEPT, "text/html")
+        .send()
+        .await
+        .context("请求 CNB packages 页面失败")?
+        .error_for_status()
+        .context("CNB packages 页面返回错误状态")?
+        .text()
+        .await
+        .context("读取 CNB packages 页面内容失败")?;
+
+    let next_data_json =
+        extract_next_data_json(&html).ok_or_else(|| anyhow!("CNB packages 页面未找到 __NEXT_DATA__"))?;
+    let next_data_value: serde_json::Value =
+        serde_json::from_str(next_data_json).context("解析 CNB packages __NEXT_DATA__ JSON 失败")?;
+
+    let push_at = find_tag_push_at(&next_data_value, CNB_BETA_TAG)
+        .ok_or_else(|| anyhow!("CNB packages __NEXT_DATA__ 中未找到 beta 标签 push_at"))?;
+
+    let pushed_at = DateTime::parse_from_rfc3339(push_at)
+        .with_context(|| format!("解析 push_at 失败: {push_at}"))?
+        .with_timezone(&Utc);
+    Ok(pushed_at)
+}
+
+async fn fetch_cnb_beta_remote_pushed_at_via_registry(client: &reqwest::Client) -> Result<DateTime<Utc>> {
     #[derive(Deserialize)]
     struct TokenResponse {
         token: String,
@@ -417,7 +525,7 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
         }
     }
 
-    let checked_at = now.to_rfc3339();
+    let checked_at = crate::utils::time_format::beijing_now().to_rfc3339();
 
     let local_built_at = match get_local_built_time_utc() {
         Ok(dt) => Some(dt.to_rfc3339()),
@@ -427,7 +535,7 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
                 local_built_at: None,
                 remote_pushed_at: None,
                 checked_at: Some(checked_at),
-                error: Some(e.to_string()),
+                error: Some(format!("{e:#}")),
             };
             *BETA_IMAGE_UPDATE_CACHE.write().await = Some((now, response.clone()));
             return Ok(ApiResponse::ok(response));
@@ -447,7 +555,7 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
                 local_built_at,
                 remote_pushed_at: None,
                 checked_at: Some(checked_at),
-                error: Some(e.to_string()),
+                error: Some(format!("{e:#}")),
             };
             *BETA_IMAGE_UPDATE_CACHE.write().await = Some((now, response.clone()));
             return Ok(ApiResponse::ok(response));
