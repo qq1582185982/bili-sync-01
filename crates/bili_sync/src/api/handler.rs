@@ -59,7 +59,41 @@ const CNB_REGISTRY_TOKEN_ENDPOINT: &str = "https://docker.cnb.cool/service/token
 const CNB_REGISTRY_SERVICE: &str = "cnb-registry";
 const CNB_BILI_SYNC_REPOSITORY: &str = "sviplk.com/docker/bili-sync";
 const CNB_BETA_TAG: &str = "beta";
+const CNB_LATEST_TAG: &str = "latest";
 const CNB_PACKAGES_PAGE_URL: &str = "https://cnb.cool/sviplk.com/docker/-/packages/docker/docker/bili-sync";
+const BILI_SYNC_RELEASE_CHANNEL_ENV: &str = "BILI_SYNC_RELEASE_CHANNEL";
+
+fn get_release_channel() -> String {
+    let raw = std::env::var(BILI_SYNC_RELEASE_CHANNEL_ENV)
+        .ok()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    if raw.is_empty() {
+        return if cfg!(debug_assertions) {
+            "dev".to_string()
+        } else {
+            "stable".to_string()
+        };
+    }
+
+    let lowered = raw.to_lowercase();
+    match lowered.as_str() {
+        "beta" | "test" | "testing" => "beta".to_string(),
+        "stable" | "release" | "latest" => "stable".to_string(),
+        "dev" | "debug" => "dev".to_string(),
+        _ => lowered,
+    }
+}
+
+fn get_checked_tag(release_channel: &str) -> &'static str {
+    match release_channel {
+        "stable" => CNB_LATEST_TAG,
+        // beta / dev / 其他都按测试通道走
+        _ => CNB_BETA_TAG,
+    }
+}
 
 fn extract_next_data_json(html: &str) -> Option<&str> {
     let marker = "id=\"__NEXT_DATA__\"";
@@ -200,20 +234,20 @@ fn get_local_built_time_utc() -> Result<DateTime<Utc>> {
         .ok_or_else(|| anyhow!("无法获取本地构建时间"))
 }
 
-async fn fetch_cnb_beta_remote_pushed_at(client: &reqwest::Client) -> Result<DateTime<Utc>> {
-    match fetch_cnb_beta_remote_pushed_at_via_registry(client).await {
+async fn fetch_cnb_remote_pushed_at(client: &reqwest::Client, tag: &str) -> Result<DateTime<Utc>> {
+    match fetch_cnb_remote_pushed_at_via_registry(client, tag).await {
         Ok(dt) => Ok(dt),
         Err(registry_err) => {
-            warn!(error = ?registry_err, "通过 CNB registry 获取推送时间失败，尝试网页兜底");
-            match fetch_cnb_beta_remote_pushed_at_via_packages_page(client).await {
+            warn!(error = ?registry_err, tag, "通过 CNB registry 获取推送时间失败，尝试网页兜底");
+            match fetch_cnb_remote_pushed_at_via_packages_page(client, tag).await {
                 Ok(dt) => Ok(dt),
-                Err(page_err) => Err(page_err).context(format!("CNB registry 错误: {registry_err:#}")),
+                Err(page_err) => Err(page_err).context(format!("CNB registry({tag}) 错误: {registry_err:#}")),
             }
         }
     }
 }
 
-async fn fetch_cnb_beta_remote_pushed_at_via_packages_page(client: &reqwest::Client) -> Result<DateTime<Utc>> {
+async fn fetch_cnb_remote_pushed_at_via_packages_page(client: &reqwest::Client, tag: &str) -> Result<DateTime<Utc>> {
     let html = client
         .get(CNB_PACKAGES_PAGE_URL)
         .header(reqwest::header::ACCEPT, "text/html")
@@ -231,8 +265,8 @@ async fn fetch_cnb_beta_remote_pushed_at_via_packages_page(client: &reqwest::Cli
     let next_data_value: serde_json::Value =
         serde_json::from_str(next_data_json).context("解析 CNB packages __NEXT_DATA__ JSON 失败")?;
 
-    let push_at = find_tag_push_at(&next_data_value, CNB_BETA_TAG)
-        .ok_or_else(|| anyhow!("CNB packages __NEXT_DATA__ 中未找到 beta 标签 push_at"))?;
+    let push_at = find_tag_push_at(&next_data_value, tag)
+        .ok_or_else(|| anyhow!("CNB packages __NEXT_DATA__ 中未找到标签 push_at: {tag}"))?;
 
     let pushed_at = DateTime::parse_from_rfc3339(push_at)
         .with_context(|| format!("解析 push_at 失败: {push_at}"))?
@@ -240,7 +274,7 @@ async fn fetch_cnb_beta_remote_pushed_at_via_packages_page(client: &reqwest::Cli
     Ok(pushed_at)
 }
 
-async fn fetch_cnb_beta_remote_pushed_at_via_registry(client: &reqwest::Client) -> Result<DateTime<Utc>> {
+async fn fetch_cnb_remote_pushed_at_via_registry(client: &reqwest::Client, tag: &str) -> Result<DateTime<Utc>> {
     #[derive(Deserialize)]
     struct TokenResponse {
         token: String,
@@ -262,7 +296,7 @@ async fn fetch_cnb_beta_remote_pushed_at_via_registry(client: &reqwest::Client) 
         .context("解析 CNB Registry Token 响应失败")?
         .token;
 
-    let manifest_url = format!("{CNB_REGISTRY_BASE}/v2/{CNB_BILI_SYNC_REPOSITORY}/manifests/{CNB_BETA_TAG}");
+    let manifest_url = format!("{CNB_REGISTRY_BASE}/v2/{CNB_BILI_SYNC_REPOSITORY}/manifests/{tag}");
     let manifest_res = client
         .get(&manifest_url)
         .header(
@@ -573,6 +607,9 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
         }
     }
 
+    let release_channel = get_release_channel();
+    let checked_tag = get_checked_tag(&release_channel).to_string();
+
     let checked_at = crate::utils::time_format::beijing_now().to_rfc3339();
 
     let local_built_at = match get_local_built_time_utc() {
@@ -580,6 +617,8 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
         Err(e) => {
             let response = BetaImageUpdateStatusResponse {
                 update_available: false,
+                release_channel: Some(release_channel),
+                checked_tag: Some(checked_tag),
                 local_built_at: None,
                 remote_pushed_at: None,
                 checked_at: Some(checked_at),
@@ -595,11 +634,13 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
         .build()
         .map_err(|e| ApiError::from(anyhow!("创建 HTTP 客户端失败: {}", e)))?;
 
-    let remote_pushed_at = match fetch_cnb_beta_remote_pushed_at(&client).await {
+    let remote_pushed_at = match fetch_cnb_remote_pushed_at(&client, &checked_tag).await {
         Ok(dt) => Some(dt.to_rfc3339()),
         Err(e) => {
             let response = BetaImageUpdateStatusResponse {
                 update_available: false,
+                release_channel: Some(release_channel),
+                checked_tag: Some(checked_tag),
                 local_built_at,
                 remote_pushed_at: None,
                 checked_at: Some(checked_at),
@@ -628,6 +669,8 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
 
     let response = BetaImageUpdateStatusResponse {
         update_available,
+        release_channel: Some(release_channel),
+        checked_tag: Some(checked_tag),
         local_built_at,
         remote_pushed_at,
         checked_at: Some(checked_at),

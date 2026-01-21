@@ -935,6 +935,8 @@ export interface LatestIngestResponse {
 // beta 镜像更新检查响应
 export interface BetaImageUpdateStatusResponse {
 	update_available: boolean;
+	release_channel?: string;
+	checked_tag?: string;
 	local_built_at?: string;
 	remote_pushed_at?: string;
 	checked_at?: string;

@@ -75,12 +75,23 @@
 			return `${base}\n更新检查失败：${betaImageUpdateStatus.error}`;
 		}
 
+		const channel = betaImageUpdateStatus.release_channel ?? '未知';
+		const channelLabel =
+			channel === 'stable'
+				? '正式版'
+				: channel === 'beta'
+					? '测试版'
+					: channel === 'dev'
+						? '开发版'
+						: channel;
+
 		const local = betaImageUpdateStatus.local_built_at ?? '未知';
 		const remote = betaImageUpdateStatus.remote_pushed_at ?? '未知';
+		const tag = betaImageUpdateStatus.checked_tag ?? '未知';
 		const hint = betaImageUpdateStatus.update_available
-			? '发现 beta 镜像更新'
-			: 'beta 镜像已是最新';
-		return `${base}\n${hint}\n本地构建：${local}\n仓库推送：${remote}`;
+			? `发现${channelLabel}镜像更新`
+			: `${channelLabel}镜像已是最新`;
+		return `${base}\n渠道：${channelLabel}（${tag}）\n${hint}\n本地构建：${local}\n仓库推送：${remote}`;
 	}
 
 	async function checkBetaImageUpdateStatus() {
@@ -186,6 +197,19 @@
 								>
 									{APP_VERSION}
 								</Badge>
+								{#if betaImageUpdateStatus?.release_channel}
+									<span
+										class="border-border bg-background text-muted-foreground pointer-events-none absolute -right-1 -bottom-1 rounded border px-1 text-[10px] leading-[14px]"
+									>
+										{betaImageUpdateStatus.release_channel === 'stable'
+											? '正'
+											: betaImageUpdateStatus.release_channel === 'beta'
+												? '测'
+												: betaImageUpdateStatus.release_channel === 'dev'
+													? '开'
+													: betaImageUpdateStatus.release_channel}
+									</span>
+								{/if}
 								{#if betaImageUpdateStatus?.update_available}
 									<span
 										class="bg-destructive border-background absolute -top-1 -right-1 h-2 w-2 rounded-full border-2"

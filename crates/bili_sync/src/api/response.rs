@@ -659,6 +659,10 @@ pub struct TaskControlStatusResponse {
 pub struct BetaImageUpdateStatusResponse {
     pub update_available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checked_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub local_built_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_pushed_at: Option<String>,
