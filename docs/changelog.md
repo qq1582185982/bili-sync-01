@@ -11,6 +11,8 @@
   - 默认禁用 flv.js worker，避免部分环境下 worker 初始化异常导致黑屏
   - 播放出错自动回退到 `transmux=1` 兼容模式
   - 改用本地 UMD 脚本加载 flv.js，规避打包后模块初始化异常
+- **当前版本按钮增加 beta 镜像更新角标提示**
+  - 登录后对比 `docker.cnb.cool/sviplk.com/docker/bili-sync:beta` 仓库推送时间与本地构建时间，若仓库更新则显示角标提醒
 
 ## v2.8.0.20260120 (2026-01-20)
 - **修复部分视频在低画质配置下 `no video stream found`**

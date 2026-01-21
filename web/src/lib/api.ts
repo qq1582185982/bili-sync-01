@@ -45,7 +45,8 @@ import type {
 	BangumiSeasonsResponse,
 	VideoBvidResponse,
 	KeywordFilterMode,
-	LatestIngestResponse
+	LatestIngestResponse,
+	BetaImageUpdateStatusResponse
 } from './types';
 import { ErrorType } from './types';
 import { wsManager } from './ws';
@@ -779,6 +780,13 @@ class ApiClient {
 	}
 
 	/**
+	 * 检查 beta 镜像是否有更新（用于角标提示）
+	 */
+	async getBetaImageUpdateStatus(): Promise<ApiResponse<BetaImageUpdateStatusResponse>> {
+		return this.get<BetaImageUpdateStatusResponse>('/updates/beta');
+	}
+
+	/**
 	 * 获取推送通知状态
 	 */
 	async getNotificationStatus(): Promise<
@@ -1190,6 +1198,11 @@ export const api = {
 	 * 获取首页最新入库列表
 	 */
 	getLatestIngests: (limit: number = 10) => apiClient.getLatestIngests(limit),
+
+	/**
+	 * 检查 beta 镜像是否有更新（用于角标提示）
+	 */
+	getBetaImageUpdateStatus: () => apiClient.getBetaImageUpdateStatus(),
 
 	/**
 	 * 获取推送通知状态

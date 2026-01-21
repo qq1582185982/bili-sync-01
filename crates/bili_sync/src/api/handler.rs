@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use axum::extract::{Extension, Json, Path, Query};
-use chrono::Datelike;
+use chrono::{DateTime, Datelike, Utc};
 
 use crate::http::headers::{create_api_headers, create_image_headers};
 use crate::utils::time_format::{now_standard_string, to_standard_string};
@@ -17,7 +18,7 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info, warn};
 use utoipa::OpenApi;
 
@@ -29,11 +30,11 @@ use crate::api::request::{
     UpdateConfigItemRequest, UpdateConfigRequest, UpdateCredentialRequest, UpdateVideoStatusRequest, VideosRequest,
 };
 use crate::api::response::{
-    AddVideoSourceResponse, BangumiSeasonInfo, BangumiSourceListResponse, BangumiSourceOption, ConfigChangeInfo,
-    ConfigHistoryResponse, ConfigItemResponse, ConfigReloadResponse, ConfigResponse, ConfigValidationResponse,
-    DashBoardResponse, DeleteVideoResponse, DeleteVideoSourceResponse, HotReloadStatusResponse,
-    InitialSetupCheckResponse, MonitoringStatus, PageInfo, QRGenerateResponse, QRPollResponse, QRUserInfo,
-    ResetAllVideosResponse, ResetVideoResponse, ResetVideoSourcePathResponse, SetupAuthTokenResponse,
+    AddVideoSourceResponse, BangumiSeasonInfo, BangumiSourceListResponse, BangumiSourceOption,
+    BetaImageUpdateStatusResponse, ConfigChangeInfo, ConfigHistoryResponse, ConfigItemResponse, ConfigReloadResponse,
+    ConfigResponse, ConfigValidationResponse, DashBoardResponse, DeleteVideoResponse, DeleteVideoSourceResponse,
+    HotReloadStatusResponse, InitialSetupCheckResponse, MonitoringStatus, PageInfo, QRGenerateResponse, QRPollResponse,
+    QRUserInfo, ResetAllVideosResponse, ResetVideoResponse, ResetVideoSourcePathResponse, SetupAuthTokenResponse,
     SubmissionVideosResponse, UpdateConfigResponse, UpdateCredentialResponse, UpdateVideoStatusResponse, VideoInfo,
     VideoResponse, VideoSource, VideoSourcesResponse, VideosResponse,
 };
@@ -43,6 +44,182 @@ use crate::utils::status::{PageStatus, VideoStatus};
 // 全局静态的扫码登录服务实例
 use once_cell::sync::Lazy;
 static QR_SERVICE: Lazy<crate::auth::QRLoginService> = Lazy::new(crate::auth::QRLoginService::new);
+
+#[allow(dead_code)]
+mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
+static BETA_IMAGE_UPDATE_CACHE: Lazy<RwLock<Option<(DateTime<Utc>, BetaImageUpdateStatusResponse)>>> =
+    Lazy::new(|| RwLock::new(None));
+const BETA_IMAGE_UPDATE_CACHE_TTL_SECONDS: i64 = 10 * 60;
+
+const CNB_REGISTRY_BASE: &str = "https://docker.cnb.cool";
+const CNB_REGISTRY_TOKEN_ENDPOINT: &str = "https://docker.cnb.cool/service/token";
+const CNB_REGISTRY_SERVICE: &str = "cnb-registry";
+const CNB_BILI_SYNC_REPOSITORY: &str = "sviplk.com/docker/bili-sync";
+const CNB_BETA_TAG: &str = "beta";
+
+fn parse_http_date_to_utc(value: &str) -> Option<DateTime<Utc>> {
+    let trimmed = value.trim();
+
+    if let Ok(parsed) = DateTime::parse_from_rfc2822(trimmed) {
+        return Some(parsed.with_timezone(&Utc));
+    }
+
+    let normalized = trimmed
+        .replace(" GMT", " +0000")
+        .replace(" UTC", " +0000")
+        .replace(" UT", " +0000");
+    if let Ok(parsed) = DateTime::parse_from_rfc2822(&normalized) {
+        return Some(parsed.with_timezone(&Utc));
+    }
+
+    None
+}
+
+fn get_local_built_time_utc() -> Result<DateTime<Utc>> {
+    let parsed = DateTime::parse_from_rfc2822(built_info::BUILT_TIME_UTC)
+        .context("解析本地构建时间失败（built::BUILT_TIME_UTC）")?;
+    Ok(parsed.with_timezone(&Utc))
+}
+
+async fn fetch_cnb_beta_remote_pushed_at(client: &reqwest::Client) -> Result<DateTime<Utc>> {
+    #[derive(Deserialize)]
+    struct TokenResponse {
+        token: String,
+    }
+
+    let token = client
+        .get(CNB_REGISTRY_TOKEN_ENDPOINT)
+        .query(&[
+            ("service", CNB_REGISTRY_SERVICE),
+            ("scope", "repository:sviplk.com/docker/bili-sync:pull"),
+        ])
+        .send()
+        .await
+        .context("获取 CNB Registry Token 失败")?
+        .error_for_status()
+        .context("获取 CNB Registry Token 返回错误状态")?
+        .json::<TokenResponse>()
+        .await
+        .context("解析 CNB Registry Token 响应失败")?
+        .token;
+
+    let manifest_url = format!("{CNB_REGISTRY_BASE}/v2/{CNB_BILI_SYNC_REPOSITORY}/manifests/{CNB_BETA_TAG}");
+    let manifest_res = client
+        .get(&manifest_url)
+        .header(
+            reqwest::header::ACCEPT,
+            [
+                "application/vnd.oci.image.index.v1+json",
+                "application/vnd.docker.distribution.manifest.list.v2+json",
+                "application/vnd.oci.image.manifest.v1+json",
+                "application/vnd.docker.distribution.manifest.v2+json",
+            ]
+            .join(", "),
+        )
+        .bearer_auth(&token)
+        .send()
+        .await
+        .with_context(|| format!("请求 CNB manifest 失败: {manifest_url}"))?
+        .error_for_status()
+        .with_context(|| format!("CNB manifest 返回错误状态: {manifest_url}"))?;
+
+    if let Some(last_modified) = manifest_res.headers().get(reqwest::header::LAST_MODIFIED) {
+        if let Ok(last_modified_str) = last_modified.to_str() {
+            if let Some(parsed) = parse_http_date_to_utc(last_modified_str) {
+                return Ok(parsed);
+            }
+        }
+    }
+
+    let manifest_value: serde_json::Value = manifest_res.json().await.context("解析 CNB manifest JSON 失败")?;
+
+    async fn fetch_created_time_from_manifest(
+        client: &reqwest::Client,
+        token: &str,
+        manifest_value: &serde_json::Value,
+    ) -> Result<DateTime<Utc>> {
+        let config_digest = manifest_value
+            .get("config")
+            .and_then(|v| v.get("digest"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("manifest 中未找到 config.digest"))?;
+
+        let config_url = format!("{CNB_REGISTRY_BASE}/v2/{CNB_BILI_SYNC_REPOSITORY}/blobs/{config_digest}");
+        let config_value: serde_json::Value = client
+            .get(&config_url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .with_context(|| format!("请求 image config 失败: {config_url}"))?
+            .error_for_status()
+            .with_context(|| format!("image config 返回错误状态: {config_url}"))?
+            .json()
+            .await
+            .context("解析 image config JSON 失败")?;
+
+        let created_str = config_value
+            .get("created")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("image config 中未找到 created 字段"))?;
+
+        let created = DateTime::parse_from_rfc3339(created_str)
+            .with_context(|| format!("解析 image config.created 失败: {created_str}"))?
+            .with_timezone(&Utc);
+        Ok(created)
+    }
+
+    if let Some(manifests) = manifest_value.get("manifests").and_then(|v| v.as_array()) {
+        let selected_digest = manifests
+            .iter()
+            .find_map(|item| {
+                let os = item.get("platform").and_then(|p| p.get("os")).and_then(|v| v.as_str());
+                let arch = item
+                    .get("platform")
+                    .and_then(|p| p.get("architecture"))
+                    .and_then(|v| v.as_str());
+
+                if os == Some("linux") && arch == Some("amd64") {
+                    item.get("digest").and_then(|v| v.as_str()).map(str::to_string)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                manifests
+                    .first()
+                    .and_then(|item| item.get("digest").and_then(|v| v.as_str()).map(str::to_string))
+            })
+            .ok_or_else(|| anyhow!("manifest list 中未找到可用 digest"))?;
+
+        let sub_manifest_url = format!("{CNB_REGISTRY_BASE}/v2/{CNB_BILI_SYNC_REPOSITORY}/manifests/{selected_digest}");
+        let sub_manifest_value: serde_json::Value = client
+            .get(&sub_manifest_url)
+            .header(
+                reqwest::header::ACCEPT,
+                [
+                    "application/vnd.oci.image.manifest.v1+json",
+                    "application/vnd.docker.distribution.manifest.v2+json",
+                ]
+                .join(", "),
+            )
+            .bearer_auth(&token)
+            .send()
+            .await
+            .with_context(|| format!("请求子 manifest 失败: {sub_manifest_url}"))?
+            .error_for_status()
+            .with_context(|| format!("子 manifest 返回错误状态: {sub_manifest_url}"))?
+            .json()
+            .await
+            .context("解析子 manifest JSON 失败")?;
+
+        return fetch_created_time_from_manifest(client, &token, &sub_manifest_value).await;
+    }
+
+    fetch_created_time_from_manifest(client, &token, &manifest_value).await
+}
 
 /// 标准化文件路径格式
 fn normalize_file_path(path: &str) -> String {
@@ -214,13 +391,92 @@ mod cleanup_tests {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(get_video_sources, get_videos, get_video, reset_video, reset_all_videos, reset_specific_tasks, update_video_status, add_video_source, update_video_source_enabled, update_video_source_scan_deleted, reset_video_source_path, delete_video_source, reload_config, get_config, update_config, get_bangumi_seasons, search_bilibili, get_user_favorites, get_user_collections, get_user_followings, get_subscribed_collections, get_submission_videos, get_logs, get_queue_status, proxy_image, get_config_item, get_config_history, validate_config, get_hot_reload_status, check_initial_setup, setup_auth_token, update_credential, generate_qr_code, poll_qr_status, get_current_user, clear_credential, pause_scanning_endpoint, resume_scanning_endpoint, get_task_control_status, get_video_play_info, proxy_video_stream, validate_favorite, get_user_favorites_by_uid, test_notification_handler, get_notification_config, update_notification_config, get_notification_status, test_risk_control_handler),
+    paths(get_video_sources, get_videos, get_video, reset_video, reset_all_videos, reset_specific_tasks, update_video_status, add_video_source, update_video_source_enabled, update_video_source_scan_deleted, reset_video_source_path, delete_video_source, reload_config, get_config, update_config, get_bangumi_seasons, search_bilibili, get_user_favorites, get_user_collections, get_user_followings, get_subscribed_collections, get_submission_videos, get_logs, get_queue_status, proxy_image, get_config_item, get_config_history, validate_config, get_hot_reload_status, check_initial_setup, setup_auth_token, update_credential, generate_qr_code, poll_qr_status, get_current_user, clear_credential, pause_scanning_endpoint, resume_scanning_endpoint, get_task_control_status, get_video_play_info, proxy_video_stream, validate_favorite, get_user_favorites_by_uid, test_notification_handler, get_notification_config, update_notification_config, get_notification_status, test_risk_control_handler, get_beta_image_update_status),
     modifiers(&OpenAPIAuth),
     security(
         ("Token" = []),
     )
 )]
 pub struct ApiDoc;
+
+/// 检查 beta 镜像是否有更新（用于前端角标提示）
+#[utoipa::path(
+    get,
+    path = "/api/updates/beta",
+    responses(
+        (status = 200, body = ApiResponse<BetaImageUpdateStatusResponse>),
+    ),
+    security(("Token" = []))
+)]
+pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdateStatusResponse>, ApiError> {
+    let now = Utc::now();
+
+    if let Some((cached_at, cached)) = BETA_IMAGE_UPDATE_CACHE.read().await.clone() {
+        if (now - cached_at).num_seconds() < BETA_IMAGE_UPDATE_CACHE_TTL_SECONDS {
+            return Ok(ApiResponse::ok(cached));
+        }
+    }
+
+    let checked_at = now.to_rfc3339();
+
+    let local_built_at = match get_local_built_time_utc() {
+        Ok(dt) => Some(dt.to_rfc3339()),
+        Err(e) => {
+            let response = BetaImageUpdateStatusResponse {
+                update_available: false,
+                local_built_at: None,
+                remote_pushed_at: None,
+                checked_at: Some(checked_at),
+                error: Some(e.to_string()),
+            };
+            *BETA_IMAGE_UPDATE_CACHE.write().await = Some((now, response.clone()));
+            return Ok(ApiResponse::ok(response));
+        }
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| ApiError::from(anyhow!("创建 HTTP 客户端失败: {}", e)))?;
+
+    let remote_pushed_at = match fetch_cnb_beta_remote_pushed_at(&client).await {
+        Ok(dt) => Some(dt.to_rfc3339()),
+        Err(e) => {
+            let response = BetaImageUpdateStatusResponse {
+                update_available: false,
+                local_built_at,
+                remote_pushed_at: None,
+                checked_at: Some(checked_at),
+                error: Some(e.to_string()),
+            };
+            *BETA_IMAGE_UPDATE_CACHE.write().await = Some((now, response.clone()));
+            return Ok(ApiResponse::ok(response));
+        }
+    };
+
+    let update_available = match (&local_built_at, &remote_pushed_at) {
+        (Some(local), Some(remote)) => {
+            let local = DateTime::parse_from_rfc3339(local).ok().map(|d| d.with_timezone(&Utc));
+            let remote = DateTime::parse_from_rfc3339(remote).ok().map(|d| d.with_timezone(&Utc));
+            match (local, remote) {
+                (Some(local_dt), Some(remote_dt)) => remote_dt > local_dt,
+                _ => false,
+            }
+        }
+        _ => false,
+    };
+
+    let response = BetaImageUpdateStatusResponse {
+        update_available,
+        local_built_at,
+        remote_pushed_at,
+        checked_at: Some(checked_at),
+        error: None,
+    };
+
+    *BETA_IMAGE_UPDATE_CACHE.write().await = Some((now, response.clone()));
+    Ok(ApiResponse::ok(response))
+}
 
 /// 移除配置文件路径获取 - 配置现在完全基于数据库
 #[allow(dead_code)]

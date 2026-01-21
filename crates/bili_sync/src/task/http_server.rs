@@ -27,6 +27,7 @@ use crate::api::handler::{
     generate_qr_code,
     get_bangumi_seasons,
     get_bangumi_sources_for_merge,
+    get_beta_image_update_status,
     get_config,
     get_config_history,
     // 新增配置管理API
@@ -261,6 +262,8 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
         .route("/api/videos/{video_id}/play-info", get(get_video_play_info))
         .route("/api/videos/{video_id}/bvid", get(get_video_bvid))
         .route("/api/videos/proxy-stream", get(proxy_video_stream))
+        // beta 镜像更新检查（前端角标提示）
+        .route("/api/updates/beta", get(get_beta_image_update_status))
         // 验证码相关API
         .route("/captcha", get(serve_captcha_page))
         .route("/api/captcha/info", get(get_captcha_info))

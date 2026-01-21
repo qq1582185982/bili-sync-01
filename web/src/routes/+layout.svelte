@@ -10,7 +10,7 @@
 	import { onMount } from 'svelte';
 	import api from '$lib/api';
 	import { toast } from 'svelte-sonner';
-	import type { ApiError } from '$lib/types';
+	import type { ApiError, BetaImageUpdateStatusResponse } from '$lib/types';
 	import { LogOut, BookOpen, ScrollText } from '@lucide/svelte';
 	import ResponsiveButton from '$lib/components/responsive-button.svelte';
 	import { initTheme } from '$lib/stores/theme';
@@ -21,6 +21,7 @@
 
 	let dataLoaded = false;
 	let isAuthenticated = false;
+	let betaImageUpdateStatus: BetaImageUpdateStatusResponse | null = null;
 
 	// 退出登录
 	function handleLogout() {
@@ -39,6 +40,7 @@
 				// 验证token有效性
 				await api.getVideoSources();
 				isAuthenticated = true;
+				checkBetaImageUpdateStatus();
 				// 初始化视频源数据，所有组件都会用到
 				if (!$videoSourceStore) {
 					setVideoSources((await api.getVideoSources()).data);
@@ -62,6 +64,34 @@
 			isAuthenticated = false;
 		}
 		dataLoaded = true;
+	}
+
+	function getVersionBadgeTitle() {
+		const base = `当前版本：${APP_VERSION}`;
+		if (!betaImageUpdateStatus) {
+			return base;
+		}
+		if (betaImageUpdateStatus.error) {
+			return `${base}\n更新检查失败：${betaImageUpdateStatus.error}`;
+		}
+
+		const local = betaImageUpdateStatus.local_built_at ?? '未知';
+		const remote = betaImageUpdateStatus.remote_pushed_at ?? '未知';
+		const hint = betaImageUpdateStatus.update_available
+			? '发现 beta 镜像更新'
+			: 'beta 镜像已是最新';
+		return `${base}\n${hint}\n本地构建：${local}\n仓库推送：${remote}`;
+	}
+
+	async function checkBetaImageUpdateStatus() {
+		if (!isAuthenticated) return;
+
+		try {
+			const result = await api.getBetaImageUpdateStatus();
+			betaImageUpdateStatus = result.data;
+		} catch {
+			// 静默失败，避免影响主流程
+		}
 	}
 
 	// Service Worker 更新提示
@@ -147,14 +177,22 @@
 						</div>
 						<div class="flex items-center gap-1 sm:gap-2">
 							<ThemeToggle />
-							<Badge
-								href="/changelog"
-								variant="outline"
-								class="max-w-[160px] truncate font-mono text-[11px]"
-								title={`当前版本：${APP_VERSION}`}
-							>
-								{APP_VERSION}
-							</Badge>
+							<div class="relative">
+								<Badge
+									href="/changelog"
+									variant="outline"
+									class="max-w-[160px] truncate font-mono text-[11px]"
+									title={getVersionBadgeTitle()}
+								>
+									{APP_VERSION}
+								</Badge>
+								{#if betaImageUpdateStatus?.update_available}
+									<span
+										class="bg-destructive border-background absolute -top-1 -right-1 h-2 w-2 rounded-full border-2"
+										aria-label="发现更新"
+									></span>
+								{/if}
+							</div>
 							<ResponsiveButton
 								size="sm"
 								variant="outline"

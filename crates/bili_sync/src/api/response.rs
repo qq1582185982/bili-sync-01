@@ -654,6 +654,20 @@ pub struct TaskControlStatusResponse {
     pub message: String,
 }
 
+/// Beta 镜像更新检查响应
+#[derive(Serialize, ToSchema, Clone)]
+pub struct BetaImageUpdateStatusResponse {
+    pub update_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_built_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_pushed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// 视频播放信息响应
 #[derive(Serialize, ToSchema)]
 pub struct VideoPlayInfoResponse {
