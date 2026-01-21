@@ -403,8 +403,8 @@
 			</div>
 		{:else}
 			<!-- 第一行：存储空间 + 当前监听 -->
-			<div class="grid gap-4 md:grid-cols-3">
-				<Card class="md:col-span-1">
+			<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+				<Card class="lg:col-span-1">
 					<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
 						<CardTitle class="text-sm font-medium">存储空间</CardTitle>
 						<HardDriveIcon class="text-muted-foreground h-4 w-4" />
@@ -428,7 +428,7 @@
 						{/if}
 					</CardContent>
 				</Card>
-				<Card class="md:col-span-2">
+				<Card class="lg:col-span-2">
 					<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
 						<CardTitle class="text-sm font-medium">当前监听</CardTitle>
 						<DatabaseIcon class="text-muted-foreground h-4 w-4" />
@@ -462,14 +462,14 @@
 											class="h-8"
 											title="刷新首页数据"
 										>
-											<RefreshCwIcon class="mr-2 h-4 w-4" />
-											刷新
+											<RefreshCwIcon class="h-4 w-4 lg:mr-2" />
+											<span class="hidden lg:inline">刷新</span>
 										</Button>
 									</div>
 								</div>
 
 								<!-- 扫描摘要 -->
-								<div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+								<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 									<div class="flex items-center justify-between">
 										<span class="text-sm">监听源</span>
 										<Badge variant="outline">
@@ -492,7 +492,7 @@
 								</div>
 
 								<!-- 具体监听项统计 -->
-								<div class="grid grid-cols-2 gap-4 md:grid-cols-3">
+								<div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-2">
 											<HeartIcon class="text-muted-foreground h-4 w-4" />
@@ -550,8 +550,8 @@
 			</div>
 
 			<!-- 第二行：最近入库 + 下载任务状态 -->
-			<div class="grid gap-4 md:grid-cols-3">
-				<Card class="max-w-full overflow-hidden md:col-span-2">
+			<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+				<Card class="max-w-full overflow-hidden lg:col-span-2">
 					<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
 						<CardTitle class="text-sm font-medium">最近入库</CardTitle>
 						<VideoIcon class="text-muted-foreground h-4 w-4" />

@@ -241,7 +241,7 @@
 								</Badge>
 								{#if showVersionTooltip}
 									<div
-										class="border-border bg-background absolute top-full right-0 z-50 mt-2 w-[min(360px,calc(100vw-2rem))] rounded-lg border p-3 text-xs shadow-xl"
+										class="border-border bg-background fixed inset-x-4 top-[80px] z-50 max-h-[calc(100vh-100px)] overflow-auto rounded-lg border p-3 text-xs shadow-xl sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:left-auto sm:mt-2 sm:max-h-[70vh] sm:w-[min(360px,calc(100vw-2rem))]"
 									>
 										<div class="leading-relaxed whitespace-pre-wrap">
 											{getVersionBadgeTitle()}
@@ -274,6 +274,7 @@
 								onclick={() => goto('/changelog')}
 								icon={ScrollText}
 								text="更新记录"
+								showTextFrom="lg"
 								title="查看更新记录"
 							/>
 							<ResponsiveButton
@@ -282,6 +283,7 @@
 								onclick={() => window.open('https://NeeYoonc.github.io/bili-sync-up/', '_blank')}
 								icon={BookOpen}
 								text="文档"
+								showTextFrom="lg"
 								title="查看文档"
 							/>
 							<ResponsiveButton
@@ -290,6 +292,7 @@
 								onclick={handleLogout}
 								icon={LogOut}
 								text="退出"
+								showTextFrom="lg"
 								title="退出"
 							/>
 						</div>

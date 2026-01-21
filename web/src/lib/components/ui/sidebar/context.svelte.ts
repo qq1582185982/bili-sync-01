@@ -1,4 +1,4 @@
-import { IsMobile } from '$lib/hooks/is-mobile.svelte.js';
+import { IsCompact } from '$lib/hooks/is-mobile.svelte.js';
 import { getContext, setContext } from 'svelte';
 import { SIDEBAR_KEYBOARD_SHORTCUT } from './constants.js';
 
@@ -25,12 +25,12 @@ class SidebarState {
 	open = $derived.by(() => this.props.open());
 	openMobile = $state(false);
 	setOpen: SidebarStateProps['setOpen'];
-	#isMobile: IsMobile;
+	#isMobile: IsCompact;
 	state = $derived.by(() => (this.open ? 'expanded' : 'collapsed'));
 
 	constructor(props: SidebarStateProps) {
 		this.setOpen = props.setOpen;
-		this.#isMobile = new IsMobile();
+		this.#isMobile = new IsCompact();
 		this.props = props;
 	}
 

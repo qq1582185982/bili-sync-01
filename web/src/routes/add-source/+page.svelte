@@ -38,7 +38,7 @@
 	import { flip } from 'svelte/animate';
 	import { fade, fly } from 'svelte/transition';
 	import { runRequest } from '$lib/utils/request.js';
-	import { IsMobile } from '$lib/hooks/is-mobile.svelte.js';
+	import { IsMobile, IsTablet } from '$lib/hooks/is-mobile.svelte.js';
 	import { formatTimestamp } from '$lib/utils/timezone';
 
 	let sourceType: VideoCategory = 'collection';
@@ -169,8 +169,13 @@
 
 	// 响应式相关
 	const isMobileQuery = new IsMobile();
+	const isTabletQuery = new IsTablet();
 	let isMobile: boolean = false;
+	let isTablet: boolean = false;
+	let isCompactLayout: boolean = false;
 	$: isMobile = isMobileQuery.current;
+	$: isTablet = isTabletQuery.current;
+	$: isCompactLayout = isMobile || isTablet;
 
 	// 源类型选项
 	const sourceTypeOptions = [
@@ -2101,7 +2106,7 @@
 <div class="py-2">
 	<div class="mx-auto px-4">
 		<div class="bg-card rounded-lg border p-6 shadow-sm">
-			<div class="mb-6 flex items-center justify-between">
+			<div class="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
 				<h1 class="text-2xl font-bold">添加新视频源</h1>
 				{#if sourceType !== 'bangumi' && sourceType !== 'watch_later'}
 					<Button
@@ -2127,9 +2132,9 @@
 				{/if}
 			</div>
 
-			<div class="flex {isMobile ? 'flex-col' : 'gap-8'}">
+			<div class="flex gap-8 {isCompactLayout ? 'flex-col' : ''}">
 				<!-- 左侧：表单区域 -->
-				<div class={isMobile ? 'w-full' : 'max-w-[500px] min-w-[350px] flex-1'}>
+				<div class={isCompactLayout ? 'w-full' : 'max-w-[500px] min-w-[350px] flex-1'}>
 					<form
 						onsubmit={(e) => {
 							e.preventDefault();
@@ -2259,7 +2264,9 @@
 
 									{#if userFavorites.length > 0}
 										<p class="text-xs text-yellow-600 dark:text-yellow-400">
-											已获取 {userFavorites.length} 个收藏夹，请在{isMobile ? '下方' : '右侧'}选择
+											已获取 {userFavorites.length} 个收藏夹，请在{isCompactLayout
+												? '下方'
+												: '右侧'}选择
 										</p>
 									{:else}
 										<p class="text-xs text-yellow-600 dark:text-yellow-400">
@@ -2301,11 +2308,11 @@
 
 										<p class="text-muted-foreground mt-2 text-xs">
 											{#if showSearchResults && searchResults.length > 0}
-												找到 {searchResults.length} 个UP主，请在{isMobile
+												找到 {searchResults.length} 个UP主，请在{isCompactLayout
 													? '下方'
 													: '右侧'}列表中选择
 											{:else}
-												输入UP主名称后点击搜索，结果将在{isMobile ? '下方' : '右侧'}显示
+												输入UP主名称后点击搜索，结果将在{isCompactLayout ? '下方' : '右侧'}显示
 											{/if}
 										</p>
 									</div>
@@ -2335,7 +2342,9 @@
 									{/each}
 								</select>
 								<p class="text-sm text-orange-600">
-									⚠️ 手动输入合集ID时需要指定类型，建议从{isMobile ? '下方' : '右侧'}合集列表中选择
+									⚠️ 手动输入合集ID时需要指定类型，建议从{isCompactLayout
+										? '下方'
+										: '右侧'}合集列表中选择
 								</p>
 							</div>
 						{/if}
@@ -2353,7 +2362,7 @@
 								/>
 								{#if userCollections.length > 0}
 									<p class="mt-1 text-xs text-green-600">
-										✓ 已获取合集列表，请在{isMobile ? '下方' : '右侧'}选择
+										✓ 已获取合集列表，请在{isCompactLayout ? '下方' : '右侧'}选择
 									</p>
 								{/if}
 							</div>
@@ -2424,7 +2433,7 @@
 										</p>
 									{:else if bangumiSeasons.length > 1}
 										<p class="mt-1 ml-6 text-xs text-purple-600">
-											检测到 {bangumiSeasons.length} 个相关季度，请在{isMobile
+											检测到 {bangumiSeasons.length} 个相关季度，请在{isCompactLayout
 												? '下方'
 												: '右侧'}选择要下载的季度
 										</p>
@@ -3228,11 +3237,11 @@
 				<!-- 右侧：搜索结果区域 -->
 				{#if showSearchResults && searchResults.length > 0}
 					<div
-						class={isMobile ? 'mt-6 w-full' : 'min-w-[550px] flex-1'}
+						class={isCompactLayout ? 'w-full' : 'min-w-[550px] flex-1'}
 						transition:fly={{ x: 300, duration: 300 }}
 					>
 						<SidePanel
-							{isMobile}
+							isMobile={isCompactLayout}
 							title="搜索结果"
 							subtitle={`共找到 ${searchTotalResults} 个结果`}
 							headerClass="bg-muted"
@@ -3395,9 +3404,9 @@
 
 				<!-- 关注UP主列表（移动到右侧） -->
 				{#if (sourceType === 'collection' || sourceType === 'submission') && userFollowings.length > 0}
-					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
+					<div class={isCompactLayout ? 'w-full' : 'flex-1'}>
 						<SidePanel
-							{isMobile}
+							isMobile={isCompactLayout}
 							title="关注的UP主"
 							subtitle={`共 ${userFollowings.length} 个UP主`}
 							maxHeightClass="max-h-126"
@@ -3497,9 +3506,9 @@
 
 				<!-- UP主合集列表（移动到右侧） -->
 				{#if sourceType === 'collection' && userCollections.length > 0}
-					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
+					<div class={isCompactLayout ? 'w-full' : 'flex-1'}>
 						<SidePanel
-							{isMobile}
+							isMobile={isCompactLayout}
 							title="UP主合集列表"
 							subtitle={`共 ${userCollections.length} 个合集`}
 							headerClass="bg-green-50 dark:bg-green-950"
@@ -3598,9 +3607,9 @@
 
 				<!-- 收藏夹列表（移动到右侧） -->
 				{#if sourceType === 'favorite' && userFavorites.length > 0}
-					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
+					<div class={isCompactLayout ? 'w-full' : 'flex-1'}>
 						<SidePanel
-							{isMobile}
+							isMobile={isCompactLayout}
 							title="我的收藏夹"
 							subtitle={`共 ${userFavorites.length} 个收藏夹`}
 							headerClass="bg-yellow-50 dark:bg-yellow-950"
@@ -3690,9 +3699,9 @@
 
 				<!-- UP主收藏夹列表（移动到右侧） -->
 				{#if sourceType === 'favorite' && selectedUserId && (searchedUserFavorites.length > 0 || loadingSearchedUserFavorites)}
-					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
+					<div class={isCompactLayout ? 'w-full' : 'flex-1'}>
 						<SidePanel
-							{isMobile}
+							isMobile={isCompactLayout}
 							title={`${selectedUserName} 的收藏夹`}
 							subtitle={loadingSearchedUserFavorites
 								? '正在加载...'
@@ -3813,9 +3822,9 @@
 
 				<!-- 番剧季度选择区域（移动到右侧） -->
 				{#if sourceType === 'bangumi' && sourceId && !downloadAllSeasons && (loadingSeasons || bangumiSeasons.length > 1 || (bangumiSeasonsFetchAttempted && bangumiSeasons.length === 0))}
-					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
+					<div class={isCompactLayout ? 'w-full' : 'flex-1'}>
 						<SidePanel
-							{isMobile}
+							isMobile={isCompactLayout}
 							title="选择要下载的季度"
 							subtitle={loadingSeasons
 								? '正在加载...'
@@ -3941,7 +3950,7 @@
 								</div>
 								{#if !loadingSeasons && bangumiSeasons.length > 0}
 									<p class="mt-3 text-center text-xs text-purple-600">
-										不选择则仅下载{isMobile ? '上方' : '左侧'}输入的当前季度
+										不选择则仅下载{isCompactLayout ? '上方' : '左侧'}输入的当前季度
 									</p>
 								{/if}
 							{:else if sourceId}
@@ -3964,9 +3973,9 @@
 
 				<!-- 订阅的合集列表（仅合集类型时显示） -->
 				{#if sourceType === 'collection' && subscribedCollections.length > 0}
-					<div class={isMobile ? 'mt-6 w-full' : 'flex-1'}>
+					<div class={isCompactLayout ? 'w-full' : 'flex-1'}>
 						<SidePanel
-							{isMobile}
+							isMobile={isCompactLayout}
 							title="关注的合集"
 							subtitle={`共 ${subscribedCollections.length} 个合集`}
 							maxHeightClass="max-h-96"
@@ -4078,11 +4087,11 @@
 				<!-- UP主投稿选择面板（仅投稿类型时显示） -->
 				{#if sourceType === 'submission' && showSubmissionSelection}
 					<div
-						class={isMobile ? 'mt-6 w-full' : 'flex-1'}
+						class={isCompactLayout ? 'w-full' : 'flex-1'}
 						transition:fly={{ x: 300, duration: 300 }}
 					>
 						<SidePanel
-							{isMobile}
+							isMobile={isCompactLayout}
 							maxHeightClass="max-h-[750px]"
 							headerClass="bg-blue-50 dark:bg-blue-950"
 							bodyClass="flex min-h-0 flex-1 flex-col overflow-hidden"
