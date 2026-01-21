@@ -285,6 +285,17 @@ jobs:
         echo "all_tags=$ALL_TAGS" >> $GITHUB_OUTPUT
         echo "合并后的标签: $ALL_TAGS"
 
+    - name: Determine release channel
+      id: release_channel
+      run: |
+        # beta/dev 分支默认分别标记为 beta/dev，tag 触发按 beta 处理
+        CHANNEL="beta"
+        if [[ "${GITHUB_REF_TYPE}" == "branch" && "${GITHUB_REF_NAME}" == "dev" ]]; then
+          CHANNEL="dev"
+        fi
+        echo "release_channel=$CHANNEL" >> $GITHUB_OUTPUT
+        echo "构建通道: $CHANNEL"
+
     - name: Build and push to all registries
       if: github.event_name != 'pull_request'
       uses: docker/build-push-action@v5
@@ -298,6 +309,7 @@ jobs:
         cache-to: type=gha,mode=max
         build-args: |
           BUILDKIT_INLINE_CACHE=1
+          BILI_SYNC_RELEASE_CHANNEL=${{ steps.release_channel.outputs.release_channel }}
 
     - name: Test Docker image
       if: github.event_name != 'pull_request'
