@@ -28,6 +28,25 @@
 	export let selected: boolean = false; // 是否被选中
 	export let onSelectionChange: ((videoId: number, selected: boolean) => void) | null = null; // 选择状态变化回调
 
+	function shouldIgnoreSelectionToggle(target: EventTarget | null): boolean {
+		if (!target || !(target instanceof HTMLElement)) return false;
+		return Boolean(target.closest('button, a, input, textarea, select, label'));
+	}
+
+	function handleCardClick(event: MouseEvent) {
+		if (!selectionMode || !onSelectionChange) return;
+		if (shouldIgnoreSelectionToggle(event.target)) return;
+		onSelectionChange(video.id, !selected);
+	}
+
+	function handleCardKeydown(event: KeyboardEvent) {
+		if (!selectionMode || !onSelectionChange) return;
+		if (shouldIgnoreSelectionToggle(event.target)) return;
+		if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+		event.preventDefault();
+		onSelectionChange(video.id, !selected);
+	}
+
 	function getStatusText(status: number): string {
 		if (status === 7) {
 			return '已完成';
@@ -144,8 +163,8 @@
 	$: showUserIcon = mode === 'default';
 	$: cardClasses =
 		mode === 'default'
-			? `group flex h-full min-w-0 flex-col transition-all hover:shadow-md ${selected ? 'ring-2 ring-blue-500' : ''}`
-			: `transition-all hover:shadow-md ${selected ? 'ring-2 ring-blue-500' : ''}`;
+			? `group flex h-full min-w-0 flex-col transition-all hover:shadow-md ${selectionMode ? 'cursor-pointer' : ''} ${selected ? 'ring-2 ring-blue-500' : ''}`
+			: `transition-all hover:shadow-md ${selectionMode ? 'cursor-pointer' : ''} ${selected ? 'ring-2 ring-blue-500' : ''}`;
 
 	// 从路径中提取番剧名称的通用函数
 	function extractBangumiName(path: string): string {
@@ -219,7 +238,14 @@
 	}
 </script>
 
-<Card class="{cardClasses} relative overflow-hidden">
+<Card
+	class="{cardClasses} relative overflow-hidden"
+	role={selectionMode ? 'button' : undefined}
+	tabindex={selectionMode ? 0 : undefined}
+	aria-pressed={selectionMode ? selected : undefined}
+	onclick={handleCardClick}
+	onkeydown={handleCardKeydown}
+>
 	<!-- 整个卡片的背景模糊图片 -->
 	{#if video.cover && mode === 'default'}
 		<div
@@ -253,6 +279,7 @@
 						type="checkbox"
 						checked={selected}
 						on:change={handleSelectionChange}
+						on:click|stopPropagation
 						class="h-5 w-5 rounded border-2 border-white bg-white/80 text-blue-600 shadow-lg backdrop-blur-sm focus:ring-2 focus:ring-blue-500 focus:ring-offset-0"
 					/>
 				</div>
@@ -275,6 +302,7 @@
 					type="checkbox"
 					checked={selected}
 					on:change={handleSelectionChange}
+					on:click|stopPropagation
 					class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0"
 				/>
 			{/if}
