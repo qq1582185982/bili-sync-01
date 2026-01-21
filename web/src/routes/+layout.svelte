@@ -7,7 +7,7 @@
 	import { breadcrumbStore } from '$lib/stores/breadcrumb';
 	import BreadCrumb from '$lib/components/bread-crumb.svelte';
 	import { videoSourceStore, setVideoSources } from '$lib/stores/video-source';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import api from '$lib/api';
 	import { toast } from 'svelte-sonner';
 	import type { ApiError, BetaImageUpdateStatusResponse } from '$lib/types';
@@ -23,6 +23,8 @@
 	let dataLoaded = false;
 	let isAuthenticated = false;
 	let betaImageUpdateStatus: BetaImageUpdateStatusResponse | null = null;
+	let showVersionTooltip = false;
+	let versionBadgeContainer: HTMLDivElement | null = null;
 
 	// 退出登录
 	function handleLogout() {
@@ -115,6 +117,18 @@
 		}
 	}
 
+	function toggleVersionTooltip() {
+		showVersionTooltip = !showVersionTooltip;
+	}
+
+	function handleDocumentClick(event: MouseEvent) {
+		if (!showVersionTooltip) return;
+		const target = event.target;
+		if (!(target instanceof Node)) return;
+		if (versionBadgeContainer && versionBadgeContainer.contains(target)) return;
+		showVersionTooltip = false;
+	}
+
 	// Service Worker 更新提示
 	function registerSWUpdateHandler() {
 		if ('serviceWorker' in navigator) {
@@ -174,6 +188,14 @@
 			checkAuthStatus();
 		});
 	});
+
+	onMount(() => {
+		document.addEventListener('click', handleDocumentClick);
+	});
+
+	onDestroy(() => {
+		document.removeEventListener('click', handleDocumentClick);
+	});
 </script>
 
 <Toaster />
@@ -198,15 +220,34 @@
 						</div>
 						<div class="flex items-center gap-1 sm:gap-2">
 							<ThemeToggle />
-							<div class="relative">
+							<div class="relative" bind:this={versionBadgeContainer}>
 								<Badge
-									href="/changelog"
 									variant="outline"
-									class="max-w-[160px] truncate font-mono text-[11px]"
+									class="max-w-[160px] cursor-pointer truncate font-mono text-[11px] select-none"
 									title={getVersionBadgeTitle()}
+									role="button"
+									tabindex={0}
+									onclick={toggleVersionTooltip}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											toggleVersionTooltip();
+										} else if (e.key === 'Escape') {
+											showVersionTooltip = false;
+										}
+									}}
 								>
 									{APP_VERSION}
 								</Badge>
+								{#if showVersionTooltip}
+									<div
+										class="border-border bg-background absolute top-full right-0 z-50 mt-2 w-[min(360px,calc(100vw-2rem))] rounded-lg border p-3 text-xs shadow-xl"
+									>
+										<div class="leading-relaxed whitespace-pre-wrap">
+											{getVersionBadgeTitle()}
+										</div>
+									</div>
+								{/if}
 								{#if betaImageUpdateStatus?.release_channel}
 									<span
 										class="border-border bg-background text-muted-foreground pointer-events-none absolute -right-1 -bottom-1 rounded border px-1 text-[10px] leading-[14px]"
