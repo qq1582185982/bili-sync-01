@@ -103,7 +103,7 @@
 		const hint = betaImageUpdateStatus.update_available
 			? `发现${channelLabel}镜像更新`
 			: `${channelLabel}镜像已是最新`;
-		return `${base}\n渠道：${channelLabel}（${tag}）\n${hint}\n本地构建：${local}\n仓库推送：${remote}`;
+		return `${base}\n渠道：${channelLabel}（${tag}）\n${hint}\n当前版本构建时间：${local}\n仓库推送时间：${remote}`;
 	}
 
 	async function checkBetaImageUpdateStatus() {
