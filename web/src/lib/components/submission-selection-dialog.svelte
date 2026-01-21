@@ -7,6 +7,7 @@
 	import api from '$lib/api';
 	import type { SubmissionVideoInfo } from '$lib/types';
 	import { toast } from 'svelte-sonner';
+	import { formatTimestamp } from '$lib/utils/timezone';
 
 	export let isOpen = false;
 	export let sourceId: number;
@@ -53,11 +54,11 @@
 
 	// 格式化时间
 	function formatSubmissionDate(pubtime: string): string {
-		try {
-			return new Date(pubtime).toLocaleDateString('zh-CN');
-		} catch {
+		const formatted = formatTimestamp(pubtime, 'Asia/Shanghai', 'date');
+		if (formatted === '无效时间' || formatted === '格式化失败') {
 			return pubtime;
 		}
+		return formatted;
 	}
 
 	// 格式化播放量

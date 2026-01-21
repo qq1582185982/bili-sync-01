@@ -39,6 +39,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { runRequest } from '$lib/utils/request.js';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte.js';
+	import { formatTimestamp } from '$lib/utils/timezone';
 
 	let sourceType: VideoCategory = 'collection';
 	let lastSourceType: VideoCategory = sourceType; // 记录上一次的源类型，用于检测切换
@@ -1749,11 +1750,11 @@
 
 	// 格式化时间
 	function formatSubmissionDate(pubtime: string): string {
-		try {
-			return new Date(pubtime).toLocaleDateString('zh-CN');
-		} catch {
+		const formatted = formatTimestamp(pubtime, 'Asia/Shanghai', 'date');
+		if (formatted === '无效时间' || formatted === '格式化失败') {
 			return pubtime;
 		}
+		return formatted;
 	}
 
 	// 格式化播放量
@@ -3675,7 +3676,7 @@
 												</p>
 												{#if favorite.created}
 													<p class="text-muted-foreground text-xs">
-														创建于 {new Date(favorite.created * 1000).toLocaleDateString()}
+														创建于 {formatTimestamp(favorite.created, 'Asia/Shanghai', 'date')}
 													</p>
 												{/if}
 											</div>

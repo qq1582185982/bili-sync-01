@@ -18,6 +18,7 @@
 	import InstallPrompt from '$lib/components/pwa/install-prompt.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { APP_VERSION } from '$lib/generated/app-version';
+	import { formatTimestamp } from '$lib/utils/timezone';
 
 	let dataLoaded = false;
 	let isAuthenticated = false;
@@ -75,6 +76,15 @@
 			return `${base}\n更新检查失败：${betaImageUpdateStatus.error}`;
 		}
 
+		function formatUpdateTime(ts?: string | null): string {
+			if (!ts) return '未知';
+			const formatted = formatTimestamp(ts, 'Asia/Shanghai', 'datetime');
+			if (formatted === '无效时间' || formatted === '格式化失败') {
+				return ts;
+			}
+			return formatted.replaceAll('/', '-');
+		}
+
 		const channel = betaImageUpdateStatus.release_channel ?? '未知';
 		const channelLabel =
 			channel === 'stable'
@@ -85,8 +95,8 @@
 						? '开发版'
 						: channel;
 
-		const local = betaImageUpdateStatus.local_built_at ?? '未知';
-		const remote = betaImageUpdateStatus.remote_pushed_at ?? '未知';
+		const local = formatUpdateTime(betaImageUpdateStatus.local_built_at);
+		const remote = formatUpdateTime(betaImageUpdateStatus.remote_pushed_at);
 		const tag = betaImageUpdateStatus.checked_tag ?? '未知';
 		const hint = betaImageUpdateStatus.update_available
 			? `发现${channelLabel}镜像更新`

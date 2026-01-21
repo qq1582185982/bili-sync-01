@@ -635,9 +635,10 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
     let checked_tag = get_checked_tag(&release_channel).to_string();
 
     let checked_at = crate::utils::time_format::beijing_now().to_rfc3339();
+    let beijing_tz = crate::utils::time_format::beijing_timezone();
 
     let local_built_at = match get_local_built_time_utc() {
-        Ok(dt) => Some(dt.to_rfc3339()),
+        Ok(dt) => Some(dt.with_timezone(&beijing_tz).to_rfc3339()),
         Err(e) => {
             let response = BetaImageUpdateStatusResponse {
                 update_available: false,
@@ -659,7 +660,7 @@ pub async fn get_beta_image_update_status() -> Result<ApiResponse<BetaImageUpdat
         .map_err(|e| ApiError::from(anyhow!("创建 HTTP 客户端失败: {}", e)))?;
 
     let remote_pushed_at = match fetch_cnb_remote_pushed_at(&client, &checked_tag).await {
-        Ok(dt) => Some(dt.to_rfc3339()),
+        Ok(dt) => Some(dt.with_timezone(&beijing_tz).to_rfc3339()),
         Err(e) => {
             let response = BetaImageUpdateStatusResponse {
                 update_available: false,

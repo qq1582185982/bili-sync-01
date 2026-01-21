@@ -23,6 +23,7 @@
 	import type { QueueStatusResponse } from '$lib/types';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import { runRequest } from '$lib/utils/request.js';
+	import { formatTimestamp } from '$lib/utils/timezone';
 
 	let queueStatus: QueueStatusResponse | null = null;
 	let loading = true;
@@ -61,16 +62,11 @@
 
 	// 格式化时间
 	function formatTime(timeString: string): string {
-		try {
-			const date = new Date(timeString);
-			return date.toLocaleTimeString('zh-CN', {
-				hour: '2-digit',
-				minute: '2-digit',
-				second: '2-digit'
-			});
-		} catch {
+		const formatted = formatTimestamp(timeString, 'Asia/Shanghai', 'time');
+		if (formatted === '无效时间' || formatted === '格式化失败') {
 			return '无效时间';
 		}
+		return formatted;
 	}
 
 	// 获取任务类型的显示名称

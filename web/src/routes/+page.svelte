@@ -14,6 +14,7 @@
 	import api from '$lib/api';
 	import { wsManager } from '$lib/ws';
 	import { runRequest } from '$lib/utils/request.js';
+	import { formatTimestamp } from '$lib/utils/timezone';
 	import type {
 		DashBoardResponse,
 		SysInfo,
@@ -83,21 +84,24 @@
 		return `${kbps.toFixed(0)} KB/s`;
 	}
 
-	// 格式化时间为 HH:MM:SS AM/PM 格式
+	const BEIJING_TIMEZONE = 'Asia/Shanghai';
+
+	// 统一按北京时间显示（24小时制）
 	function formatTime(timeStr: string | null | undefined): string {
 		if (!timeStr) return '-';
-		try {
-			const date = new Date(timeStr);
-			if (isNaN(date.getTime())) return timeStr;
-			return date.toLocaleString('en-US', {
-				hour: '2-digit',
-				minute: '2-digit',
-				second: '2-digit',
-				hour12: true
-			});
-		} catch {
+		const formatted = formatTimestamp(timeStr, BEIJING_TIMEZONE, 'time');
+		if (formatted === '无效时间' || formatted === '格式化失败') {
 			return timeStr;
 		}
+		return formatted;
+	}
+
+	function formatChartTime(v: string | number): string {
+		const formatted = formatTimestamp(v, BEIJING_TIMEZONE, 'time');
+		if (formatted === '无效时间' || formatted === '格式化失败') {
+			return `${v}`;
+		}
+		return formatted;
 	}
 
 	// 从路径提取番剧名称（备用方案，当 series_name 不可用时）
@@ -642,14 +646,7 @@
 											<span class="text-sm">开始运行</span>
 										</div>
 										<span class="text-muted-foreground text-sm">
-											{taskStatus.last_run
-												? new Date(taskStatus.last_run).toLocaleString('en-US', {
-														hour: '2-digit',
-														minute: '2-digit',
-														second: '2-digit',
-														hour12: true
-													})
-												: '-'}
+											{formatTime(taskStatus.last_run)}
 										</span>
 									</div>
 									<div class="flex items-center justify-between">
@@ -658,14 +655,7 @@
 											<span class="text-sm">运行结束</span>
 										</div>
 										<span class="text-muted-foreground text-sm">
-											{taskStatus.last_finish
-												? new Date(taskStatus.last_finish).toLocaleString('en-US', {
-														hour: '2-digit',
-														minute: '2-digit',
-														second: '2-digit',
-														hour12: true
-													})
-												: '-'}
+											{formatTime(taskStatus.last_finish)}
 										</span>
 									</div>
 									<div class="flex items-center justify-between">
@@ -674,14 +664,7 @@
 											<span class="text-sm">下次运行</span>
 										</div>
 										<span class="text-muted-foreground text-sm">
-											{taskStatus.next_run
-												? new Date(taskStatus.next_run).toLocaleString('en-US', {
-														hour: '2-digit',
-														minute: '2-digit',
-														second: '2-digit',
-														hour12: true
-													})
-												: '-'}
+											{formatTime(taskStatus.next_run)}
 										</span>
 									</div>
 								</div>
@@ -793,13 +776,7 @@
 										{#snippet tooltip()}
 											<MyChartTooltip
 												labelFormatter={(v: string | number) => {
-													const date = typeof v === 'string' ? new Date(v) : new Date(v);
-													return date.toLocaleString('en-US', {
-														hour: '2-digit',
-														minute: '2-digit',
-														second: '2-digit',
-														hour12: true
-													});
+													return formatChartTime(v);
 												}}
 												valueFormatter={(v: string | number) => {
 													const num = typeof v === 'string' ? parseFloat(v) : v;
@@ -870,13 +847,7 @@
 										{#snippet tooltip()}
 											<MyChartTooltip
 												labelFormatter={(v: string | number) => {
-													const date = typeof v === 'string' ? new Date(v) : new Date(v);
-													return date.toLocaleString('en-US', {
-														hour: '2-digit',
-														minute: '2-digit',
-														second: '2-digit',
-														hour12: true
-													});
+													return formatChartTime(v);
 												}}
 												valueFormatter={(v: string | number) => {
 													const num = typeof v === 'string' ? parseFloat(v) : v;
