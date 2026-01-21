@@ -1110,6 +1110,7 @@ impl<'a> Video<'a> {
         Ok(PageAnalyzer::new(validated_res["data"].take()))
     }
 
+    #[allow(dead_code)]
     pub async fn get_page_analyzer(&self, page: &PageInfo) -> Result<PageAnalyzer> {
         // 修复字符串生命周期问题
         let cid_string = page.cid.to_string();
@@ -1618,6 +1619,7 @@ impl<'a> Video<'a> {
     }
 
     /// 专门为番剧获取播放地址分析器
+    #[allow(dead_code)]
     pub async fn get_bangumi_page_analyzer(&self, page: &PageInfo, ep_id: &str) -> Result<PageAnalyzer> {
         // 修复字符串生命周期问题
         let cid_string = page.cid.to_string();

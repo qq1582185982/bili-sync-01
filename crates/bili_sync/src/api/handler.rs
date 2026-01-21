@@ -9557,8 +9557,8 @@ pub async fn get_video_play_info(
         .map_err(|e| ApiError::from(anyhow!("获取视频信息失败: {}", e)))?;
 
     debug!(
-        "获取视频播放信息: bvid={}, aid={}, cid={}, source_type={:?}, ep_id={:?}",
-        video_info.bvid, video_info.aid, video_info.cid, video_info.source_type, video_info.ep_id
+        "获取视频播放信息: bvid={}, aid={}, cid={}, duration={}, source_type={:?}, ep_id={:?}",
+        video_info.bvid, video_info.aid, video_info.cid, video_info.duration, video_info.source_type, video_info.ep_id
     );
 
     // 创建B站客户端
@@ -9578,6 +9578,11 @@ pub async fn get_video_play_info(
     // 创建Video实例
     let video = Video::new_with_aid(&bili_client, video_info.bvid.clone(), video_info.aid.clone());
 
+    // 使用用户配置的筛选选项（用于控制请求的画质范围，避免 qn=127 导致只返回高画质从而被本地过滤掉）
+    let filter_option = config.filter_option.clone();
+    let max_qn = filter_option.video_max_quality as u32;
+    let min_qn = filter_option.video_min_quality as u32;
+
     // 获取分页信息
     let page_info = PageInfo {
         cid: video_info
@@ -9586,7 +9591,7 @@ pub async fn get_video_play_info(
             .map_err(|_| ApiError::from(anyhow!("无效的CID")))?,
         page: 1,
         name: video_info.title.clone(),
-        duration: 0,
+        duration: video_info.duration,
         first_frame: None,
         dimension: None,
     };
@@ -9597,19 +9602,17 @@ pub async fn get_video_play_info(
         let ep_id = video_info.ep_id.as_ref().unwrap();
         debug!("API播放使用番剧专用API: ep_id={}", ep_id);
         video
-            .get_bangumi_page_analyzer(&page_info, ep_id)
+            .get_bangumi_page_analyzer_with_fallback_in_range(&page_info, ep_id, max_qn, min_qn)
             .await
             .map_err(|e| ApiError::from(anyhow!("获取番剧视频分析器失败: {}", e)))?
     } else {
         // 使用普通视频API
         video
-            .get_page_analyzer(&page_info)
+            .get_page_analyzer_with_fallback_in_range(&page_info, max_qn, min_qn)
             .await
             .map_err(|e| ApiError::from(anyhow!("获取视频分析器失败: {}", e)))?
     };
 
-    // 使用用户配置的筛选选项
-    let filter_option = config.filter_option.clone();
     let best_stream = page_analyzer
         .best_stream(&filter_option)
         .map_err(|e| ApiError::from(anyhow!("获取最佳视频流失败: {}", e)))?;
@@ -9735,6 +9738,7 @@ struct VideoPlayInfo {
     bvid: String,
     aid: String,
     cid: String,
+    duration: u32,
     title: String,
     source_type: Option<i32>,
     ep_id: Option<String>,
@@ -9761,6 +9765,7 @@ async fn find_video_info(video_id: &str, db: &DatabaseConnection) -> Result<Vide
                     bvid: video_record.bvid.clone(),
                     aid: bvid_to_aid(&video_record.bvid).to_string(),
                     cid: page_record.cid.to_string(),
+                    duration: page_record.duration,
                     title: format!("{} - {}", video_record.name, page_record.name),
                     source_type: video_record.source_type,
                     ep_id: video_record.ep_id,
@@ -9798,6 +9803,7 @@ async fn find_video_info(video_id: &str, db: &DatabaseConnection) -> Result<Vide
         bvid: video.bvid.clone(),
         aid: bvid_to_aid(&video.bvid).to_string(),
         cid: first_page.cid.to_string(),
+        duration: first_page.duration,
         title: video.name,
         source_type: video.source_type,
         ep_id: video.ep_id,
@@ -9863,6 +9869,10 @@ pub async fn proxy_video_stream(
 ) -> impl axum::response::IntoResponse {
     use axum::http::{header, HeaderValue, StatusCode};
     use axum::response::{IntoResponse, Response};
+    use futures::StreamExt;
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+    use tokio_util::io::ReaderStream;
 
     let stream_url = match params.get("url") {
         Some(url) => url,
@@ -9893,6 +9903,142 @@ pub async fn proxy_video_stream(
 
     // 检查Range请求
     let range_header = headers.get(header::RANGE).and_then(|h| h.to_str().ok());
+
+    fn looks_like_flv_url(url: &str) -> bool {
+        let lower = url.to_ascii_lowercase();
+        lower.contains(".flv") || lower.contains("format=flv")
+    }
+
+    async fn transmux_flv_to_mp4(stream_url: &str) -> Result<Response, anyhow::Error> {
+        use axum::http::{header, HeaderValue};
+
+        let bili_client = crate::bilibili::BiliClient::new(String::new());
+        let response = bili_client
+            .request(reqwest::Method::GET, stream_url)
+            .await
+            .send()
+            .await?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            anyhow::bail!("B站视频流返回401未授权");
+        }
+        if !status.is_success() {
+            anyhow::bail!("B站视频流返回错误状态: {}", status);
+        }
+
+        let mut cmd = tokio::process::Command::new("ffmpeg");
+        cmd.args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "pipe:0",
+            "-c",
+            "copy",
+            "-f",
+            "mp4",
+            "-movflags",
+            "frag_keyframe+empty_moov+default_base_moof",
+            "pipe:1",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+        let mut child = cmd.spawn()?;
+
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("ffmpeg stdin 不可用"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("ffmpeg stdout 不可用"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("ffmpeg stderr 不可用"))?;
+
+        let mut input_stream = response.bytes_stream();
+        let input_task = tokio::spawn(async move {
+            while let Some(chunk) = input_stream.next().await {
+                let chunk = chunk?;
+                stdin.write_all(&chunk).await?;
+            }
+            stdin.shutdown().await?;
+            Ok::<(), anyhow::Error>(())
+        });
+
+        let stderr_task = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+
+            let mut reader = tokio::io::BufReader::new(stderr);
+            let mut buf = Vec::new();
+            let _ = reader.read_to_end(&mut buf).await;
+            String::from_utf8_lossy(&buf).trim().to_string()
+        });
+
+        tokio::spawn(async move {
+            let input_res = input_task.await;
+            let status_res = child.wait().await;
+            let stderr_text = stderr_task.await.unwrap_or_default();
+
+            if let Err(e) = input_res {
+                tracing::warn!("ffmpeg 输入流写入任务异常: {:#}", e);
+            } else if let Ok(Err(e)) = input_res {
+                tracing::warn!("ffmpeg 输入流写入失败: {:#}", e);
+            }
+
+            match status_res {
+                Ok(exit_status) if exit_status.success() => {}
+                Ok(exit_status) => {
+                    tracing::warn!("ffmpeg 转封装失败: status={}, stderr={}", exit_status, stderr_text);
+                }
+                Err(e) => {
+                    tracing::warn!("ffmpeg 进程等待失败: {:#}", e);
+                }
+            }
+        });
+
+        let body_stream = ReaderStream::new(stdout);
+        let mut proxy_response = Response::new(axum::body::Body::from_stream(body_stream));
+
+        // FLV 转封装后的输出不支持 Range，统一用 200（浏览器会自动处理）
+        *proxy_response.status_mut() = axum::http::StatusCode::OK;
+
+        let proxy_headers = proxy_response.headers_mut();
+        proxy_headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("video/mp4"));
+
+        // 添加CORS头
+        proxy_headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+        proxy_headers.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET, HEAD, OPTIONS"),
+        );
+        proxy_headers.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, HeaderValue::from_static("Range"));
+
+        // 设置缓存控制
+        proxy_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=3600"));
+
+        Ok(proxy_response)
+    }
+
+    // 老视频可能只提供 FLV 混合流，浏览器无法直接播放：这里在在线播放时自动转封装为 mp4 输出
+    if looks_like_flv_url(stream_url) {
+        match transmux_flv_to_mp4(stream_url).await {
+            Ok(resp) => return resp,
+            Err(e) => {
+                error!("FLV 转封装代理失败: {:#}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "FLV 转封装失败，请检查 ffmpeg 是否可用",
+                )
+                    .into_response();
+            }
+        }
+    }
 
     // 使用与下载器相同的Client设置进行流式代理
     let bili_client = crate::bilibili::BiliClient::new(String::new());
@@ -9934,6 +10080,25 @@ pub async fn proxy_video_stream(
             "B站视频流请求失败",
         )
             .into_response();
+    }
+
+    // 兜底：如果上游返回的是 FLV（有时URL不带.flv），则转封装输出 mp4，兼容浏览器在线播放
+    if response_headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.to_ascii_lowercase().contains("flv"))
+    {
+        match transmux_flv_to_mp4(stream_url).await {
+            Ok(resp) => return resp,
+            Err(e) => {
+                error!("FLV 转封装代理失败: {:#}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "FLV 转封装失败，请检查 ffmpeg 是否可用",
+                )
+                    .into_response();
+            }
+        }
     }
 
     // 获取响应体

@@ -83,6 +83,10 @@ async fn stream_video_impl(video_id: String, headers: HeaderMap, db: Arc<Databas
     // 从数据库查询视频文件路径
     let video_path = find_video_file(&video_id, &db).await?;
 
+    // 兼容历史文件：有些老视频只提供 FLV 混合流，若被保存为 .mp4 会导致网页端无法播放
+    // 这里在播放前进行一次轻量自愈转封装，成功后会原地替换为可播放的 mp4
+    maybe_remux_flv_in_mp4(&video_path).await?;
+
     let file_size = fs::metadata(&video_path).await.context("无法获取文件大小")?.len();
 
     debug!("视频文件路径: {:?}, 大小: {} bytes", video_path, file_size);
@@ -103,6 +107,61 @@ async fn stream_video_impl(video_id: String, headers: HeaderMap, db: Arc<Databas
         debug!("完整文件请求");
         serve_full_content(&video_path, file_size).await
     }
+}
+
+fn file_starts_with_flv(video_path: &PathBuf) -> Result<bool> {
+    let mut file = File::open(video_path).with_context(|| format!("无法打开视频文件: {:?}", video_path))?;
+    let mut header = [0u8; 3];
+    let read = file.read(&mut header).context("读取文件头失败")?;
+    Ok(read == 3 && header == *b"FLV")
+}
+
+async fn maybe_remux_flv_in_mp4(video_path: &PathBuf) -> Result<()> {
+    let is_mp4_ext = video_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"));
+    if !is_mp4_ext {
+        return Ok(());
+    }
+
+    if !file_starts_with_flv(video_path)? {
+        return Ok(());
+    }
+
+    let stem = video_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "video".to_string());
+
+    let tmp_output = video_path.with_file_name(format!("{}.remux_tmp.mp4", stem));
+    let backup = video_path.with_file_name(format!("{}.flv_source.bak", stem));
+
+    info!("检测到 FLV 内容被保存为 .mp4，尝试转封装修复: {:?}", video_path);
+
+    let _ = fs::remove_file(&tmp_output).await;
+    crate::downloader::remux_with_ffmpeg(video_path, &tmp_output)
+        .await
+        .with_context(|| "FLV 转封装失败，请确认已安装并可执行 ffmpeg")?;
+
+    let _ = fs::remove_file(&backup).await;
+
+    // 先备份原文件，再原地替换；失败时尽量不影响继续访问原文件
+    if let Err(e) = fs::rename(video_path, &backup).await {
+        warn!("转封装替换前备份原文件失败，将跳过替换: {:#}", e);
+        let _ = fs::remove_file(&tmp_output).await;
+        return Ok(());
+    }
+
+    if let Err(e) = fs::rename(&tmp_output, video_path).await {
+        warn!("转封装替换失败，尝试还原原文件: {:#}", e);
+        let _ = fs::rename(&backup, video_path).await;
+        let _ = fs::remove_file(&tmp_output).await;
+        return Ok(());
+    }
+
+    let _ = fs::remove_file(&backup).await;
+    Ok(())
 }
 
 /// 查找视频文件路径

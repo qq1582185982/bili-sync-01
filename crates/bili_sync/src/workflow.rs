@@ -4313,8 +4313,37 @@ pub async fn fetch_page_video(
         // 正常模式：下载视频+音频
         match best_stream_result {
             BestStream::Mixed(mix_stream) => {
-                let urls = mix_stream.urls();
-                download_stream(downloader, video_model.id, &urls, page_path).await?
+                match mix_stream {
+                    // 老视频可能只返回 FLV 混合流；直接保存为 .mp4 会导致网页端无法播放
+                    crate::bilibili::Stream::Flv(_) => {
+                        let tmp_mix_path = page_path.with_extension("tmp_flv");
+                        let urls = mix_stream.urls();
+                        let downloaded_size = download_stream(downloader, video_model.id, &urls, &tmp_mix_path).await?;
+
+                        match crate::downloader::remux_with_ffmpeg(&tmp_mix_path, page_path).await {
+                            Ok(()) => {
+                                let _ = fs::remove_file(&tmp_mix_path).await;
+                                tokio::fs::metadata(page_path)
+                                    .await
+                                    .map(|metadata| metadata.len())
+                                    .unwrap_or(downloaded_size)
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "FLV 转封装失败，将保留原始文件（网页端可能无法播放，请检查 ffmpeg 是否可用）: {:#}",
+                                    e
+                                );
+                                let _ = fs::remove_file(page_path).await;
+                                fs::rename(&tmp_mix_path, page_path).await?;
+                                downloaded_size
+                            }
+                        }
+                    }
+                    _ => {
+                        let urls = mix_stream.urls();
+                        download_stream(downloader, video_model.id, &urls, page_path).await?
+                    }
+                }
             }
             BestStream::VideoAudio {
                 video: video_stream,

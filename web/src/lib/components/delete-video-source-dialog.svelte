@@ -102,7 +102,10 @@
 					</div>
 					<div class="flex items-center gap-2 text-sm">
 						<span class="font-medium">名称：</span>
-						<span class="font-mono text-gray-800 dark:text-gray-200">"{sourceName}"</span>
+						<span
+							class="min-w-0 font-mono break-words whitespace-pre-wrap text-gray-800 dark:text-gray-200"
+							>"{sourceName}"</span
+						>
 					</div>
 				</div>
 
@@ -180,7 +183,8 @@
 
 				<div class="space-y-2">
 					<label for="confirm-input" class="text-sm font-medium text-gray-700 dark:text-gray-300">
-						确认删除：请输入视频源名称 "<span class="font-mono text-red-600 dark:text-red-400"
+						确认删除：请输入视频源名称 "<span
+							class="font-mono whitespace-pre-wrap text-red-600 dark:text-red-400"
 							>{sourceName}</span
 						>"
 					</label>

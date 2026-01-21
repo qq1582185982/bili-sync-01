@@ -405,3 +405,35 @@ async fn download_range_to_file(client: Client, url: &str, path: &Path, start: u
 
     Ok(received)
 }
+
+pub async fn remux_with_ffmpeg(input_path: &Path, output_path: &Path) -> Result<()> {
+    // 确保输出目录存在
+    if let Some(parent) = output_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).await?;
+        }
+    }
+
+    // 将Path转换为字符串，防止临时值过早释放
+    let input_path_str = input_path.to_string_lossy().to_string();
+    let output_path_str = output_path.to_string_lossy().to_string();
+
+    let args = [
+        "-i",
+        &input_path_str,
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        "-y",
+        &output_path_str,
+    ];
+
+    let output = tokio::process::Command::new("ffmpeg").args(args).output().await?;
+    if !output.status.success() {
+        let stderr = str::from_utf8(&output.stderr).unwrap_or("unknown");
+        bail!("ffmpeg error: {}", stderr.trim());
+    }
+
+    Ok(())
+}
