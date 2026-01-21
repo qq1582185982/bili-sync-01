@@ -1,6 +1,7 @@
 FROM alpine:3.20 AS base
 
 ARG TARGETPLATFORM
+ARG BILI_SYNC_RELEASE_CHANNEL=stable
 
 WORKDIR /app
 
@@ -23,6 +24,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
 
 # 写入镜像构建时间（用于 /api/updates/beta 的本地时间对比，避免“编译时间 < 推送时间”导致误判）
 RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > /app/image-built-at.txt
+RUN echo -n "$BILI_SYNC_RELEASE_CHANNEL" > /app/release-channel.txt
 
 # 清理压缩文件并设置权限
 RUN rm -f ./bili-sync-rs-Linux-*.tar.gz && \

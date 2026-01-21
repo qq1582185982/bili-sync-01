@@ -8,6 +8,15 @@ fn main() {
     built::write_built_file().expect("Failed to acquire build-time information");
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=BILI_SYNC_RELEASE_CHANNEL");
+
+    // 将构建通道写入到编译期常量，供运行时区分“正式版/测试版”
+    if let Ok(value) = env::var("BILI_SYNC_RELEASE_CHANNEL") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            println!("cargo:rustc-env=BILI_SYNC_RELEASE_CHANNEL_BUILT={}", trimmed);
+        }
+    }
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let target = env::var("TARGET").unwrap();

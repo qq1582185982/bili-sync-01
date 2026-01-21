@@ -74,6 +74,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Determine release channel
+      id: release_channel
+      run: |
+        CHANNEL="beta"
+        if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
+          case "${GITHUB_REF_NAME}" in
+            dev) CHANNEL="dev" ;;
+            beta) CHANNEL="beta" ;;
+            main|master) CHANNEL="stable" ;;
+          esac
+        fi
+        echo "release_channel=$CHANNEL" >> $GITHUB_OUTPUT
+        echo "构建通道: $CHANNEL"
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
@@ -130,6 +144,8 @@ jobs:
         aria2c --version | head -1
 
     - name: Build binary
+      env:
+        BILI_SYNC_RELEASE_CHANNEL: ${{ steps.release_channel.outputs.release_channel }}
       run: |
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           cross build --release --target ${{ matrix.target }} -p bili_sync

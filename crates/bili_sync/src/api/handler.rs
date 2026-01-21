@@ -62,28 +62,52 @@ const CNB_BETA_TAG: &str = "beta";
 const CNB_LATEST_TAG: &str = "latest";
 const CNB_PACKAGES_PAGE_URL: &str = "https://cnb.cool/sviplk.com/docker/-/packages/docker/docker/bili-sync";
 const BILI_SYNC_RELEASE_CHANNEL_ENV: &str = "BILI_SYNC_RELEASE_CHANNEL";
+const BILI_SYNC_RELEASE_CHANNEL_FILE: &str = "/app/release-channel.txt";
+const BILI_SYNC_RELEASE_CHANNEL_BUILT: Option<&str> = option_env!("BILI_SYNC_RELEASE_CHANNEL_BUILT");
 
-fn get_release_channel() -> String {
-    let raw = std::env::var(BILI_SYNC_RELEASE_CHANNEL_ENV)
-        .ok()
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-
+fn normalize_release_channel(value: &str) -> Option<String> {
+    let raw = value.trim();
     if raw.is_empty() {
-        return if cfg!(debug_assertions) {
-            "dev".to_string()
-        } else {
-            "stable".to_string()
-        };
+        return None;
     }
 
     let lowered = raw.to_lowercase();
-    match lowered.as_str() {
-        "beta" | "test" | "testing" => "beta".to_string(),
-        "stable" | "release" | "latest" => "stable".to_string(),
-        "dev" | "debug" => "dev".to_string(),
-        _ => lowered,
+    let normalized = match lowered.as_str() {
+        "beta" | "test" | "testing" => "beta",
+        "stable" | "release" | "latest" => "stable",
+        "dev" | "debug" => "dev",
+        _ => lowered.as_str(),
+    };
+    Some(normalized.to_string())
+}
+
+fn get_release_channel() -> String {
+    // 1) 运行时环境变量（允许用户手动覆盖）
+    if let Ok(value) = std::env::var(BILI_SYNC_RELEASE_CHANNEL_ENV) {
+        if let Some(normalized) = normalize_release_channel(&value) {
+            return normalized;
+        }
+    }
+
+    // 2) Docker 镜像内标记文件（Dockerfile 写入，不需要用户设置环境变量）
+    if let Ok(value) = std::fs::read_to_string(BILI_SYNC_RELEASE_CHANNEL_FILE) {
+        if let Some(normalized) = normalize_release_channel(&value) {
+            return normalized;
+        }
+    }
+
+    // 3) 编译期写入（CI 构建二进制时注入）
+    if let Some(value) = BILI_SYNC_RELEASE_CHANNEL_BUILT {
+        if let Some(normalized) = normalize_release_channel(value) {
+            return normalized;
+        }
+    }
+
+    // 4) 默认值
+    if cfg!(debug_assertions) {
+        "dev".to_string()
+    } else {
+        "stable".to_string()
     }
 }
 
