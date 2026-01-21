@@ -11,11 +11,13 @@
 	import api from '$lib/api';
 	import { toast } from 'svelte-sonner';
 	import type { ApiError } from '$lib/types';
-	import { LogOut, BookOpen } from '@lucide/svelte';
+	import { LogOut, BookOpen, ScrollText } from '@lucide/svelte';
 	import ResponsiveButton from '$lib/components/responsive-button.svelte';
 	import { initTheme } from '$lib/stores/theme';
 	import ThemeToggle from '$lib/components/theme-toggle.svelte';
 	import InstallPrompt from '$lib/components/pwa/install-prompt.svelte';
+	import { Badge } from '$lib/components/ui/badge';
+	import { APP_VERSION } from '$lib/generated/app-version';
 
 	let dataLoaded = false;
 	let isAuthenticated = false;
@@ -145,6 +147,22 @@
 						</div>
 						<div class="flex items-center gap-1 sm:gap-2">
 							<ThemeToggle />
+							<Badge
+								href="/changelog"
+								variant="outline"
+								class="max-w-[160px] truncate font-mono text-[11px]"
+								title={`当前版本：${APP_VERSION}`}
+							>
+								{APP_VERSION}
+							</Badge>
+							<ResponsiveButton
+								size="sm"
+								variant="outline"
+								onclick={() => goto('/changelog')}
+								icon={ScrollText}
+								text="更新记录"
+								title="查看更新记录"
+							/>
 							<ResponsiveButton
 								size="sm"
 								variant="outline"

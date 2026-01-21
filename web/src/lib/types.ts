@@ -809,6 +809,7 @@ export interface VideoStreamInfo {
 	quality: number;
 	quality_description: string;
 	codecs: string;
+	container?: string;
 	width?: number;
 	height?: number;
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import api from '$lib/api';
@@ -23,7 +24,7 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { get } from 'svelte/store';
 
@@ -43,6 +44,183 @@
 	let isFullscreen = false; // 是否全屏模式
 	let deleteDialogOpen = false;
 	let deleting = false;
+	let videoElement: HTMLVideoElement | null = null;
+	let flvTransmuxFallbackUrl: string | null = null;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let flvPlayer: any = null;
+	let flvPlayerUrl: string | null = null;
+	let flvAttachedElement: HTMLVideoElement | null = null;
+	let flvSetupToken = 0;
+	let flvScriptPromise: Promise<any> | null = null;
+
+	function isFlvUrl(url: string): boolean {
+		const lower = url.toLowerCase();
+		return lower.includes('.flv') || lower.includes('format=flv');
+	}
+
+	function getOnlineVideoStream() {
+		if (!onlinePlayMode || !onlinePlayInfo) return null;
+		const streams = onlinePlayInfo.video_streams;
+		if (!streams || streams.length === 0) return null;
+		return streams[0] ?? null;
+	}
+
+	function abortFlvSetup() {
+		flvSetupToken += 1;
+	}
+
+	function loadFlvJs(): Promise<any> {
+		if (!browser) return Promise.reject(new Error('not in browser'));
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const existing = (window as any).flvjs;
+		if (existing) return Promise.resolve(existing);
+		if (flvScriptPromise) return flvScriptPromise;
+
+		flvScriptPromise = new Promise((resolve, reject) => {
+			const script = document.createElement('script');
+			script.src = '/vendor/flvjs/flv.min.js';
+			script.async = true;
+			script.onload = () => {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const loaded = (window as any).flvjs;
+				if (loaded) {
+					resolve(loaded);
+				} else {
+					reject(new Error('flv.js loaded but global not found'));
+				}
+			};
+			script.onerror = () => reject(new Error('failed to load flv.js'));
+			document.head.appendChild(script);
+		});
+
+		return flvScriptPromise;
+	}
+
+	function destroyFlvPlayer() {
+		if (!flvPlayer) return;
+		try {
+			if (typeof flvPlayer.pause === 'function') flvPlayer.pause();
+			if (typeof flvPlayer.unload === 'function') flvPlayer.unload();
+			if (typeof flvPlayer.detachMediaElement === 'function') flvPlayer.detachMediaElement();
+			if (typeof flvPlayer.destroy === 'function') flvPlayer.destroy();
+		} catch (error) {
+			console.warn('flv.js 清理失败:', error);
+		} finally {
+			flvPlayer = null;
+			flvPlayerUrl = null;
+			flvAttachedElement = null;
+		}
+	}
+
+	async function ensureFlvPlayer() {
+		if (!browser) return;
+
+		const stream = getOnlineVideoStream();
+		const rawUrl = stream?.url ?? null;
+		const container = typeof stream?.container === 'string' ? stream.container.toLowerCase() : '';
+		const isFlvStream = container === 'flv' || (!container && rawUrl && isFlvUrl(rawUrl));
+		if (flvTransmuxFallbackUrl && rawUrl && flvTransmuxFallbackUrl !== rawUrl) {
+			flvTransmuxFallbackUrl = null;
+		}
+
+		const wantsFlv =
+			showVideoPlayer &&
+			onlinePlayMode &&
+			!loadingPlayInfo &&
+			rawUrl &&
+			isFlvStream &&
+			!isDashSeparatedStream();
+
+		if (!wantsFlv || flvTransmuxFallbackUrl === rawUrl || !videoElement) {
+			abortFlvSetup();
+			destroyFlvPlayer();
+			return;
+		}
+
+		const proxyUrl = api.getProxyStreamUrl(rawUrl);
+		if (flvPlayer && flvPlayerUrl === proxyUrl && flvAttachedElement === videoElement) return;
+
+		const token = ++flvSetupToken;
+		destroyFlvPlayer();
+
+		try {
+			const flvjs = await loadFlvJs();
+
+			if (!flvjs?.isSupported?.()) {
+				abortFlvSetup();
+				destroyFlvPlayer();
+				if (flvTransmuxFallbackUrl !== rawUrl) {
+					flvTransmuxFallbackUrl = rawUrl;
+					toast.warning('当前浏览器不支持 FLV 直接播放，已启用兼容模式');
+				}
+				return;
+			}
+
+			await tick();
+			if (token !== flvSetupToken) return;
+			if (!videoElement) return;
+
+			const player = flvjs.createPlayer(
+				{ type: 'flv', url: proxyUrl, isLive: false },
+				{
+					enableWorker: false,
+					enableStashBuffer: false,
+					accurateSeek: true,
+					seekType: 'range',
+					autoCleanupSourceBuffer: true,
+					autoCleanupMaxBackwardDuration: 60,
+					autoCleanupMinBackwardDuration: 30
+				}
+			);
+
+			if (flvjs?.Events?.ERROR) {
+				player.on(flvjs.Events.ERROR, (type: string, detail: string, info: unknown) => {
+					console.warn('flv.js 播放错误:', type, detail, info);
+					if (rawUrl && flvTransmuxFallbackUrl !== rawUrl) {
+						flvTransmuxFallbackUrl = rawUrl;
+						toast.error('FLV 播放失败，已切换兼容模式');
+					}
+					destroyFlvPlayer();
+				});
+			}
+
+			player.attachMediaElement(videoElement);
+			player.load();
+			if (typeof player.play === 'function') {
+				void player.play();
+			}
+
+			flvPlayer = player;
+			flvPlayerUrl = proxyUrl;
+			flvAttachedElement = videoElement;
+		} catch (error) {
+			console.error('flv.js 初始化失败:', error);
+			abortFlvSetup();
+			destroyFlvPlayer();
+			if (rawUrl && flvTransmuxFallbackUrl !== rawUrl) {
+				flvTransmuxFallbackUrl = rawUrl;
+				toast.error('FLV 播放初始化失败，已启用兼容模式', {
+					description: (error as Error)?.message ?? String(error)
+				});
+			}
+		}
+	}
+
+	$: {
+		showVideoPlayer;
+		onlinePlayMode;
+		loadingPlayInfo;
+		onlinePlayInfo;
+		videoElement;
+		flvTransmuxFallbackUrl;
+		currentPlayingPageIndex;
+		void ensureFlvPlayer();
+	}
+
+	onDestroy(() => {
+		abortFlvSetup();
+		destroyFlvPlayer();
+	});
 
 	// 响应式相关
 	const isMobileQuery = new IsMobile();
@@ -347,17 +525,27 @@
 
 	// 获取视频播放源
 	function getVideoSource() {
-		if (onlinePlayMode && onlinePlayInfo) {
-			// 在线播放模式：使用代理的B站视频流
-			if (onlinePlayInfo.video_streams && onlinePlayInfo.video_streams.length > 0) {
-				const videoStream = onlinePlayInfo.video_streams[0];
-				return api.getProxyStreamUrl(videoStream.url);
+		if (onlinePlayMode) {
+			if (!onlinePlayInfo) return undefined;
+
+			const stream = getOnlineVideoStream();
+			const rawUrl = stream?.url ?? null;
+			if (!rawUrl) return undefined;
+
+			const container = typeof stream?.container === 'string' ? stream.container.toLowerCase() : '';
+			const isFlvStream = container === 'flv' || (!container && isFlvUrl(rawUrl));
+			if (!isDashSeparatedStream() && isFlvStream) {
+				if (flvTransmuxFallbackUrl === rawUrl) {
+					return api.getProxyStreamUrl(rawUrl, { transmux: true });
+				}
+				return undefined;
 			}
-		} else {
-			// 本地播放模式：使用现有的本地文件流
-			return `/api/videos/stream/${getPlayVideoId()}`;
+
+			return api.getProxyStreamUrl(rawUrl);
 		}
-		return '';
+
+		const videoId = getPlayVideoId();
+		return videoId ? `/api/videos/stream/${videoId}` : undefined;
 	}
 
 	// 获取音频播放源
@@ -810,6 +998,7 @@
 												autoplay
 												class="h-auto w-full"
 												style="aspect-ratio: 16/9; max-height: 70vh;"
+												bind:this={videoElement}
 												src={getVideoSource()}
 												crossorigin="anonymous"
 												onerror={(e) => {

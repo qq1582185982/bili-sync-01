@@ -678,6 +678,8 @@ pub struct VideoStreamInfo {
     pub quality: u32,
     pub quality_description: String,
     pub codecs: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
 }

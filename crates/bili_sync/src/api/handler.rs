@@ -9645,6 +9645,7 @@ pub async fn get_video_play_info(
                         quality: *quality as u32,
                         quality_description: get_video_quality_description(*quality),
                         codecs: get_video_codecs_description(*codecs),
+                        container: Some("dash".to_string()),
                         width: None,
                         height: None,
                     });
@@ -9670,12 +9671,18 @@ pub async fn get_video_play_info(
             // 处理混合流（FLV或MP4）- 使用与下载流程相同的方式
             let urls = stream.urls();
             if let Some((main_url, backup_urls)) = urls.split_first() {
+                let container = match stream {
+                    Stream::Flv(_) => Some("flv".to_string()),
+                    Stream::Html5Mp4(_) | Stream::EpisodeTryMp4(_) => Some("mp4".to_string()),
+                    _ => None,
+                };
                 video_streams.push(VideoStreamInfo {
                     url: main_url.to_string(),
                     backup_urls: backup_urls.iter().map(|s| s.to_string()).collect(),
                     quality: 0, // 混合流没有具体质量信息
                     quality_description: "混合流".to_string(),
                     codecs: "未知".to_string(),
+                    container,
                     width: None,
                     height: None,
                 });
@@ -9909,6 +9916,15 @@ pub async fn proxy_video_stream(
         lower.contains(".flv") || lower.contains("format=flv")
     }
 
+    fn parse_bool_query(params: &std::collections::HashMap<String, String>, key: &str) -> bool {
+        params.get(key).is_some_and(|v| {
+            matches!(
+                v.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "enable" | "enabled"
+            )
+        })
+    }
+
     async fn transmux_flv_to_mp4(stream_url: &str) -> Result<Response, anyhow::Error> {
         use axum::http::{header, HeaderValue};
 
@@ -9916,6 +9932,7 @@ pub async fn proxy_video_stream(
         let response = bili_client
             .request(reqwest::Method::GET, stream_url)
             .await
+            .header(header::ACCEPT_ENCODING, "identity")
             .send()
             .await?;
 
@@ -10025,8 +10042,11 @@ pub async fn proxy_video_stream(
         Ok(proxy_response)
     }
 
-    // 老视频可能只提供 FLV 混合流，浏览器无法直接播放：这里在在线播放时自动转封装为 mp4 输出
-    if looks_like_flv_url(stream_url) {
+    // B站网页端老视频常用 flv.js 通过 Range 拉流实现可拖动播放。
+    // 服务端默认直接代理原始流，前端若识别为 FLV 将使用 flv.js 播放，从而支持拖动。
+    // 如需强制在服务端转封装为 mp4（用于不支持 flv.js/MSE 的环境），可传参 transmux=1。
+    let transmux_enabled = parse_bool_query(&params, "transmux");
+    if transmux_enabled && looks_like_flv_url(stream_url) {
         match transmux_flv_to_mp4(stream_url).await {
             Ok(resp) => return resp,
             Err(e) => {
@@ -10042,7 +10062,10 @@ pub async fn proxy_video_stream(
 
     // 使用与下载器相同的Client设置进行流式代理
     let bili_client = crate::bilibili::BiliClient::new(String::new());
-    let mut request_builder = bili_client.request(reqwest::Method::GET, stream_url).await;
+    let mut request_builder = bili_client
+        .request(reqwest::Method::GET, stream_url)
+        .await
+        .header(header::ACCEPT_ENCODING, "identity");
 
     // 如果有Range请求，转发它
     if let Some(range) = range_header {
@@ -10082,25 +10105,6 @@ pub async fn proxy_video_stream(
             .into_response();
     }
 
-    // 兜底：如果上游返回的是 FLV（有时URL不带.flv），则转封装输出 mp4，兼容浏览器在线播放
-    if response_headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.to_ascii_lowercase().contains("flv"))
-    {
-        match transmux_flv_to_mp4(stream_url).await {
-            Ok(resp) => return resp,
-            Err(e) => {
-                error!("FLV 转封装代理失败: {:#}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "FLV 转封装失败，请检查 ffmpeg 是否可用",
-                )
-                    .into_response();
-            }
-        }
-    }
-
     // 获取响应体
     // 获取响应流而不是一次性读取所有字节
     let body_stream = response.bytes_stream();
@@ -10128,6 +10132,10 @@ pub async fn proxy_video_stream(
         HeaderValue::from_static("GET, HEAD, OPTIONS"),
     );
     proxy_headers.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, HeaderValue::from_static("Range"));
+    proxy_headers.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("Content-Type, Content-Length, Content-Range, Accept-Ranges"),
+    );
 
     // 设置缓存控制
     proxy_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=3600"));

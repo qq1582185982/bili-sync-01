@@ -1,13 +1,5 @@
 <script lang="ts">
-	import {
-		FileText,
-		ListTodo,
-		BarChart3,
-		Video,
-		Database,
-		Settings,
-		ScrollText
-	} from '@lucide/svelte';
+	import { FileText, ListTodo, BarChart3, Video, Database, Settings } from '@lucide/svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { useSidebar } from '$lib/components/ui/sidebar/context.svelte.js';
 	import { clearAll } from '$lib/stores/filter';
@@ -78,19 +70,6 @@
 								<div class="flex flex-1 items-center gap-3">
 									<FileText class="text-muted-foreground h-4 w-4" />
 									<span class="text-sm">日志</span>
-								</div>
-							</button>
-						</Sidebar.MenuButton>
-					</Sidebar.MenuItem>
-					<Sidebar.MenuItem>
-						<Sidebar.MenuButton>
-							<button
-								class="hover:bg-accent/50 text-foreground flex w-full cursor-pointer items-center rounded-lg px-3 py-2.5 font-medium transition-all duration-200"
-								on:click={() => handleNavClick('/changelog')}
-							>
-								<div class="flex flex-1 items-center gap-3">
-									<ScrollText class="text-muted-foreground h-4 w-4" />
-									<span class="text-sm">更新记录</span>
 								</div>
 							</button>
 						</Sidebar.MenuButton>

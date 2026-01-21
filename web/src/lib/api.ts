@@ -735,9 +735,10 @@ class ApiClient {
 	 * 获取代理视频流URL
 	 * @param streamUrl 原始视频流URL
 	 */
-	getProxyStreamUrl(streamUrl: string): string {
+	getProxyStreamUrl(streamUrl: string, options?: { transmux?: boolean }): string {
 		const encodedUrl = encodeURIComponent(streamUrl);
-		return `${this.baseURL}/videos/proxy-stream?url=${encodedUrl}`;
+		const transmuxParam = options?.transmux ? '&transmux=1' : '';
+		return `${this.baseURL}/videos/proxy-stream?url=${encodedUrl}${transmuxParam}`;
 	}
 
 	/**
@@ -1172,7 +1173,8 @@ export const api = {
 	/**
 	 * 获取代理视频流URL
 	 */
-	getProxyStreamUrl: (streamUrl: string) => apiClient.getProxyStreamUrl(streamUrl),
+	getProxyStreamUrl: (streamUrl: string, options?: { transmux?: boolean }) =>
+		apiClient.getProxyStreamUrl(streamUrl, options),
 
 	/**
 	 * 获取UP主投稿列表
