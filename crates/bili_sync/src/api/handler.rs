@@ -440,6 +440,55 @@ fn normalize_file_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+/// 判断路径是否属于“危险删除”范围
+///
+/// 说明：删除视频源本地文件时，会使用该函数避免误删根目录/盘符等危险路径。
+fn is_dangerous_path_for_deletion(path: &str) -> bool {
+    let norm = normalize_file_path(path).trim_end_matches('/').to_string();
+    if norm.is_empty() || norm == "/" || norm == "\\" {
+        return true;
+    }
+
+    // Windows 盘符根目录（如 "C:" 或 "F:"）属于高危路径
+    #[cfg(windows)]
+    {
+        let bytes = norm.as_bytes();
+        if bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// 删除指定目录（仅当目录存在且为空）
+fn cleanup_empty_dir_if_empty(dir: &str, label: &str) {
+    use std::fs;
+    use std::path::Path;
+
+    let dir_norm = normalize_file_path(dir).trim_end_matches('/').to_string();
+    if is_dangerous_path_for_deletion(&dir_norm) {
+        return;
+    }
+
+    let path = Path::new(&dir_norm);
+    if !path.exists() {
+        return;
+    }
+
+    match fs::read_dir(path) {
+        Ok(mut entries) => {
+            if entries.next().is_none() {
+                match fs::remove_dir(path) {
+                    Ok(_) => info!("清理空{}: {}", label, dir_norm),
+                    Err(e) => warn!("无法删除空{} {}: {}", label, dir_norm, e),
+                }
+            }
+        }
+        Err(e) => warn!("无法读取目录 {}: {}", dir_norm, e),
+    }
+}
+
 /// 清理空的父目录
 ///
 /// # 参数
@@ -3568,7 +3617,7 @@ pub async fn delete_video_source_internal(
             if delete_local_files {
                 // 添加安全检查
                 let base_path = &collection.path;
-                if base_path.is_empty() || base_path == "/" || base_path == "\\" {
+                if is_dangerous_path_for_deletion(base_path) {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
                 } else if orphaned_videos.is_empty() {
                     info!("合集 {} 没有找到需要删除的本地文件", collection.name);
@@ -3651,6 +3700,9 @@ pub async fn delete_video_source_internal(
                         info!("合集 {} 没有找到需要删除的本地文件夹", collection.name);
                     }
                 }
+
+                // 若合集基础目录也已空，则清理它（但不向上继续删除）
+                cleanup_empty_dir_if_empty(base_path, "合集基础目录");
             }
 
             // 删除孤立视频的页面数据
@@ -3719,7 +3771,7 @@ pub async fn delete_video_source_internal(
             // 如果需要删除本地文件
             if delete_local_files {
                 let base_path = &favorite.path;
-                if base_path.is_empty() || base_path == "/" || base_path == "\\" {
+                if is_dangerous_path_for_deletion(base_path) {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
                 } else if orphaned_videos.is_empty() {
                     info!("收藏夹 {} 没有找到需要删除的本地文件", favorite.name);
@@ -3802,6 +3854,9 @@ pub async fn delete_video_source_internal(
                         info!("收藏夹 {} 没有找到需要删除的本地文件夹", favorite.name);
                     }
                 }
+
+                // 若收藏夹基础目录也已空，则清理它（但不向上继续删除）
+                cleanup_empty_dir_if_empty(base_path, "收藏夹基础目录");
             }
 
             // 删除孤立视频的页面数据
@@ -3873,7 +3928,7 @@ pub async fn delete_video_source_internal(
             // 如果需要删除本地文件
             if delete_local_files {
                 let base_path = &submission.path;
-                if base_path.is_empty() || base_path == "/" || base_path == "\\" {
+                if is_dangerous_path_for_deletion(base_path) {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
                 } else if orphaned_videos.is_empty() {
                     info!("UP主投稿 {} 没有找到需要删除的本地文件", submission.upper_name);
@@ -3959,6 +4014,9 @@ pub async fn delete_video_source_internal(
                         info!("UP主投稿 {} 没有找到需要删除的本地文件夹", submission.upper_name);
                     }
                 }
+
+                // 若UP主投稿基础目录也已空，则清理它（但不向上继续删除）
+                cleanup_empty_dir_if_empty(base_path, "UP主投稿基础目录");
             }
 
             // 删除孤立视频的页面数据
@@ -4027,7 +4085,7 @@ pub async fn delete_video_source_internal(
             // 如果需要删除本地文件
             if delete_local_files {
                 let base_path = &watch_later.path;
-                if base_path.is_empty() || base_path == "/" || base_path == "\\" {
+                if is_dangerous_path_for_deletion(base_path) {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
                 } else if orphaned_videos.is_empty() {
                     info!("稍后再看没有找到需要删除的本地文件");
@@ -4109,6 +4167,9 @@ pub async fn delete_video_source_internal(
                         info!("稍后再看没有找到需要删除的本地文件夹");
                     }
                 }
+
+                // 若稍后再看基础目录也已空，则清理它（但不向上继续删除）
+                cleanup_empty_dir_if_empty(base_path, "稍后再看基础目录");
             }
 
             // 删除孤立视频的页面数据
@@ -4183,7 +4244,7 @@ pub async fn delete_video_source_internal(
             // 如果需要删除本地文件
             if delete_local_files {
                 let base_path = &bangumi.path;
-                if base_path.is_empty() || base_path == "/" || base_path == "\\" {
+                if is_dangerous_path_for_deletion(base_path) {
                     warn!("检测到危险路径，跳过删除: {}", base_path);
                 } else if orphaned_videos.is_empty() {
                     info!("番剧 {} 没有找到需要删除的本地文件", bangumi.name);
@@ -4266,6 +4327,9 @@ pub async fn delete_video_source_internal(
                         info!("番剧 {} 没有找到需要删除的本地文件夹", bangumi.name);
                     }
                 }
+
+                // 若番剧基础目录也已空，则清理它（但不向上继续删除）
+                cleanup_empty_dir_if_empty(base_path, "番剧基础目录");
             }
 
             // 删除孤立视频的页面数据

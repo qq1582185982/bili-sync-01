@@ -56,6 +56,7 @@ pub struct SeasonInfo {
     pub total_episodes: Option<i32>,           // 总集数
     pub status: Option<String>,                // 播出状态 (如"完结", "连载中")
     pub cover: Option<String>,                 // 季度封面图URL (竖版)
+    pub series_cover: Option<String>,          // 系列根目录封面（优先使用第一季竖版封面）
     pub new_ep_cover: Option<String>,          // 新EP封面图URL (来自new_ep.cover)
     pub horizontal_cover_1610: Option<String>, // 16:10横版封面URL
     pub horizontal_cover_169: Option<String>,  // 16:9横版封面URL
@@ -2964,7 +2965,11 @@ pub async fn download_video_pages(
             // 使用竖版封面作为主封面
             if is_bangumi && season_info.is_some() {
                 let season = season_info.as_ref().unwrap();
-                let poster_url = season.cover.as_deref().filter(|s| !s.is_empty());
+                let poster_url = season
+                    .series_cover
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .or(season.cover.as_deref().filter(|s| !s.is_empty()));
                 debug!("番剧「{}」poster.jpg选择逻辑:", video_model.name);
                 debug!("  最终选择的poster URL: {:?}", poster_url);
                 poster_url
@@ -3013,7 +3018,11 @@ pub async fn download_video_pages(
             // 使用竖版封面作为主封面
             if is_bangumi && season_info.is_some() {
                 let season = season_info.as_ref().unwrap();
-                let folder_url = season.cover.as_deref().filter(|s| !s.is_empty());
+                let folder_url = season
+                    .series_cover
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .or(season.cover.as_deref().filter(|s| !s.is_empty()));
                 debug!("番剧「{}」folder.jpg选择逻辑:", video_model.name);
                 debug!("  最终选择的folder URL: {:?}", folder_url);
                 folder_url
@@ -4727,6 +4736,18 @@ pub async fn fetch_bangumi_poster(
         return Ok(ExecutionStatus::Skipped);
     }
 
+    // 如果目标文件已存在且非空，则跳过重复下载（避免每季/每集都重复拉取番剧根目录 poster/folder）
+    if poster_path.exists() {
+        match std::fs::metadata(&poster_path) {
+            Ok(meta) if meta.is_file() && meta.len() > 0 => {
+                debug!("番剧封面已存在，跳过下载: {:?}", poster_path);
+                return Ok(ExecutionStatus::Succeeded);
+            }
+            Ok(_) => {}
+            Err(e) => debug!("读取番剧封面文件信息失败（继续尝试下载）: {:?} - {}", poster_path, e),
+        }
+    }
+
     debug!("开始处理番剧「{}」的主封面 poster.jpg", video_model.name);
     debug!("  poster路径: {:?}", poster_path);
     debug!("  custom_poster_url: {:?}", custom_poster_url);
@@ -5301,6 +5322,40 @@ async fn get_season_info_from_api(
     // 其他元数据
     let total_episodes = result["total"].as_i64().map(|t| t as i32);
     let cover = result["cover"].as_str().map(|s| s.to_string());
+    let series_cover = result["seasons"]
+        .as_array()
+        .and_then(|seasons| {
+            let mut best: Option<(u32, String)> = None;
+
+            for season in seasons {
+                let Some(cover_url) = season["cover"].as_str().filter(|s| !s.is_empty()) else {
+                    continue;
+                };
+
+                // 只以“第X季”为有效季数，避免特别篇/番外等误判为第1季
+                let Some(season_title) = season["season_title"].as_str().filter(|s| s.contains('季')) else {
+                    continue;
+                };
+
+                let season_full_title = season["title"].as_str().unwrap_or(title.as_str());
+                let (_, season_number) =
+                    crate::utils::bangumi_name_extractor::BangumiNameExtractor::extract_series_name_and_season(
+                        season_full_title,
+                        Some(season_title),
+                    );
+
+                match best {
+                    None => best = Some((season_number, cover_url.to_string())),
+                    Some((best_no, _)) if season_number < best_no => {
+                        best = Some((season_number, cover_url.to_string()))
+                    }
+                    _ => {}
+                }
+            }
+
+            best.map(|(_, cover_url)| cover_url)
+        })
+        .or_else(|| cover.clone());
 
     // 从seasons数组中查找当前season的横版封面信息
     let (new_ep_cover, horizontal_cover_1610, horizontal_cover_169, bkg_cover) = if let Some(seasons_array) =
@@ -5501,6 +5556,7 @@ async fn get_season_info_from_api(
         total_episodes,
         status,
         cover,
+        series_cover,
         new_ep_cover,
         horizontal_cover_1610,
         horizontal_cover_169,

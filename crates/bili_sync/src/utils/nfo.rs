@@ -517,18 +517,32 @@ impl NFO<'_> {
             .create_element("tvshow")
             .write_inner_content_async::<_, _, Error>(|writer| async move {
                 // 标题信息
-                let (display_title, original_title) = if Self::is_bangumi_video(tvshow.category) {
-                    // 对于番剧，尝试提取番剧名称作为主标题
+                let cfg = crate::config::reload_config();
+                let is_bangumi = Self::is_bangumi_video(tvshow.category);
+                let mut bangumi_series_name: Option<String> = None;
+
+                let (display_title, original_title) = if is_bangumi {
                     if let Some(bangumi_title) = Self::extract_bangumi_title_from_full_name(tvshow.name) {
-                        let cfg = crate::config::reload_config();
-                        let normalized = if cfg.bangumi_use_season_structure {
-                            crate::utils::bangumi_name_extractor::BangumiNameExtractor::normalize_series_name(
+                        if cfg.bangumi_use_season_structure {
+                            let (series_name, _) = crate::utils::bangumi_name_extractor::BangumiNameExtractor::extract_series_name_and_season(
                                 &bangumi_title,
-                            )
+                                None,
+                            );
+                            let series_name = crate::utils::bangumi_name_extractor::BangumiNameExtractor::normalize_series_name(&series_name);
+                            bangumi_series_name = Some(series_name.clone());
+                            (series_name.clone(), series_name)
                         } else {
-                            bangumi_title
-                        };
-                        (normalized, tvshow.name.to_string())
+                            (bangumi_title, tvshow.name.to_string())
+                        }
+                    } else if cfg.bangumi_use_season_structure {
+                        // 兜底：直接对标题做一次“去季”处理
+                        let (series_name, _) = crate::utils::bangumi_name_extractor::BangumiNameExtractor::extract_series_name_and_season(
+                            tvshow.name,
+                            None,
+                        );
+                        let series_name = crate::utils::bangumi_name_extractor::BangumiNameExtractor::normalize_series_name(&series_name);
+                        bangumi_series_name = Some(series_name.clone());
+                        (series_name.clone(), series_name)
                     } else {
                         (tvshow.name.to_string(), tvshow.original_title.to_string())
                     }
@@ -555,28 +569,28 @@ impl NFO<'_> {
 
                 // 排序标题
                 if let Some(ref sorttitle) = tvshow.sorttitle {
-                    let cfg = crate::config::reload_config();
-                    let sorttitle_normalized =
-                        if cfg.bangumi_use_season_structure && Self::is_bangumi_video(tvshow.category) {
-                            crate::utils::bangumi_name_extractor::BangumiNameExtractor::normalize_series_name(sorttitle)
-                        } else {
-                            sorttitle.clone()
-                        };
+                    let sorttitle_normalized = if cfg.bangumi_use_season_structure && is_bangumi {
+                        bangumi_series_name.clone().unwrap_or_else(|| {
+                            let (series_name, _) = crate::utils::bangumi_name_extractor::BangumiNameExtractor::extract_series_name_and_season(
+                                sorttitle,
+                                None,
+                            );
+                            crate::utils::bangumi_name_extractor::BangumiNameExtractor::normalize_series_name(&series_name)
+                        })
+                    } else {
+                        sorttitle.clone()
+                    };
                     writer
                         .create_element("sorttitle")
                         .write_text_content_async(BytesText::new(&sorttitle_normalized))
                         .await?;
                 } else {
                     // 使用显示标题作为默认排序标题
-                    let cfg = crate::config::reload_config();
-                    let sort_title_to_write =
-                        if cfg.bangumi_use_season_structure && Self::is_bangumi_video(tvshow.category) {
-                            crate::utils::bangumi_name_extractor::BangumiNameExtractor::normalize_series_name(
-                                &display_title,
-                            )
-                        } else {
-                            display_title.clone()
-                        };
+                    let sort_title_to_write = if cfg.bangumi_use_season_structure && is_bangumi {
+                        bangumi_series_name.clone().unwrap_or_else(|| display_title.clone())
+                    } else {
+                        display_title.clone()
+                    };
                     writer
                         .create_element("sorttitle")
                         .write_text_content_async(BytesText::new(&sort_title_to_write))
@@ -1496,9 +1510,8 @@ impl NFO<'_> {
         None
     }
 
-    /// 计算番剧的实际总季数
-    /// 通过分析番剧标题中的季度信息来推断总季数
-    #[cfg(test)]
+    /// 计算番剧的实际总季数（经验推断）
+    /// 通过分析标题中的季度信息来估算总季数。
     fn calculate_total_seasons_from_title(title: &str) -> i32 {
         // 如果标题包含季度信息，尝试提取季度数字
         if let Some(season_match) = regex::Regex::new(r"第([一二三四五六七八九十\d]+)季")
@@ -1509,7 +1522,7 @@ impl NFO<'_> {
 
             // 处理中文数字转换并返回当前检测到的季度作为总季数的估计
             // 这是基于标题的最佳猜测
-            match season_str {
+            return match season_str {
                 "一" => 1,
                 "二" => 2,
                 "三" => 3,
@@ -1521,11 +1534,11 @@ impl NFO<'_> {
                 "九" => 9,
                 "十" => 10,
                 _ => season_str.parse::<i32>().unwrap_or(1),
-            }
-        } else {
-            // 没有季度信息，假设为单季
-            1
+            };
         }
+
+        // 没有季度信息，假设为单季
+        1
     }
 
     /// 从share_copy或标题中提取副标题信息
@@ -1559,17 +1572,17 @@ impl NFO<'_> {
     }
 
     /// 根据配置策略获取演员信息（返回演员名称和角色名称）
+    ///
+    /// 设计目标：
+    /// - `actor.name` 优先使用 UP 主 UID（便于脚本稳定识别，即使 UP 主改名也能匹配）；
+    /// - `actor.role` 优先使用 UP 主昵称（用于展示）；
+    /// - 当昵称为空时按策略处理（占位/默认/跳过）。
     fn get_actor_info(upper_id: i64, upper_name: &str, config: &NFOConfig) -> Option<(String, String)> {
         let trimmed_name = upper_name.trim();
 
-        // 期望表现：
-        // - 演员 name 使用 UP 主昵称；
-        // - 角色 role 使用 UP 主ID（便于脚本根据ID管理，即使UP主改名也能统一）；
-        // - 当昵称为空时按策略处理（占位/默认/跳过）。
-
         if upper_id > 0 {
-            // 有效 UID 情况：优先使用昵称，缺省按策略补齐
-            let actor_name = if !trimmed_name.is_empty() {
+            // 有效 UID 情况：name 使用 UID，role 使用昵称（昵称为空则按策略补齐）
+            let role_name = if !trimmed_name.is_empty() {
                 trimmed_name.to_string()
             } else {
                 match config.empty_upper_strategy {
@@ -1578,12 +1591,12 @@ impl NFO<'_> {
                     EmptyUpperStrategy::Default => config.empty_upper_default_name.clone(),
                 }
             };
-            return Some((actor_name, upper_id.to_string()));
+            return Some((upper_id.to_string(), role_name));
         }
 
-        // 无效 UID 情况：同样使用昵称作为演员名，角色为"unknown"（因为没有有效ID）
+        // 无效 UID 情况：使用昵称作为 name/role（无法提供稳定ID）
         if !trimmed_name.is_empty() {
-            return Some((trimmed_name.to_string(), "unknown".to_string()));
+            return Some((trimmed_name.to_string(), trimmed_name.to_string()));
         }
 
         // 名称也为空，按策略处理
@@ -1591,11 +1604,11 @@ impl NFO<'_> {
             EmptyUpperStrategy::Skip => None,
             EmptyUpperStrategy::Placeholder => {
                 let name = config.empty_upper_placeholder.clone();
-                Some((name.clone(), "unknown".to_string()))
+                Some((name.clone(), name))
             }
             EmptyUpperStrategy::Default => {
                 let name = config.empty_upper_default_name.clone();
-                Some((name.clone(), "unknown".to_string()))
+                Some((name.clone(), name))
             }
         }
     }
@@ -1825,11 +1838,19 @@ impl<'a> From<&'a video::Model> for TVShow<'a> {
             country: None,              // 使用默认值（中国）
             studio: None,               // 使用默认值（哔哩哔哩）
             status: Some("Continuing"), // 默认持续播出状态
-            total_seasons: None,        // 不生成totalseasons，让Jellyfin自动发现
-            total_episodes: None,       // 从分页数量推断
-            duration: None,             // video模型中没有duration字段
-            view_count: None,           // video模型中没有view_count字段
-            like_count: None,           // video模型中没有like_count字段
+            total_seasons: Some(if NFO::is_bangumi_video(video.category) {
+                // 优先使用 DB 字段，其次从标题推断
+                video
+                    .season_number
+                    .filter(|n| *n > 0)
+                    .unwrap_or_else(|| NFO::calculate_total_seasons_from_title(&video.name))
+            } else {
+                1
+            }),
+            total_episodes: None, // 从分页数量推断
+            duration: None,       // video模型中没有duration字段
+            view_count: None,     // video模型中没有view_count字段
+            like_count: None,     // video模型中没有like_count字段
             category: video.category,
             tagline,
             set: set_name,
@@ -2338,8 +2359,9 @@ mod tests {
     <outline/>
     <lockdata>false</lockdata>
     <dateadded>2033-03-03 03:03:03</dateadded>
-    <title>1</title>
-    <sorttitle>1</sorttitle>
+    <title>upper_name</title>
+    <sorttitle>upper_name</sorttitle>
+    <uniqueid type="bilibili_uid" default="true">1</uniqueid>
 </person>"#,
         );
 
@@ -2430,6 +2452,62 @@ mod tests {
 
         println!("优化后的番剧Movie NFO:");
         println!("{}", movie_nfo);
+    }
+
+    #[tokio::test]
+    async fn test_bangumi_tvshow_nfo_series_title_without_season() {
+        // tvshow.nfo（番剧根目录）不应写入“第几季”
+        let video = video::Model {
+            intro: "测试番剧".to_string(),
+            name: "测试番剧".to_string(),
+            upper_id: 0,
+            upper_name: "".to_string(),
+            category: 1, // 番剧分类
+            favtime: chrono::NaiveDateTime::new(
+                chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+                chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+            ),
+            pubtime: chrono::NaiveDateTime::new(
+                chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+                chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+            ),
+            bvid: "BV1bSJez1Et8".to_string(),
+            ..Default::default()
+        };
+
+        let season_info = crate::workflow::SeasonInfo {
+            title: "仙王的日常生活 第五季".to_string(),
+            episodes: vec![],
+            alias: None,
+            evaluate: None,
+            rating: None,
+            rating_count: None,
+            areas: vec![],
+            actors: None,
+            styles: vec![],
+            total_episodes: None,
+            status: None,
+            cover: Some("https://example.com/season5.jpg".to_string()),
+            series_cover: Some("https://example.com/season1.jpg".to_string()),
+            new_ep_cover: None,
+            horizontal_cover_1610: None,
+            horizontal_cover_169: None,
+            bkg_cover: None,
+            media_id: None,
+            season_id: "1".to_string(),
+            publish_time: None,
+            total_views: None,
+            total_favorites: None,
+            show_season_type: None,
+        };
+
+        let tvshow = TVShow::from_season_info(&video, &season_info);
+        let tvshow_nfo = NFO::TVShow(tvshow).generate_nfo().await.unwrap();
+
+        assert!(tvshow_nfo.contains("<title>仙王的日常生活</title>"));
+        assert!(tvshow_nfo.contains("<originaltitle>仙王的日常生活</originaltitle>"));
+        assert!(tvshow_nfo.contains("<sorttitle>仙王的日常生活</sorttitle>"));
+        assert!(!tvshow_nfo.contains("第五季"));
     }
 
     #[tokio::test]
@@ -2526,7 +2604,7 @@ mod tests {
         };
 
         let actor_info = NFO::get_actor_info(movie.upper_id, movie.upper_name, &config);
-        assert_eq!(actor_info, Some(("官方内容".to_string(), "UP主".to_string())));
+        assert_eq!(actor_info, Some(("官方内容".to_string(), "官方内容".to_string())));
 
         // 测试Default策略
         let config = NFOConfig {
@@ -2536,15 +2614,15 @@ mod tests {
         };
 
         let actor_info = NFO::get_actor_info(movie.upper_id, movie.upper_name, &config);
-        assert_eq!(actor_info, Some(("哔哩哔哩".to_string(), "UP主".to_string())));
+        assert_eq!(actor_info, Some(("哔哩哔哩".to_string(), "哔哩哔哩".to_string())));
 
-        // 测试非空UP主名称（应该优先使用UID作为name，UP主名称作为role）
+        // 测试非空UP主名称（UID作为name，UP主名称作为role）
         let actor_info = NFO::get_actor_info(123456, "测试UP主", &config);
-        assert_eq!(actor_info, Some(("测试UP主".to_string(), "UP主".to_string())));
+        assert_eq!(actor_info, Some(("123456".to_string(), "测试UP主".to_string())));
 
         // 测试无效UID（0或负数）时使用昵称
         let actor_info = NFO::get_actor_info(0, "测试UP主", &config);
-        assert_eq!(actor_info, Some(("测试UP主".to_string(), "UP主".to_string())));
+        assert_eq!(actor_info, Some(("测试UP主".to_string(), "测试UP主".to_string())));
 
         println!("空UP主处理策略测试通过");
     }

@@ -350,21 +350,44 @@ impl NotificationConfig {
         }
     }
 
-    #[allow(dead_code)]
     pub fn validate(&self) -> Result<(), String> {
         // 验证 active_channel 的有效性
         if !["none", "serverchan", "serverchan3", "wecom"].contains(&self.active_channel.as_str()) {
             return Err(format!("无效的通知渠道: {}", self.active_channel));
         }
 
+        // 启用推送时，如果未显式选择渠道，则尝试按旧配置规则推断渠道
+        let active_channel = if self.enable_scan_notifications && self.active_channel == "none" {
+            // 优先选择 Server酱
+            if self.serverchan_key.is_some() && !self.serverchan_key.as_ref().unwrap().is_empty() {
+                "serverchan"
+            }
+            // 其次选择 Server酱3
+            else if self.serverchan3_uid.is_some()
+                && self.serverchan3_sendkey.is_some()
+                && !self.serverchan3_uid.as_ref().unwrap().is_empty()
+                && !self.serverchan3_sendkey.as_ref().unwrap().is_empty()
+            {
+                "serverchan3"
+            }
+            // 最后选择企业微信
+            else if self.wecom_webhook_url.is_some() && !self.wecom_webhook_url.as_ref().unwrap().is_empty() {
+                "wecom"
+            } else {
+                "none"
+            }
+        } else {
+            self.active_channel.as_str()
+        };
+
         // 如果启用推送，必须选择一个渠道
         if self.enable_scan_notifications {
-            if self.active_channel == "none" {
+            if active_channel == "none" {
                 return Err("启用推送通知时必须选择一个通知渠道".to_string());
             }
 
             // 验证选中渠道的配置
-            match self.active_channel.as_str() {
+            match active_channel {
                 "serverchan" => {
                     if self.serverchan_key.is_none() || self.serverchan_key.as_ref().unwrap().is_empty() {
                         return Err("已选择Server酱但未配置密钥".to_string());
@@ -714,6 +737,11 @@ impl Config {
             warn!("配置中检测到凭证未设置，程序将继续运行但功能受限");
             warn!("请通过Web管理界面添加B站登录凭证以启用完整功能");
             // 不再使用 panic!，而是允许程序继续运行
+        }
+
+        if let Err(e) = self.notification.validate() {
+            ok = false;
+            warn!("通知配置无效：{}", e);
         }
 
         ok
