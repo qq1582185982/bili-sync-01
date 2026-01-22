@@ -1130,7 +1130,12 @@ pub async fn download_unprocessed_videos(
 
     // 只有当有未处理视频时才显示日志
     if !unhandled_videos_pages.is_empty() {
-        info!("找到 {} 个未处理完成的视频", unhandled_videos_pages.len());
+        info!(
+            "开始下载阶段：{}「{}」发现 {} 个待处理视频，开始执行下载/修复任务…",
+            video_source.source_type_display(),
+            video_source.source_name_display(),
+            unhandled_videos_pages.len()
+        );
     }
 
     let mut assigned_upper = HashSet::new();
@@ -1169,6 +1174,9 @@ pub async fn download_unprocessed_videos(
         })
         .collect::<FuturesUnordered<_>>();
     let mut download_aborted = false;
+    let mut succeeded_count = 0usize;
+    let mut failed_count = 0usize;
+    let mut skipped_count = 0usize;
     let mut stream = tasks;
     // 使用循环和select来处理任务，以便在检测到取消信号时立即停止
     while let Some(res) = stream.next().await {
@@ -1177,6 +1185,7 @@ pub async fn download_unprocessed_videos(
                 if download_aborted {
                     continue;
                 }
+                succeeded_count += 1;
                 // 任务成功完成，更新数据库
                 if let Err(db_err) = update_videos_model(vec![model.clone()], connection).await {
                     error!("更新数据库失败: {:#}", db_err);
@@ -1225,6 +1234,7 @@ pub async fn download_unprocessed_videos(
                     || error_msg.contains("用户主动暂停任务")
                     || (error_msg.contains("Download cancelled") && crate::task::TASK_CONTROLLER.is_paused())
                 {
+                    skipped_count += 1;
                     info!("下载任务因用户暂停而终止: {}", error_msg);
                     continue; // 跳过暂停相关的错误，不触发风控
                 }
@@ -1239,8 +1249,10 @@ pub async fn download_unprocessed_videos(
                     // 检查是否为暂停相关错误
                     let error_msg = e.to_string();
                     if error_msg.contains("用户主动暂停任务") || error_msg.contains("任务已暂停") {
+                        skipped_count += 1;
                         info!("下载任务因用户暂停而终止");
                     } else {
+                        failed_count += 1;
                         // 任务返回了非中止的错误
                         error!("下载任务失败: {:#}", e);
                     }
@@ -1262,6 +1274,18 @@ pub async fn download_unprocessed_videos(
         bail!(DownloadAbortError());
     }
     video_source.log_download_video_end();
+
+    if succeeded_count > 0 || failed_count > 0 || skipped_count > 0 {
+        info!(
+            "下载阶段完成：{}「{}」已处理 {} 个视频（成功 {}，失败 {}，跳过 {}）",
+            video_source.source_type_display(),
+            video_source.source_name_display(),
+            succeeded_count + failed_count + skipped_count,
+            succeeded_count,
+            failed_count,
+            skipped_count
+        );
+    }
     Ok(())
 }
 
@@ -4736,8 +4760,14 @@ pub async fn fetch_bangumi_poster(
         return Ok(ExecutionStatus::Skipped);
     }
 
-    // 如果目标文件已存在且非空，则跳过重复下载（避免每季/每集都重复拉取番剧根目录 poster/folder）
-    if poster_path.exists() {
+    // 如果目标文件已存在且非空，则跳过重复下载：
+    // - 仅对番剧/合集/多P的根目录 poster.jpg / folder.jpg 生效（避免每季/每集都重复拉取）
+    // - SeasonXX-poster.jpg 等“带前缀”的文件不跳过（重置封面时需要可重新下载）
+    let skip_if_exists = matches!(
+        poster_path.file_name().and_then(|n| n.to_str()),
+        Some("poster.jpg") | Some("folder.jpg")
+    );
+    if skip_if_exists && poster_path.exists() {
         match std::fs::metadata(&poster_path) {
             Ok(meta) if meta.is_file() && meta.len() > 0 => {
                 debug!("番剧封面已存在，跳过下载: {:?}", poster_path);

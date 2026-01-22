@@ -1787,8 +1787,21 @@ pub async fn reset_specific_tasks(
                 video::Column::Category,
                 video::Column::DownloadStatus,
                 video::Column::Cover,
+                video::Column::CollectionId,
+                video::Column::SinglePage,
             ])
-            .into_tuple::<(i32, String, String, String, String, i32, u32, String)>()
+            .into_tuple::<(
+                i32,
+                String,
+                String,
+                String,
+                String,
+                i32,
+                u32,
+                String,
+                Option<i32>,
+                Option<bool>
+            )>()
             .all(db.as_ref()),
         page::Entity::find()
             .inner_join(video::Entity)
@@ -1868,7 +1881,15 @@ pub async fn reset_specific_tasks(
         .map(|(page_info, _)| page_info)
         .collect();
 
-    let all_videos_info: Vec<VideoInfo> = all_videos.into_iter().map(VideoInfo::from).collect();
+    let all_videos_info: Vec<VideoInfo> = all_videos
+        .iter()
+        .cloned()
+        .map(
+            |(id, bvid, name, upper_name, path, category, download_status, cover, _, _)| {
+                VideoInfo::from((id, bvid, name, upper_name, path, category, download_status, cover))
+            },
+        )
+        .collect();
 
     let resetted_videos_info = all_videos_info
         .into_iter()
@@ -1935,6 +1956,59 @@ pub async fn reset_specific_tasks(
         }
 
         txn.commit().await?;
+    }
+
+    // 重置视频封面时，同步删除根目录 poster.jpg / folder.jpg，
+    // 以便下次执行封面任务时可以重新下载（否则会被“存在即跳过”优化拦截）。
+    if task_indexes.contains(&0) {
+        use tokio::fs;
+
+        let config = crate::config::reload_config();
+        let mut series_roots: HashSet<String> = HashSet::new();
+
+        for (_, _, _, _, path, category, _, _, collection_id, single_page) in &all_videos {
+            if path.is_empty() {
+                continue;
+            }
+
+            let is_bangumi = *category == 1;
+            let is_collection = collection_id.is_some();
+            let is_multi_page = matches!(single_page, Some(false));
+
+            let should_have_root_posters = is_bangumi
+                || (is_collection && config.collection_use_season_structure)
+                || (is_multi_page && config.multi_page_use_season_structure);
+
+            if should_have_root_posters {
+                series_roots.insert(path.clone());
+            }
+        }
+
+        let mut deleted_count = 0usize;
+        for root in series_roots {
+            let root = std::path::PathBuf::from(root);
+            for file_name in ["poster.jpg", "folder.jpg"] {
+                let file_path = root.join(file_name);
+                match fs::metadata(&file_path).await {
+                    Ok(meta) if meta.is_file() => match fs::remove_file(&file_path).await {
+                        Ok(_) => {
+                            deleted_count += 1;
+                            debug!("已删除根目录封面文件: {:?}", file_path);
+                        }
+                        Err(e) => warn!("删除根目录封面文件失败: {:?} - {}", file_path, e),
+                    },
+                    Ok(_) => {}
+                    Err(_) => {}
+                }
+            }
+        }
+
+        if deleted_count > 0 {
+            info!(
+                "重置视频封面：已清理 {} 个根目录封面文件（poster.jpg/folder.jpg）",
+                deleted_count
+            );
+        }
     }
 
     Ok(ApiResponse::ok(ResetAllVideosResponse {
