@@ -3,6 +3,7 @@ use futures::stream::FuturesUnordered;
 use futures::TryStreamExt;
 use prost::Message;
 use reqwest::Method;
+use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -324,6 +325,42 @@ impl<'a> Video<'a> {
     }
 
     pub async fn get_tags(&self) -> Result<Vec<Tag>> {
+        // 优先使用 view/detail 获取标签（包含 bgm/music 识别标签，例如：发现《xxx》）
+        // 如果请求失败或字段缺失，再回退到旧的 view/detail/tag 接口。
+        let mut tags = match self.get_tags_from_view_detail().await {
+            Ok(tags) if !tags.is_empty() => tags,
+            _ => self.get_tags_from_view_detail_tag().await?,
+        };
+
+        // 去重（保持原有顺序）
+        let mut seen = HashSet::new();
+        tags.retain(|t| !t.tag_name.is_empty() && seen.insert(t.tag_name.clone()));
+
+        Ok(tags)
+    }
+
+    async fn get_tags_from_view_detail(&self) -> Result<Vec<Tag>> {
+        let mut res = self
+            .client
+            .request(Method::GET, "https://api.bilibili.com/x/web-interface/view/detail")
+            .await
+            .query(&[("aid", &self.aid), ("bvid", &self.bvid)])
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?
+            .validate()?;
+
+        let tags_value = res["data"]["Tags"].take();
+        if tags_value.is_array() {
+            Ok(serde_json::from_value(tags_value)?)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    async fn get_tags_from_view_detail_tag(&self) -> Result<Vec<Tag>> {
         let mut res = self
             .client
             .request(Method::GET, "https://api.bilibili.com/x/web-interface/view/detail/tag")
