@@ -32,7 +32,6 @@ fn main() {
 
     // 如果二进制文件已存在，跳过获取
     if binary_path.exists() {
-        println!("cargo:warning=aria2二进制文件已存在: {}", binary_path.display());
         return;
     }
 

@@ -302,12 +302,6 @@ impl<'a> Submission<'a> {
         }
     }
 
-    /// 获取上次处理的页码（用于断点续传）
-    #[allow(dead_code)]
-    fn get_last_processed_page_key(&self) -> String {
-        format!("submission_last_page_{}", self.upper_id)
-    }
-
     /// 获取上次处理的检查点（用于断点续传）
     async fn get_last_processed_checkpoint(&self) -> anyhow::Result<(usize, usize)> {
         let tracker = SUBMISSION_PAGE_TRACKER.read().unwrap();

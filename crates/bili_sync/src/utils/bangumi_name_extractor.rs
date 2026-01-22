@@ -162,7 +162,6 @@ impl BangumiNameExtractor {
     ///
     /// # 返回值
     /// 标准的季度文件夹名称，例如 "Season 01"、"Season 02"
-    #[allow(dead_code)]
     pub fn generate_season_folder_name(season_number: u32) -> String {
         format!("Season {:02}", season_number)
     }

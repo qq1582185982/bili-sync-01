@@ -37,7 +37,6 @@ impl ScanCollector {
     }
 
     /// 记录新增的视频信息
-    #[allow(dead_code)]
     pub fn add_new_video(&mut self, video_source: &VideoSourceEnum, video_info: NewVideoInfo) {
         let key = self.get_source_key(video_source);
         if let Some(result) = self.source_results.get_mut(&key) {
@@ -54,10 +53,23 @@ impl ScanCollector {
             videos.len()
         );
 
-        if let Some(result) = self.source_results.get_mut(&key) {
-            let before_count = result.new_videos.len();
-            result.new_videos.extend(videos);
-            let after_count = result.new_videos.len();
+        if self.source_results.contains_key(&key) {
+            let before_count = self
+                .source_results
+                .get(&key)
+                .map(|result| result.new_videos.len())
+                .unwrap_or(0);
+
+            for video_info in videos {
+                self.add_new_video(video_source, video_info);
+            }
+
+            let after_count = self
+                .source_results
+                .get(&key)
+                .map(|result| result.new_videos.len())
+                .unwrap_or(before_count);
+
             debug!(
                 "scan_collector更新: {} 从{}个视频增加到{}个",
                 key, before_count, after_count
@@ -70,7 +82,7 @@ impl ScanCollector {
     /// 生成扫描摘要
     pub fn generate_summary(self) -> ScanSummary {
         let scan_duration = self.start_time.elapsed();
-        let total_new_videos = self.source_results.values().map(|result| result.new_videos.len()).sum();
+        let total_new_videos = self.total_new_videos();
 
         debug!(
             "scan_collector.generate_summary: total_sources={}, total_new_videos={}",
@@ -95,7 +107,6 @@ impl ScanCollector {
     }
 
     /// 获取当前总的新增视频数量
-    #[allow(dead_code)]
     pub fn total_new_videos(&self) -> usize {
         self.source_results.values().map(|result| result.new_videos.len()).sum()
     }
@@ -117,22 +128,12 @@ impl Default for ScanCollector {
 }
 
 /// 从视频信息创建NewVideoInfo结构
-#[allow(dead_code)]
-pub fn create_new_video_info(
-    title: &str,
-    bvid: &str,
-    upper_name: &str,
-    video_source: &VideoSourceEnum,
-) -> NewVideoInfo {
+pub fn create_new_video_info(title: &str, bvid: &str) -> NewVideoInfo {
     NewVideoInfo {
         title: title.to_string(),
         bvid: bvid.to_string(),
-        upper_name: upper_name.to_string(),
-        source_type: video_source.source_type_display(),
-        source_name: video_source.source_name_display(),
         pubtime: None,
         episode_number: None,
-        season_number: None,
-        video_id: None, // 测试代码中没有video_id
+        video_id: None,
     }
 }

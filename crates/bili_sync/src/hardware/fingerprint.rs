@@ -13,9 +13,7 @@ static CURRENT_USER_ID: OnceLock<i64> = OnceLock::new();
 pub struct HardwareFingerprint {
     hardware: HardwareInfo,
     screen_resolution: (u32, u32),
-    #[allow(dead_code)] // 保留以备未来使用
     device_pixel_ratio: f32,
-    #[allow(dead_code)] // 保留以备未来使用
     timezone_offset: i32,
 }
 

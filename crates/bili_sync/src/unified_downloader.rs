@@ -14,13 +14,11 @@ pub enum UnifiedDownloader {
 
 impl UnifiedDownloader {
     /// 创建原生下载器
-    #[allow(dead_code)]
     pub fn new_native(client: Client) -> Self {
         Self::Native(Downloader::new(client))
     }
 
     /// 创建aria2下载器
-    #[allow(dead_code)]
     pub async fn new_aria2(client: Client) -> Result<Self> {
         let aria2_downloader = Aria2Downloader::new(client).await?;
         Ok(Self::Aria2(aria2_downloader))
@@ -35,24 +33,24 @@ impl UnifiedDownloader {
         // 检查是否启用了多线程下载
         if !parallel.enabled {
             info!("多线程下载已禁用，使用原生下载器");
-            return Self::Native(Downloader::new(client));
+            return Self::new_native(client);
         }
 
         // 如果用户关闭了 aria2，则直接使用原生多线程分片下载
         if !parallel.use_aria2 {
             info!("已关闭aria2，使用原生多线程下载");
-            return Self::Native(Downloader::new(client));
+            return Self::new_native(client);
         }
 
         // 如果启用了多线程下载，尝试使用aria2
-        match Aria2Downloader::new(client.clone()).await {
-            Ok(aria2_downloader) => {
+        match Self::new_aria2(client.clone()).await {
+            Ok(downloader) => {
                 info!("成功初始化aria2下载器");
-                Self::Aria2(aria2_downloader)
+                downloader
             }
             Err(e) => {
                 warn!("aria2下载器初始化失败，回退到原生下载器: {:#}", e);
-                Self::Native(Downloader::new(client))
+                Self::new_native(client)
             }
         }
     }
@@ -73,36 +71,7 @@ impl UnifiedDownloader {
         }
     }
 
-    /// 智能下载：根据文件大小和配置决定使用哪种下载方式
-    #[allow(dead_code)]
-    pub async fn smart_fetch(&self, url: &str, path: &Path) -> Result<()> {
-        match self {
-            Self::Native(downloader) => {
-                // 原生下载器会根据配置决定是否启用分片多线程下载
-                info!("原生下载器开始下载");
-                downloader.fetch(url, path).await
-            }
-            Self::Aria2(downloader) => {
-                // aria2下载器：使用智能下载功能
-                downloader.smart_fetch(url, path).await
-            }
-        }
-    }
-
-    /// 重新启动下载器（用于配置更新）
-    #[allow(dead_code)]
-    pub async fn restart(&mut self) -> Result<()> {
-        match self {
-            Self::Native(_) => {
-                // 原生下载器不需要重启操作
-                Ok(())
-            }
-            Self::Aria2(downloader) => downloader.restart().await,
-        }
-    }
-
     /// 优雅关闭下载器
-    #[allow(dead_code)]
     pub async fn shutdown(&self) -> Result<()> {
         match self {
             Self::Native(_) => {
@@ -111,17 +80,5 @@ impl UnifiedDownloader {
             }
             Self::Aria2(downloader) => downloader.shutdown().await,
         }
-    }
-
-    /// 检查是否为aria2下载器
-    #[allow(dead_code)]
-    pub fn is_aria2(&self) -> bool {
-        matches!(self, Self::Aria2(_))
-    }
-
-    /// 检查是否为原生下载器
-    #[allow(dead_code)]
-    pub fn is_native(&self) -> bool {
-        matches!(self, Self::Native(_))
     }
 }

@@ -105,8 +105,6 @@ pub struct Aria2Downloader {
     aria2_instances: Arc<Mutex<Vec<Aria2Instance>>>,
     aria2_binary_path: PathBuf,
     instance_count: usize,
-    #[allow(dead_code)]
-    next_instance_index: std::sync::atomic::AtomicUsize,
 }
 
 impl Aria2Downloader {
@@ -141,7 +139,6 @@ impl Aria2Downloader {
             aria2_instances: Arc::new(Mutex::new(Vec::new())),
             aria2_binary_path,
             instance_count,
-            next_instance_index: std::sync::atomic::AtomicUsize::new(0),
         };
 
         // 启动所有aria2进程实例
@@ -1356,12 +1353,6 @@ impl Aria2Downloader {
         }
     }
 
-    /// 智能下载：对于多进程aria2，直接使用aria2下载
-    pub async fn smart_fetch(&self, url: &str, path: &Path) -> Result<()> {
-        // 对于多进程aria2，直接使用aria2下载
-        self.fetch_with_aria2_fallback(&[url], path).await
-    }
-
     /// 合并视频和音频文件
     pub async fn merge(&self, video_path: &Path, audio_path: &Path, output_path: &Path) -> Result<()> {
         use crate::downloader::Downloader;
@@ -1369,24 +1360,6 @@ impl Aria2Downloader {
         // 使用内置的合并功能
         let temp_downloader = Downloader::new(self.client.clone());
         temp_downloader.merge(video_path, audio_path, output_path).await
-    }
-
-    /// 重新启动所有aria2进程（增强版）
-    pub async fn restart(&mut self) -> Result<()> {
-        info!("重新启动所有aria2实例...");
-
-        // 关闭现有实例
-        self.shutdown().await?;
-
-        // 等待一段时间确保进程完全退出
-        tokio::time::sleep(Duration::from_millis(3000)).await;
-
-        // 重新启动实例
-        self.start_all_instances().await?;
-
-        // 重启后不立即进行健康检查，因为实例刚启动，让后台监控处理
-        info!("所有aria2实例已重新启动，健康状态将由后台监控验证");
-        Ok(())
     }
 
     /// 优雅关闭所有aria2进程
@@ -1646,7 +1619,6 @@ impl Aria2Downloader {
             aria2_instances: Arc::new(Mutex::new(Vec::new())),
             aria2_binary_path,
             instance_count: 1,
-            next_instance_index: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -1878,24 +1850,6 @@ impl Aria2Downloader {
         }
 
         unreachable!()
-    }
-
-    /// 获取所有实例的状态信息
-    #[allow(dead_code)]
-    pub async fn get_instances_status(&self) -> Vec<(u16, String, usize, bool)> {
-        let mut instances = self.aria2_instances.lock().await;
-        let mut status_list = Vec::new();
-
-        for instance in instances.iter_mut() {
-            let port = instance.rpc_port;
-            let secret = instance.rpc_secret.clone();
-            let load = instance.get_load();
-            let healthy = instance.is_healthy();
-
-            status_list.push((port, secret, load, healthy));
-        }
-
-        status_list
     }
 
     /// 增强的文件验证逻辑

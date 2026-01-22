@@ -213,7 +213,6 @@ impl BangumiSource {
                 let ep_title = episode["title"].as_str().unwrap_or_default().to_string();
                 let long_title = episode["long_title"].as_str().unwrap_or_default().to_string();
                 let share_copy = episode["share_copy"].as_str().map(|s| s.to_string());
-                let aid = episode["aid"].as_i64().unwrap_or(0);
                 let cid = episode["cid"].as_i64().unwrap_or(0);
                 let _duration = episode["duration"].as_i64().unwrap_or(0) / 1000; // 毫秒转秒
                 let episode_cover = episode["cover"].as_str().unwrap_or(&cover).to_string();
@@ -224,7 +223,6 @@ impl BangumiSource {
                 let video_info = VideoInfo::Bangumi {
                     title: if long_title.is_empty() { title.clone() } else { long_title },
                     bvid: bvid.clone(),
-                    aid: aid.to_string(),
                     cid: cid.to_string(),
                     ep_id: episode["id"].as_i64().unwrap_or(0).to_string(),
                     cover: episode_cover,

@@ -358,28 +358,9 @@ pub struct BatchUpdateConfigRequest {
 
 // 配置历史查询请求
 #[derive(Deserialize, IntoParams)]
-#[allow(dead_code)]
 pub struct ConfigHistoryRequest {
     pub key: Option<String>,
     pub limit: Option<u64>,
-    pub offset: Option<u64>,
-}
-
-// 配置导出请求
-#[derive(Deserialize, ToSchema)]
-#[allow(dead_code)]
-pub struct ConfigExportRequest {
-    pub format: String,            // "json" 或 "toml"
-    pub keys: Option<Vec<String>>, // 指定要导出的配置键，None表示导出全部
-}
-
-// 配置导入请求
-#[derive(Deserialize, ToSchema)]
-#[allow(dead_code)]
-pub struct ConfigImportRequest {
-    pub format: String, // "json" 或 "toml"
-    pub data: String,   // 配置数据
-    pub merge: bool,    // 是否合并现有配置，false表示覆盖
 }
 
 // 初始设置相关请求
@@ -406,10 +387,7 @@ pub struct UpdateCredentialRequest {
 
 // 生成二维码请求
 #[derive(Deserialize, ToSchema)]
-pub struct QRGenerateRequest {
-    #[allow(dead_code)]
-    pub client_type: Option<String>, // "web" 或 "tv"，默认为 "web"
-}
+pub struct QRGenerateRequest {}
 
 // 轮询二维码状态请求
 #[derive(Deserialize, IntoParams)]

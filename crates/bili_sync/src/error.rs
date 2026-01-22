@@ -279,14 +279,6 @@ impl ErrorClassifier {
                 )
                 .with_retry_policy(false, true) // 不重试，可忽略（跳过该视频）
             }
-            crate::bilibili::BiliError::NetworkTimeout => {
-                ClassifiedError::new(ErrorType::Timeout, "网络超时或DNS解析失败".to_string())
-                    .with_retry_policy(true, false) // 网络超时可重试
-            }
-            crate::bilibili::BiliError::VideoStreamDenied(code) => {
-                ClassifiedError::new(ErrorType::NotFound, format!("视频流访问被拒绝: {}", code))
-                    .with_retry_policy(false, true) // 不重试，可忽略
-            }
             crate::bilibili::BiliError::VideoStreamEmpty(msg) => {
                 ClassifiedError::new(ErrorType::NotFound, format!("视频流为空: {}", msg))
                     .with_retry_policy(false, true) // 不重试，可忽略

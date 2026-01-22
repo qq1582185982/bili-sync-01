@@ -107,10 +107,6 @@ pub enum VideoInfo {
         /// 用户是否有权限观看充电专享视频
         #[serde(default)]
         is_upower_play: Option<bool>,
-        /// 是否为充电专享预览
-        #[serde(default)]
-        #[allow(dead_code)]
-        is_upower_preview: Option<bool>,
     },
     /// 从收藏夹接口获取的视频信息
     Favorite {
@@ -179,10 +175,7 @@ pub enum VideoInfo {
         season_id: String,
         ep_id: String,
         bvid: String,
-        #[allow(dead_code)]
         cid: String,
-        #[allow(dead_code)]
-        aid: String,
         cover: String,
         intro: String,
         #[serde(with = "ts_seconds")]

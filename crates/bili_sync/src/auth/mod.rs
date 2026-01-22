@@ -41,8 +41,6 @@ pub struct UserInfo {
 struct QRSession {
     qrcode_key: String,
     created_at: Instant,
-    #[allow(dead_code)]
-    status: LoginStatus,
 }
 
 /// 扫码登录服务
@@ -68,6 +66,9 @@ impl QRLoginService {
     /// 生成二维码
     pub async fn generate_qr_code(&self) -> Result<(String, QRCodeInfo)> {
         tracing::info!("开始调用B站API生成二维码");
+
+        // 避免会话表无限增长
+        self.cleanup_expired_sessions().await;
 
         // 首先访问B站主页获取 buvid3
         let homepage_url = "https://www.bilibili.com";
@@ -137,7 +138,6 @@ impl QRLoginService {
         let session = QRSession {
             qrcode_key: qr_info.qrcode_key.clone(),
             created_at: Instant::now(),
-            status: LoginStatus::Pending,
         };
 
         self.sessions.write().await.insert(session_id.clone(), session);
@@ -379,7 +379,6 @@ impl QRLoginService {
     }
 
     /// 清理过期会话
-    #[allow(dead_code)]
     pub async fn cleanup_expired_sessions(&self) {
         let mut sessions = self.sessions.write().await;
         sessions.retain(|_, session| {

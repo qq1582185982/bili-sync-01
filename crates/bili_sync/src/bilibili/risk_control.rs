@@ -178,23 +178,4 @@ impl<'a> RiskControl<'a> {
         tracing::info!("验证成功，获取到gaia_vtoken: {}", validate_response.grisk_id);
         Ok(validate_response.grisk_id)
     }
-
-    /// 完整的风控处理流程（需要人工介入验证码）
-    ///
-    /// 注意：此方法需要实现验证码的人工处理，目前仅作为接口预留
-    #[allow(dead_code)]
-    pub async fn handle_full_verification(&self) -> Result<String> {
-        // 1. 申请验证码
-        let captcha_info = self.register().await?;
-
-        tracing::warn!(
-            "需要完成验证码验证，请访问极验验证界面：gt={}, challenge={}",
-            captcha_info.geetest.as_ref().unwrap().gt,
-            captcha_info.geetest.as_ref().unwrap().challenge
-        );
-
-        // 2. 这里需要实现验证码的人工处理或自动化验证
-        // 由于需要人工介入，暂时不实现
-        anyhow::bail!("验证码验证需要人工介入，暂不支持自动化处理");
-    }
 }

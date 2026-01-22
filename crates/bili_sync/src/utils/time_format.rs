@@ -23,11 +23,10 @@ pub fn beijing_now() -> DateTime<FixedOffset> {
 
 /// 获取当前时间的标准格式字符串（北京时间）
 pub fn now_standard_string() -> String {
-    beijing_now().format(STANDARD_TIME_FORMAT).to_string()
+    now_naive().format(STANDARD_TIME_FORMAT).to_string()
 }
 
 /// 获取当前时间的 NaiveDateTime (北京时间，无时区信息)
-#[allow(dead_code)]
 pub fn now_naive() -> NaiveDateTime {
     // 获取北京时间，去除微秒部分
     let now = beijing_now();
@@ -92,7 +91,6 @@ pub fn timestamp_to_beijing_string(timestamp: i64) -> String {
 }
 
 /// 将 Unix 时间戳转换为标准格式字符串（北京时间） - 兼容性别名
-#[allow(dead_code)]
 pub fn timestamp_to_standard_string(timestamp: i64) -> String {
     timestamp_to_beijing_string(timestamp)
 }

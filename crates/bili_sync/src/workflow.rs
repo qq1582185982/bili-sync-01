@@ -37,6 +37,7 @@ use crate::utils::model::{
 };
 use crate::utils::nfo::NFO;
 use crate::utils::notification::NewVideoInfo;
+use crate::utils::scan_collector::create_new_video_info;
 use crate::utils::status::{PageStatus, VideoStatus, STATUS_OK};
 
 // 新增：番剧季信息结构体
@@ -64,8 +65,6 @@ pub struct SeasonInfo {
     pub publish_time: Option<String>,          // 发布时间
     pub total_views: Option<i64>,              // 总播放量
     pub total_favorites: Option<i64>,          // 总收藏数
-    #[allow(dead_code)]
-    pub total_seasons: Option<i32>, // 总季数（从API的seasons数组计算）
     pub show_season_type: Option<i32>,         // 番剧季度类型
 }
 
@@ -501,7 +500,7 @@ pub async fn refresh_video_source<'a>(
                 };
 
                 if let Some(idx) = video_info_idx {
-                    let (title, _, upper_name, bangumi_episode, _) = &temp_video_infos[idx];
+                    let (title, _, _upper_name, bangumi_episode, _) = &temp_video_infos[idx];
 
                     // 使用数据库中的发布时间（已经是北京时间）
                     let pubtime = new_video.pubtime.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -515,17 +514,11 @@ pub async fn refresh_video_source<'a>(
                         new_video.episode_number
                     };
 
-                    new_videos.push(NewVideoInfo {
-                        title: title.clone(),
-                        bvid: new_video.bvid.clone(),
-                        upper_name: upper_name.clone(),
-                        source_type: video_source.source_type_display(),
-                        source_name: video_source.source_name_display(),
-                        pubtime: Some(pubtime),
-                        episode_number,
-                        season_number: None,
-                        video_id: Some(new_video.id), // 添加视频ID，用于后续过滤
-                    });
+                    let mut info = create_new_video_info(title, &new_video.bvid);
+                    info.pubtime = Some(pubtime);
+                    info.episode_number = episode_number;
+                    info.video_id = Some(new_video.id);
+                    new_videos.push(info);
                 }
             }
 
@@ -1271,126 +1264,6 @@ pub async fn download_unprocessed_videos(
     Ok(())
 }
 
-/// 检查并修复AI命名一致性
-///
-/// 遍历视频源目录下的所有视频文件，使用AI检测哪些文件命名格式与多数不一致，
-/// 然后对这些异类文件重新进行AI重命名。
-///
-/// 注意：此函数已弃用，批量处理模式下不再需要一致性检查
-#[allow(dead_code)]
-async fn check_and_fix_naming_consistency(
-    video_source: &VideoSourceEnum,
-    ai_config: &crate::utils::ai_rename::AiRenameConfig,
-) -> Result<()> {
-    use crate::utils::ai_rename;
-    use std::collections::HashSet;
-
-    let source_key = video_source.source_key();
-    let source_path = video_source.path();
-
-    // 视频/音频扩展名集合
-    let media_exts: HashSet<&str> = ["mp4", "mkv", "flv", "webm", "avi", "m4a", "mp3", "flac"]
-        .into_iter()
-        .collect();
-
-    // 收集源目录下所有视频文件的 stem（递归搜索，因为可能有Season子目录）
-    let mut video_stems: Vec<String> = Vec::new();
-    let mut file_paths: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
-
-    fn collect_video_files(
-        dir: &std::path::Path,
-        media_exts: &HashSet<&str>,
-        video_stems: &mut Vec<String>,
-        file_paths: &mut std::collections::HashMap<String, std::path::PathBuf>,
-    ) {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    collect_video_files(&path, media_exts, video_stems, file_paths);
-                } else if path.is_file() {
-                    if let (Some(stem), Some(ext)) = (
-                        path.file_stem().and_then(|s| s.to_str()),
-                        path.extension().and_then(|s| s.to_str()),
-                    ) {
-                        if media_exts.contains(ext.to_lowercase().as_str()) {
-                            video_stems.push(stem.to_string());
-                            file_paths.insert(stem.to_string(), path);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    collect_video_files(&source_path, &media_exts, &mut video_stems, &mut file_paths);
-
-    if video_stems.len() < 3 {
-        debug!("[{}] 视频文件数量不足3个，跳过一致性检查", source_key);
-        return Ok(());
-    }
-
-    info!(
-        "[{}] 开始AI命名一致性检查，共 {} 个视频文件",
-        source_key,
-        video_stems.len()
-    );
-
-    // 调用AI检测不一致的文件
-    let inconsistent = match ai_rename::find_inconsistent_filenames(ai_config, &source_key, &video_stems).await {
-        Ok(list) => list,
-        Err(e) => {
-            warn!("[{}] 一致性检测API调用失败: {}", source_key, e);
-            return Ok(());
-        }
-    };
-
-    if inconsistent.is_empty() {
-        info!("[{}] 所有文件命名格式一致，无需修复", source_key);
-        return Ok(());
-    }
-
-    info!(
-        "[{}] 发现 {} 个命名不一致的文件，开始修复",
-        source_key,
-        inconsistent.len()
-    );
-
-    // 获取视频源自定义提示词
-    let video_prompt_override = video_source.ai_rename_video_prompt();
-    let audio_prompt_override = video_source.ai_rename_audio_prompt();
-
-    // 对每个不一致的文件进行重命名
-    for stem in &inconsistent {
-        if let Some(file_path) = file_paths.get(stem) {
-            match ai_rename::rename_inconsistent_file(
-                ai_config,
-                &source_key,
-                file_path,
-                video_prompt_override,
-                audio_prompt_override,
-            )
-            .await
-            {
-                Ok(new_path) => {
-                    info!(
-                        "[{}] 一致性修复成功: {} → {}",
-                        source_key,
-                        file_path.display(),
-                        new_path.display()
-                    );
-                }
-                Err(e) => {
-                    warn!("[{}] 一致性修复失败 {}: {}", source_key, file_path.display(), e);
-                }
-            }
-        }
-    }
-
-    info!("[{}] AI命名一致性检查完成", source_key);
-    Ok(())
-}
-
 /// 视频源下载完成后批量执行 AI 重命名
 ///
 /// 此函数在所有视频下载完成后调用，避免了单个视频重命名时可能导致的
@@ -2032,8 +1905,6 @@ pub struct DownloadPageArgs<'a> {
     pub connection: &'a DatabaseConnection,
     pub downloader: &'a UnifiedDownloader,
     pub base_path: &'a Path,
-    #[allow(dead_code)]
-    pub token: CancellationToken,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2282,7 +2153,10 @@ pub async fn download_video_pages(
                 let series_root_path = bangumi_root_path.join(&base_series_name_raw);
 
                 // 生成标准的Season文件夹名称，根据实际季度编号生成
-                let season_folder_name = format!("Season {:02}", season_number);
+                let season_folder_name =
+                    crate::utils::bangumi_name_extractor::BangumiNameExtractor::generate_season_folder_name(
+                        season_number,
+                    );
                 let season_path = series_root_path.join(&season_folder_name);
 
                 (season_path, Some(season_folder_name), Some(series_root_path))
@@ -3175,7 +3049,6 @@ pub async fn download_video_pages(
                 connection,
                 downloader,
                 base_path: &base_path,
-                token: token.clone(),
             },
             token.clone()
         )
@@ -5612,22 +5485,6 @@ async fn get_season_info_from_api(
         styles
     );
 
-    // 从API的seasons数组计算总季数
-    let total_seasons = if let Some(seasons_array) = result["seasons"].as_array() {
-        if seasons_array.is_empty() {
-            // 单季度番剧：seasons数组为空，默认为1季
-            Some(1)
-        } else {
-            // 多季度番剧：seasons数组长度就是总季数
-            Some(seasons_array.len() as i32)
-        }
-    } else {
-        // 没有seasons字段，假设为单季
-        Some(1)
-    };
-
-    debug!("番剧 {} 总季数计算完成: {} 季", title, total_seasons.unwrap_or(1));
-
     // 获取show_season_type
     let show_season_type = result["type"].as_i64().map(|v| v as i32);
 
@@ -5653,7 +5510,6 @@ async fn get_season_info_from_api(
         publish_time,
         total_views,
         total_favorites,
-        total_seasons,
         show_season_type,
     })
 }

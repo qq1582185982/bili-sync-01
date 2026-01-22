@@ -23,7 +23,6 @@ pub struct Movie<'a> {
     pub original_title: &'a str,
     pub intro: &'a str,
     pub bvid: &'a str,
-    #[allow(dead_code)]
     pub upper_id: i64,
     pub upper_name: &'a str,
     pub aired: NaiveDateTime,
@@ -54,7 +53,6 @@ pub struct TVShow<'a> {
     pub original_title: &'a str,
     pub intro: &'a str,
     pub bvid: &'a str,
-    #[allow(dead_code)]
     pub upper_id: i64,
     pub upper_name: &'a str,
     pub aired: NaiveDateTime,
@@ -92,7 +90,6 @@ pub struct Upper {
 pub struct Episode<'a> {
     pub name: &'a str,
     pub original_title: &'a str,
-    #[allow(dead_code)]
     pub pid: String,
     pub plot: Option<&'a str>,
     pub season: i32,
@@ -118,7 +115,6 @@ pub struct Season<'a> {
     pub intro: &'a str,
     pub season_number: i32,
     pub bvid: &'a str,
-    #[allow(dead_code)]
     pub upper_id: i64,
     pub upper_name: &'a str,
     pub aired: NaiveDateTime,
@@ -1502,7 +1498,7 @@ impl NFO<'_> {
 
     /// 计算番剧的实际总季数
     /// 通过分析番剧标题中的季度信息来推断总季数
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn calculate_total_seasons_from_title(title: &str) -> i32 {
         // 如果标题包含季度信息，尝试提取季度数字
         if let Some(season_match) = regex::Regex::new(r"第([一二三四五六七八九十\d]+)季")
@@ -1553,26 +1549,6 @@ impl NFO<'_> {
             }
         }
         None
-    }
-
-    /// 从完整标题中提取集数信息
-    #[allow(dead_code)]
-    fn extract_episode_info_from_full_name(full_name: &str) -> String {
-        // 匹配 "第X话/集 副标题" 格式
-        let pattern = regex::Regex::new(r"第(\d+)[话集]\s*(.*)").unwrap();
-        if let Some(caps) = pattern.captures(full_name) {
-            let episode_num = &caps[1];
-            let subtitle = caps.get(2).map_or("", |m| m.as_str().trim());
-
-            if subtitle.is_empty() {
-                format!("第{}集", episode_num)
-            } else {
-                format!("第{}集 {}", episode_num, subtitle)
-            }
-        } else {
-            // 如果无法提取，返回原标题
-            full_name.to_string()
-        }
     }
 
     /// 验证NFO数据的有效性
@@ -1901,7 +1877,6 @@ impl<'a> TVShow<'a> {
 // 带页面数据的转换实现，用于计算总时长
 impl<'a> Movie<'a> {
     /// 从视频模型和页面数据创建Movie，包含计算得出的总时长
-    #[allow(dead_code)]
     pub fn from_video_with_pages(video: &'a video::Model, pages: &[page::Model]) -> Self {
         let mut movie = Movie::from(video);
 
@@ -1918,7 +1893,7 @@ impl<'a> Movie<'a> {
 
 impl<'a> TVShow<'a> {
     /// 从视频模型和页面数据创建TVShow，包含计算得出的总时长
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn from_video_with_pages(video: &'a video::Model, pages: &[page::Model]) -> Self {
         let mut tvshow = TVShow::from(video);
 

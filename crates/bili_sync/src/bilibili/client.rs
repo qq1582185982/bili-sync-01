@@ -163,26 +163,7 @@ impl Client {
         req
     }
 
-    /// Get raw reqwest client (for aria2 downloader)
-    #[allow(dead_code)]
-    pub fn raw_client(&self) -> &reqwest::Client {
-        &self.0
-    }
-
-    /// POST request wrapper
-    #[allow(dead_code)]
-    pub fn post(&self, url: &str) -> reqwest::RequestBuilder {
-        self.0.post(url)
-    }
-
-    /// GET request wrapper  
-    #[allow(dead_code)]
-    pub fn get(&self, url: &str) -> reqwest::RequestBuilder {
-        self.0.get(url)
-    }
-
-    /// HEAD request wrapper
-    #[allow(dead_code)]
+    /// HEAD request wrapper（用于探测资源信息）
     pub fn head(&self, url: &str) -> reqwest::RequestBuilder {
         self.0.head(url)
     }
@@ -199,14 +180,12 @@ impl Default for Client {
 pub struct BiliClient {
     pub client: Client,
     limiter: Option<Arc<RateLimiter>>,
-    #[allow(dead_code)]
-    cookie: String,
     /// 缓存的gaia_vtoken，用于绕过风控
     gaia_vtoken: Arc<ArcSwapOption<String>>,
 }
 
 impl BiliClient {
-    pub fn new(cookie: String) -> Self {
+    pub fn new(_cookie: String) -> Self {
         let client = Client::new();
         let config = crate::config::reload_config();
         let limiter = config
@@ -226,7 +205,6 @@ impl BiliClient {
         Self {
             client,
             limiter,
-            cookie,
             gaia_vtoken: Arc::new(ArcSwapOption::empty()),
         }
     }

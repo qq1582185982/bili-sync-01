@@ -14,7 +14,6 @@ use tracing::{debug, warn};
 
 /// 关键词过滤模式（已废弃，保留用于向后兼容）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[allow(dead_code)]
 pub enum KeywordFilterMode {
     /// 黑名单模式：匹配关键词的视频将被排除（不下载）
     #[default]
@@ -25,20 +24,10 @@ pub enum KeywordFilterMode {
 
 impl KeywordFilterMode {
     /// 从字符串解析过滤模式
-    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "whitelist" => KeywordFilterMode::Whitelist,
             _ => KeywordFilterMode::Blacklist, // 默认为黑名单模式
-        }
-    }
-
-    /// 转换为字符串
-    #[allow(dead_code)]
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            KeywordFilterMode::Blacklist => "blacklist",
-            KeywordFilterMode::Whitelist => "whitelist",
         }
     }
 }
@@ -108,7 +97,6 @@ pub fn should_filter_video_dual_list(
 /// # Returns
 /// * `true` - 视频应该被过滤（不下载）
 /// * `false` - 视频不应该被过滤（可以下载）
-#[allow(dead_code)]
 pub fn should_filter_video_with_mode(
     title: &str,
     keyword_filters: &Option<String>,
@@ -164,11 +152,6 @@ pub fn should_filter_video_with_mode(
 /// # Returns
 /// * `true` - 匹配到任一关键词，应该被过滤
 /// * `false` - 没有匹配任何关键词，不过滤
-#[allow(dead_code)]
-pub fn should_filter_video(title: &str, keyword_filters: &Option<String>) -> bool {
-    should_filter_video_with_mode(title, keyword_filters, &None)
-}
-
 /// 解析关键词JSON数组为正则表达式列表
 ///
 /// # Arguments

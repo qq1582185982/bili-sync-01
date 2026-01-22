@@ -19,9 +19,6 @@ struct ServerChanResponse {
     #[serde(deserialize_with = "deserialize_code")]
     code: i32,
     message: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    data: Option<serde_json::Value>,
 }
 
 // 自定义反序列化器，支持字符串和整数的code
@@ -90,16 +87,11 @@ pub struct NotificationClient {
 
 // 扫描结果数据结构
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct NewVideoInfo {
     pub title: String,
     pub bvid: String,
-    pub upper_name: String,
-    pub source_type: String,
-    pub source_name: String,
     pub pubtime: Option<String>, // 使用字符串格式的北京时间
     pub episode_number: Option<i32>,
-    pub season_number: Option<i32>,
     pub video_id: Option<i32>, // 添加视频ID字段，用于过滤删除队列中的视频
 }
 
@@ -864,20 +856,6 @@ pub async fn send_scan_notification(summary: ScanSummary) -> Result<()> {
     let config = crate::config::reload_config().notification;
     let client = NotificationClient::new(config);
     client.send_scan_completion(&summary).await
-}
-
-#[allow(dead_code)]
-pub async fn test_notification() -> Result<()> {
-    let config = crate::config::reload_config().notification;
-    let client = NotificationClient::new(config);
-    client.test_notification().await
-}
-
-#[allow(dead_code)]
-pub async fn send_custom_test_notification(message: &str) -> Result<()> {
-    let config = crate::config::reload_config().notification;
-    let client = NotificationClient::new(config);
-    client.send_custom_test(message).await
 }
 
 /// 发送风控验证通知的便捷函数

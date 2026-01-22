@@ -74,29 +74,12 @@ pub struct Bangumi {
     ep_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)] // 整个结构体已弃用，直接从JSON解析更高效
-pub struct BangumiEpisode {
-    pub id: i64,                    // ep_id
-    pub aid: i64,                   // 视频 aid
-    pub bvid: String,               // 视频 bvid
-    pub cid: i64,                   // 视频 cid
-    pub title: String,              // 集标题
-    pub long_title: String,         // 集副标题
-    pub pub_time: i64,              // 发布时间戳
-    pub duration: i64,              // 视频时长（毫秒）
-    pub show_title: String,         // 显示标题
-    pub cover: String,              // 单集封面
-    pub share_copy: Option<String>, // 详细的分享标题
-}
-
 #[derive(Debug, Deserialize, Clone)]
 pub struct BangumiSeason {
     pub season_id: String,        // 季度ID
     pub media_id: Option<String>, // 媒体ID
     pub season_title: String,     // 季度标题
-    #[allow(dead_code)]
-    pub cover: String, // 封面图
+    pub cover: String,            // 封面图
 }
 
 impl Bangumi {
@@ -111,19 +94,6 @@ impl Bangumi {
             media_id,
             season_id,
             ep_id,
-        }
-    }
-
-    /// 从 media_id 获取番剧信息
-    #[allow(dead_code)]
-    pub async fn get_media_info(&self) -> Result<serde_json::Value> {
-        if let Some(media_id) = &self.media_id {
-            let url = format!("https://api.bilibili.com/pgc/review/user?media_id={}", media_id);
-            let resp = self.client.get(&url, CancellationToken::new()).await?;
-            let json: serde_json::Value = resp.json().await?;
-            json.validate().map(|v| v["result"]["media"].clone())
-        } else {
-            bail!("media_id is required");
         }
     }
 
@@ -171,46 +141,6 @@ impl Bangumi {
         Ok((has_update, latest_episode_time))
     }
 
-    /// 获取番剧分集信息（已弃用，直接从season_info解析episodes更高效）
-    #[allow(dead_code)]
-    pub async fn get_episodes(&self) -> Result<Vec<BangumiEpisode>> {
-        let season_info = self.get_season_info().await?;
-        let episodes = season_info["episodes"]
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get episodes from season info"))?;
-
-        debug!("获取到番剧分集信息，共 {} 集", episodes.len());
-
-        let mut result = Vec::new();
-
-        for episode in episodes {
-            let ep = BangumiEpisode {
-                id: episode["id"].as_i64().unwrap_or_default(),
-                aid: episode["aid"].as_i64().unwrap_or_default(),
-                bvid: episode["bvid"].as_str().unwrap_or_default().to_string(),
-                cid: episode["cid"].as_i64().unwrap_or_default(),
-                title: episode["title"].as_str().unwrap_or_default().to_string(),
-                long_title: episode["long_title"].as_str().unwrap_or_default().to_string(),
-                pub_time: episode["pub_time"].as_i64().unwrap_or_default(),
-                duration: episode["duration"].as_i64().unwrap_or_default(),
-                show_title: episode["show_title"].as_str().unwrap_or_default().to_string(),
-                cover: episode["cover"].as_str().unwrap_or_default().to_string(),
-                share_copy: episode["share_copy"].as_str().map(|s| s.to_string()),
-            };
-            tracing::debug!(
-                "解析剧集：{} (EP{}) BV号: {} 封面: {} share_copy: {:?}",
-                ep.title,
-                ep.id,
-                ep.bvid,
-                ep.cover,
-                ep.share_copy
-            );
-            result.push(ep);
-        }
-
-        Ok(result)
-    }
-
     /// 获取番剧所有相关季度信息
     pub async fn get_all_seasons(&self) -> Result<Vec<BangumiSeason>> {
         let season_info = self.get_season_info().await?;
@@ -246,12 +176,6 @@ impl Bangumi {
         }
 
         Ok(result)
-    }
-
-    /// 将单季番剧转换为视频流
-    #[allow(dead_code)]
-    pub fn to_video_stream(&self) -> Pin<Box<dyn Stream<Item = Result<VideoInfo>> + Send>> {
-        self.to_video_stream_incremental(None)
     }
 
     /// 将单季番剧转换为视频流（支持增量获取）
@@ -336,7 +260,7 @@ impl Bangumi {
 
                 // 解析分集信息
                 let ep_id = episode["id"].as_i64().unwrap_or_default();
-                let aid = episode["aid"].as_i64().unwrap_or_default();
+                let _aid = episode["aid"].as_i64().unwrap_or_default();
                 let bvid = episode["bvid"].as_str().unwrap_or_default().to_string();
                 let cid = episode["cid"].as_i64().unwrap_or_default();
                 let episode_title_raw = episode["title"].as_str().unwrap_or_default().to_string();
@@ -387,7 +311,6 @@ impl Bangumi {
                             ep_id: ep_id.to_string(),
                             bvid,
                             cid: cid.to_string(),
-                            aid: aid.to_string(),
                             cover: episode_cover,
                             intro: intro.clone(),
                             pubtime: pub_time,
@@ -431,7 +354,6 @@ impl Bangumi {
                     ep_id: ep_id.to_string(),
                     bvid,
                     cid: cid.to_string(),
-                    aid: aid.to_string(),
                     cover: episode_cover,
                     intro: intro.clone(),
                     pubtime: pub_time,
@@ -466,12 +388,6 @@ impl Bangumi {
                 tracing::info!("单季度番剧「{}」全量获取完成：处理 {} 集内容", title, total_episodes);
             }
         })
-    }
-
-    /// 将所有季度的番剧转换为视频流
-    #[allow(dead_code)]
-    pub fn to_all_seasons_video_stream(&self) -> Pin<Box<dyn Stream<Item = Result<VideoInfo>> + Send>> {
-        self.to_all_seasons_video_stream_incremental(None)
     }
 
     /// 将所有季度的番剧转换为视频流（支持增量获取）
@@ -543,7 +459,7 @@ impl Bangumi {
 
                     // 解析分集信息
                     let ep_id = episode["id"].as_i64().unwrap_or_default();
-                    let aid = episode["aid"].as_i64().unwrap_or_default();
+                    let _aid = episode["aid"].as_i64().unwrap_or_default();
                     let bvid = episode["bvid"].as_str().unwrap_or_default().to_string();
                     let cid = episode["cid"].as_i64().unwrap_or_default();
                     let episode_title_raw = episode["title"].as_str().unwrap_or_default().to_string();
@@ -593,7 +509,6 @@ impl Bangumi {
                                 ep_id: ep_id.to_string(),
                                 bvid,
                                 cid: cid.to_string(),
-                                aid: aid.to_string(),
                                 cover: episode_cover,
                                 intro: intro.clone(),
                                 pubtime: pub_time,
@@ -638,7 +553,6 @@ impl Bangumi {
                         ep_id: ep_id.to_string(),
                         bvid,
                         cid: cid.to_string(),
-                        aid: aid.to_string(),
                         cover: episode_cover,
                         intro: intro.clone(),
                         pubtime: pub_time,
@@ -677,15 +591,6 @@ impl Bangumi {
                 tracing::info!("所有季度番剧全量获取完成：处理了 {} 个季度，共 {} 集内容", seasons.len(), total_episodes);
             }
         })
-    }
-
-    /// 将选中的季度的番剧转换为视频流
-    #[allow(dead_code)]
-    pub fn to_selected_seasons_video_stream(
-        &self,
-        selected_seasons: Vec<String>,
-    ) -> Pin<Box<dyn Stream<Item = Result<VideoInfo>> + Send>> {
-        self.to_selected_seasons_video_stream_incremental(selected_seasons, None)
     }
 
     /// 将选中的季度的番剧转换为视频流（支持增量获取）
@@ -861,7 +766,7 @@ impl Bangumi {
 
                     // 解析分集信息
                     let ep_id = episode["id"].as_i64().unwrap_or_default();
-                    let aid = episode["aid"].as_i64().unwrap_or_default();
+                    let _aid = episode["aid"].as_i64().unwrap_or_default();
                     let bvid = episode["bvid"].as_str().unwrap_or_default().to_string();
                     let cid = episode["cid"].as_i64().unwrap_or_default();
                     let episode_title_raw = episode["title"].as_str().unwrap_or_default().to_string();
@@ -911,7 +816,6 @@ impl Bangumi {
                                 ep_id: ep_id.to_string(),
                                 bvid,
                                 cid: cid.to_string(),
-                                aid: aid.to_string(),
                                 cover: episode_cover,
                                 intro: intro.clone(),
                                 pubtime: pub_time,
@@ -956,7 +860,6 @@ impl Bangumi {
                         ep_id: ep_id.to_string(),
                         bvid,
                         cid: cid.to_string(),
-                        aid: aid.to_string(),
                         cover: episode_cover,
                         intro: intro.clone(),
                         pubtime: pub_time,
@@ -994,49 +897,6 @@ impl Bangumi {
             } else {
                 tracing::info!("选中季度番剧全量获取完成：处理了 {} 个季度，共 {} 集内容", seasons.len(), total_episodes);
             }
-        })
-    }
-
-    #[allow(dead_code)]
-    pub async fn get_video_info(&self, ep_id: &str) -> Result<VideoInfo> {
-        let url = format!("https://api.bilibili.com/pgc/view/web/season?ep_id={}", ep_id);
-        let resp = self.client.get(&url, CancellationToken::new()).await?;
-        let json: serde_json::Value = resp.json().await?;
-        let validated = json.validate()?;
-
-        let result = &validated["result"];
-        let title = result["title"].as_str().unwrap_or_default().to_string();
-        let season_id = result["season_id"]
-            .as_i64()
-            .map(|id| id.to_string())
-            .or_else(|| result["season_id"].as_str().map(|s| s.to_string()))
-            .unwrap_or_default();
-        let ep_id = result["ep_id"].as_str().unwrap_or_default().to_string();
-        let bvid = result["bvid"].as_str().unwrap_or_default().to_string();
-        let cid = result["cid"].as_i64().unwrap_or_default().to_string();
-        let aid = result["aid"].as_i64().unwrap_or_default().to_string();
-        let cover = result["cover"].as_str().unwrap_or_default().to_string();
-        let intro = result["evaluate"].as_str().unwrap_or_default().to_string();
-        let pub_time = result["pub_time"].as_i64().unwrap_or_default();
-        let show_title = result["show_title"].as_str().map(|s| s.to_string());
-        let _duration = result["duration"].as_i64().unwrap_or_default();
-
-        Ok(VideoInfo::Bangumi {
-            title,
-            season_id,
-            ep_id,
-            bvid,
-            cid,
-            aid,
-            cover,
-            intro,
-            pubtime: DateTime::<Utc>::from_timestamp(pub_time, 0).unwrap_or_else(Utc::now),
-            show_title,
-            season_number: None,
-            episode_number: None,
-            share_copy: result["share_copy"].as_str().map(|s| s.to_string()),
-            show_season_type: result["show_season_type"].as_i64().map(|v| v as i32),
-            actors: result["actors"].as_str().map(|s| s.to_string()),
         })
     }
 }
