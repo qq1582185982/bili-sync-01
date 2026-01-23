@@ -60,6 +60,21 @@
 	let currentSortBy: SortBy = 'id';
 	let currentSortOrder: SortOrder = 'desc';
 
+	function normalizeSortBy(value: string | null): SortBy {
+		if (!value) return 'id';
+		// 移除 UP主 排序后，兼容旧链接/旧书签
+		if (value === 'upper_name') return 'id';
+		// 兼容旧参数（created_at 等同于添加时间）
+		if (value === 'created_at') return 'id';
+		if (value === 'id' || value === 'pubtime' || value === 'name') return value;
+		return 'id';
+	}
+
+	function normalizeSortOrder(value: string | null): SortOrder {
+		if (value === 'asc' || value === 'desc') return value;
+		return 'desc';
+	}
+
 	// 批量选择状态
 	let selectionMode = false;
 	let selectedVideos: Set<number> = new Set();
@@ -79,8 +94,8 @@
 			videoSource,
 			pageNum: parseInt(searchParams.get('page') || '0'),
 			showFailedOnly: searchParams.get('show_failed_only') === 'true',
-			sortBy: (searchParams.get('sort_by') as SortBy) || 'id',
-			sortOrder: (searchParams.get('sort_order') as SortOrder) || 'desc'
+			sortBy: normalizeSortBy(searchParams.get('sort_by')),
+			sortOrder: normalizeSortOrder(searchParams.get('sort_order'))
 		};
 	}
 
@@ -459,8 +474,6 @@
 					<option value="pubtime_asc">发布时间 (最早)</option>
 					<option value="name_asc">名称 (A-Z)</option>
 					<option value="name_desc">名称 (Z-A)</option>
-					<option value="upper_name_asc">UP主 (A-Z)</option>
-					<option value="upper_name_desc">UP主 (Z-A)</option>
 				</select>
 			</div>
 		</div>
