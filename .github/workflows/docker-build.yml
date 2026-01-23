@@ -1,10 +1,7 @@
 name: Build and Push Docker Image
 
 on:
-  push:
-    branches: [ main, master, beta, dev ]  # stable/beta/dev
-    tags: [ 'v*', 'beta*' ]  # v2.7.0 / v2.7.0-beta1 / beta1.0.0
-  workflow_dispatch:  # 支持手动触发
+  workflow_dispatch:  # 仅手动触发
     inputs:
       custom_tags:
         description: '自定义镜像标签 (用逗号分隔多个标签，例如: v2.7.1,latest,stable)'
@@ -25,7 +22,7 @@ on:
           - 'hotfix'
           - 'feature'
       include_beta_tags:
-        description: '是否包含默认的 beta 标签'
+        description: '是否包含默认通道标签（stable=latest / beta=beta,beta-latest / dev=dev,dev-latest）'
         required: false
         default: true
         type: boolean
