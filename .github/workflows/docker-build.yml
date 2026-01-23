@@ -2,8 +2,8 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ beta, dev ]  # 只在beta和dev分支触发
-    tags: [ 'beta*', 'v*-beta*' ]  # 支持beta标签，如 beta1.0.0, v2.7.0-beta1
+    branches: [ main, master, beta, dev ]  # stable/beta/dev
+    tags: [ 'v*', 'beta*' ]  # v2.7.0 / v2.7.0-beta1 / beta1.0.0
   workflow_dispatch:  # 支持手动触发
     inputs:
       custom_tags:
@@ -77,13 +77,54 @@ jobs:
     - name: Determine release channel
       id: release_channel
       run: |
-        CHANNEL="beta"
-        if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
-          case "${GITHUB_REF_NAME}" in
-            dev) CHANNEL="dev" ;;
-            beta) CHANNEL="beta" ;;
-            main|master) CHANNEL="stable" ;;
-          esac
+        set -euo pipefail
+        CHANNEL=""
+
+        # workflow_dispatch: 尝试从 custom_tags 推断通道（避免 stable/beta 混推导致通道识别错误）
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.custom_tags }}" ]]; then
+          TAGS_RAW="${{ github.event.inputs.custom_tags }}"
+          HAS_STABLE=0
+          HAS_BETA=0
+          HAS_DEV=0
+          IFS=',' read -ra TAGS <<< "$TAGS_RAW"
+          for tag in "${TAGS[@]}"; do
+            tag="$(echo "$tag" | xargs | tr '[:upper:]' '[:lower:]')"
+            [[ -z "$tag" ]] && continue
+            case "$tag" in
+              latest|stable) HAS_STABLE=1 ;;
+            esac
+            [[ "$tag" == *beta* ]] && HAS_BETA=1
+            [[ "$tag" == *dev* ]] && HAS_DEV=1
+          done
+
+          COUNT=$((HAS_STABLE + HAS_BETA + HAS_DEV))
+          if [[ "$COUNT" -gt 1 ]]; then
+            echo "错误: custom_tags 同时包含 stable/beta/dev，无法在一次构建里生成多通道镜像。请分开执行。" >&2
+            exit 1
+          fi
+
+          [[ "$HAS_STABLE" -eq 1 ]] && CHANNEL="stable"
+          [[ "$HAS_BETA" -eq 1 ]] && CHANNEL="beta"
+          [[ "$HAS_DEV" -eq 1 ]] && CHANNEL="dev"
+        fi
+
+        # 兜底：按 ref 推断
+        if [[ -z "$CHANNEL" ]]; then
+          if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
+            case "${GITHUB_REF_NAME}" in
+              dev) CHANNEL="dev" ;;
+              beta) CHANNEL="beta" ;;
+              main|master) CHANNEL="stable" ;;
+              *) CHANNEL="beta" ;;
+            esac
+          else
+            # tag：包含 beta 视为 beta，否则 stable
+            if [[ "${GITHUB_REF_NAME}" == *beta* ]]; then
+              CHANNEL="beta"
+            else
+              CHANNEL="stable"
+            fi
+          fi
         fi
         echo "release_channel=$CHANNEL" >> $GITHUB_OUTPUT
         echo "构建通道: $CHANNEL"
@@ -213,17 +254,90 @@ jobs:
         username: cnb
         password: ${{ secrets.CNB_PASSWORD }}
 
+    - name: Determine release channel
+      id: release_channel
+      run: |
+        set -euo pipefail
+        CHANNEL=""
+
+        # workflow_dispatch: 尝试从 custom_tags 推断通道（避免 stable/beta 混推导致通道识别错误）
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.custom_tags }}" ]]; then
+          TAGS_RAW="${{ github.event.inputs.custom_tags }}"
+          HAS_STABLE=0
+          HAS_BETA=0
+          HAS_DEV=0
+          IFS=',' read -ra TAGS <<< "$TAGS_RAW"
+          for tag in "${TAGS[@]}"; do
+            tag="$(echo "$tag" | xargs | tr '[:upper:]' '[:lower:]')"
+            [[ -z "$tag" ]] && continue
+            case "$tag" in
+              latest|stable) HAS_STABLE=1 ;;
+            esac
+            [[ "$tag" == *beta* ]] && HAS_BETA=1
+            [[ "$tag" == *dev* ]] && HAS_DEV=1
+          done
+
+          COUNT=$((HAS_STABLE + HAS_BETA + HAS_DEV))
+          if [[ "$COUNT" -gt 1 ]]; then
+            echo "错误: custom_tags 同时包含 stable/beta/dev，无法在一次构建里生成多通道镜像。请分开执行。" >&2
+            exit 1
+          fi
+
+          [[ "$HAS_STABLE" -eq 1 ]] && CHANNEL="stable"
+          [[ "$HAS_BETA" -eq 1 ]] && CHANNEL="beta"
+          [[ "$HAS_DEV" -eq 1 ]] && CHANNEL="dev"
+        fi
+
+        # 兜底：按 ref 推断
+        if [[ -z "$CHANNEL" ]]; then
+          if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
+            case "${GITHUB_REF_NAME}" in
+              dev) CHANNEL="dev" ;;
+              beta) CHANNEL="beta" ;;
+              main|master) CHANNEL="stable" ;;
+              *) CHANNEL="beta" ;;
+            esac
+          else
+            # tag：包含 beta 视为 beta，否则 stable
+            if [[ "${GITHUB_REF_NAME}" == *beta* ]]; then
+              CHANNEL="beta"
+            else
+              CHANNEL="stable"
+            fi
+          fi
+        fi
+
+        echo "release_channel=$CHANNEL" >> $GITHUB_OUTPUT
+        echo "构建通道: $CHANNEL"
+
     - name: Prepare Docker tags
       id: tags
       run: |
         # 初始化标签数组
         DOCKERHUB_TAGS=""
         CNB_TAGS=""
+        CHANNEL="${{ steps.release_channel.outputs.release_channel }}"
         
-        # 默认 beta 标签（仅在自动触发或手动触发时启用了 beta 标签）
+        # 默认通道标签（避免 stable/beta 混推）
         if [[ "${{ github.event_name }}" != "workflow_dispatch" ]] || [[ "${{ github.event.inputs.include_beta_tags }}" == "true" ]]; then
-          DOCKERHUB_TAGS="${{ env.IMAGE_NAME }}:beta,${{ env.IMAGE_NAME }}:beta-latest"
-          CNB_TAGS="docker.cnb.cool/${{ env.CNB_IMAGE_NAME }}:beta,docker.cnb.cool/${{ env.CNB_IMAGE_NAME }}:beta-latest"
+          case "$CHANNEL" in
+            stable)
+              DOCKERHUB_TAGS="${{ env.IMAGE_NAME }}:latest"
+              CNB_TAGS="docker.cnb.cool/${{ env.CNB_IMAGE_NAME }}:latest"
+              ;;
+            beta)
+              DOCKERHUB_TAGS="${{ env.IMAGE_NAME }}:beta,${{ env.IMAGE_NAME }}:beta-latest"
+              CNB_TAGS="docker.cnb.cool/${{ env.CNB_IMAGE_NAME }}:beta,docker.cnb.cool/${{ env.CNB_IMAGE_NAME }}:beta-latest"
+              ;;
+            dev)
+              DOCKERHUB_TAGS="${{ env.IMAGE_NAME }}:dev,${{ env.IMAGE_NAME }}:dev-latest"
+              CNB_TAGS="docker.cnb.cool/${{ env.CNB_IMAGE_NAME }}:dev,docker.cnb.cool/${{ env.CNB_IMAGE_NAME }}:dev-latest"
+              ;;
+            *)
+              echo "未知构建通道: $CHANNEL" >&2
+              exit 1
+              ;;
+          esac
         fi
         
         # 手动触发时的自定义标签
@@ -254,6 +368,12 @@ jobs:
               CNB_TAGS="docker.cnb.cool/${{ env.CNB_IMAGE_NAME }}:$PREFIX-$TIMESTAMP"
             fi
           fi
+        fi
+
+        # 至少要有一个 tag，否则 build-push 会失败
+        if [[ -z "$DOCKERHUB_TAGS" && -z "$CNB_TAGS" ]]; then
+          echo "错误: 未生成任何镜像标签，请检查 workflow_dispatch 参数（custom_tags/include_beta_tags/push_to_*）。" >&2
+          exit 1
         fi
         
         echo "dockerhub_tags=$DOCKERHUB_TAGS" >> $GITHUB_OUTPUT
@@ -300,17 +420,6 @@ jobs:
         
         echo "all_tags=$ALL_TAGS" >> $GITHUB_OUTPUT
         echo "合并后的标签: $ALL_TAGS"
-
-    - name: Determine release channel
-      id: release_channel
-      run: |
-        # beta/dev 分支默认分别标记为 beta/dev，tag 触发按 beta 处理
-        CHANNEL="beta"
-        if [[ "${GITHUB_REF_TYPE}" == "branch" && "${GITHUB_REF_NAME}" == "dev" ]]; then
-          CHANNEL="dev"
-        fi
-        echo "release_channel=$CHANNEL" >> $GITHUB_OUTPUT
-        echo "构建通道: $CHANNEL"
 
     - name: Build and push to all registries
       if: github.event_name != 'pull_request'
