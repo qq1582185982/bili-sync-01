@@ -1,7 +1,11 @@
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+
+use flate2::write::GzEncoder;
+use flate2::Compression;
 
 fn main() {
     // 首先生成built.rs文件 (用于版本信息等)
@@ -29,9 +33,10 @@ fn main() {
     };
 
     let binary_path = Path::new(&out_dir).join(binary_name);
+    let compressed_binary_path = Path::new(&out_dir).join(format!("{binary_name}.gz"));
 
-    // 如果二进制文件已存在，跳过获取
-    if binary_path.exists() {
+    // 如果压缩后的二进制文件已存在，跳过获取/压缩
+    if compressed_binary_path.exists() {
         return;
     }
 
@@ -49,6 +54,27 @@ fn main() {
             handle_download_failure(&binary_path);
         }
     }
+
+    // 生成压缩后的二进制文件，供运行时解压（减少最终产物体积）
+    if let Err(e) = gzip_file(&binary_path, &compressed_binary_path) {
+        panic!(
+            "Failed to gzip aria2 binary: {} -> {}: {e}",
+            binary_path.display(),
+            compressed_binary_path.display()
+        );
+    }
+}
+
+fn gzip_file(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = fs::read(src)?;
+    if let Some(parent) = dst.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(&bytes)?;
+    let compressed = encoder.finish()?;
+    fs::write(dst, compressed)?;
+    Ok(())
 }
 
 fn get_aria2_for_ci(target: &str, out_dir: &str, binary_name: &str) -> Result<(), Box<dyn std::error::Error>> {

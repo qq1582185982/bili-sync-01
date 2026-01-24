@@ -1,7 +1,10 @@
 use anyhow::{bail, Context, Result};
+use flate2::read::GzDecoder;
 use reqwest::Client as ReqwestClient;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, timeout};
@@ -13,13 +16,15 @@ use crate::http::headers::create_aria2_headers;
 
 /// 嵌入的aria2二进制文件 (编译时自动下载对应平台版本)
 #[cfg(target_os = "windows")]
-static ARIA2_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/aria2c.exe"));
+static ARIA2_BINARY_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/aria2c.exe.gz"));
 
 #[cfg(target_os = "linux")]
-static ARIA2_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/aria2c"));
+static ARIA2_BINARY_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/aria2c.gz"));
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-static ARIA2_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/aria2c"));
+static ARIA2_BINARY_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/aria2c.gz"));
+
+static ARIA2_BINARY_DECOMPRESSED: OnceLock<Vec<u8>> = OnceLock::new();
 
 /// 单个aria2进程实例
 #[derive(Debug)]
@@ -471,6 +476,25 @@ impl Aria2Downloader {
         Ok(())
     }
 
+    async fn get_embedded_aria2_binary() -> Result<&'static Vec<u8>> {
+        if let Some(bytes) = ARIA2_BINARY_DECOMPRESSED.get() {
+            return Ok(bytes);
+        }
+
+        let bytes = tokio::task::spawn_blocking(|| -> Result<Vec<u8>> {
+            let mut decoder = GzDecoder::new(ARIA2_BINARY_GZ);
+            let mut out = Vec::new();
+            decoder
+                .read_to_end(&mut out)
+                .context("解压内置 aria2 二进制失败")?;
+            Ok(out)
+        })
+        .await
+        .context("解压内置 aria2 二进制失败")??;
+
+        Ok(ARIA2_BINARY_DECOMPRESSED.get_or_init(|| bytes))
+    }
+
     /// 提取嵌入的aria2二进制文件到临时目录，失败时回退到系统aria2
     async fn extract_aria2_binary() -> Result<PathBuf> {
         // 使用配置文件夹存储aria2二进制文件，而不是临时目录
@@ -499,11 +523,15 @@ impl Aria2Downloader {
             }
         }
 
-        // 尝试写入嵌入的二进制文件
+        // 尝试写入嵌入的二进制文件（gzip 压缩内嵌，运行时解压写出）
         debug!("尝试提取aria2二进制文件到配置目录: {}", binary_path.display());
-        match tokio::fs::write(&binary_path, ARIA2_BINARY).await {
+        let embedded_bytes = Self::get_embedded_aria2_binary().await?;
+        match tokio::fs::write(&binary_path, embedded_bytes).await {
             Ok(_) => {
-                debug!("aria2二进制文件写入配置目录成功，大小: {} bytes", ARIA2_BINARY.len());
+                debug!(
+                    "aria2二进制文件写入配置目录成功，大小: {} bytes",
+                    embedded_bytes.len()
+                );
 
                 // 在Unix系统上设置执行权限
                 #[cfg(unix)]
@@ -562,10 +590,14 @@ impl Aria2Downloader {
             }
         }
 
-        // 尝试写入嵌入的二进制文件
-        match tokio::fs::write(&binary_path, ARIA2_BINARY).await {
+        // 尝试写入嵌入的二进制文件（gzip 压缩内嵌，运行时解压写出）
+        let embedded_bytes = Self::get_embedded_aria2_binary().await?;
+        match tokio::fs::write(&binary_path, embedded_bytes).await {
             Ok(_) => {
-                debug!("aria2二进制文件写入临时目录成功，大小: {} bytes", ARIA2_BINARY.len());
+                debug!(
+                    "aria2二进制文件写入临时目录成功，大小: {} bytes",
+                    embedded_bytes.len()
+                );
 
                 // 在Unix系统上设置执行权限
                 #[cfg(unix)]
