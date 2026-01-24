@@ -32,7 +32,14 @@
 	} from '$lib/stores/filter';
 	import type { SortBy, SortOrder } from '$lib/types';
 
-	const pageSize = 20;
+	const VIDEOS_PAGE_SIZE_STORAGE_KEY = 'videos.page_size';
+	const VIDEOS_GRID_COLS_STORAGE_KEY = 'videos.grid_cols';
+
+	let pageSize = 40;
+	let gridCols = 5;
+	let pageSizeDraft = String(pageSize);
+	let gridColsDraft = String(gridCols);
+	let displayPrefsReady = false;
 
 	let videosData: VideosResponse | null = null;
 	let videoSources: VideoSourcesResponse | null = null;
@@ -80,6 +87,97 @@
 	let selectedVideos: Set<number> = new Set();
 	let batchDeleting = false;
 	let batchDeleteDialogOpen = false;
+
+	function loadDisplayPrefs() {
+		if (typeof localStorage === 'undefined') return;
+
+		const savedPageSize = Number.parseInt(
+			localStorage.getItem(VIDEOS_PAGE_SIZE_STORAGE_KEY) || '',
+			10
+		);
+		if (Number.isFinite(savedPageSize) && savedPageSize > 0) {
+			pageSize = savedPageSize;
+		}
+
+		const savedGridCols = Number.parseInt(
+			localStorage.getItem(VIDEOS_GRID_COLS_STORAGE_KEY) || '',
+			10
+		);
+		if (Number.isFinite(savedGridCols) && savedGridCols > 0) {
+			gridCols = savedGridCols;
+		}
+
+		pageSizeDraft = String(pageSize);
+		gridColsDraft = String(gridCols);
+
+		appStateStore.update((state) => ({
+			...state,
+			pageSize
+		}));
+	}
+
+	function buildVideosUrl() {
+		const query = ToQuery($appStateStore);
+		return query ? `/videos?${query}` : '/videos';
+	}
+
+	async function applyPageSize(value: number) {
+		if (!Number.isFinite(value) || value <= 0) return;
+
+		const nextValue = Math.trunc(value);
+		if (nextValue <= 0) return;
+		pageSizeDraft = String(nextValue);
+		pageSize = nextValue;
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem(VIDEOS_PAGE_SIZE_STORAGE_KEY, String(nextValue));
+		}
+
+		appStateStore.update((state) => ({
+			...state,
+			pageSize: nextValue
+		}));
+
+		resetCurrentPage();
+
+		const nextUrl = buildVideosUrl();
+		const currentUrl = `${$page.url.pathname}${$page.url.search}`;
+		if (currentUrl === nextUrl || currentUrl === `${nextUrl}?`) {
+			const { query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder } = $appStateStore;
+			await loadVideos(query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder);
+		} else {
+			goto(nextUrl);
+		}
+	}
+
+	function applyGridCols(value: number) {
+		if (!Number.isFinite(value) || value <= 0) return;
+
+		const nextValue = Math.trunc(value);
+		if (nextValue <= 0) return;
+		gridColsDraft = String(nextValue);
+		gridCols = nextValue;
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem(VIDEOS_GRID_COLS_STORAGE_KEY, String(nextValue));
+		}
+	}
+
+	async function commitPageSize() {
+		const value = Number.parseInt(pageSizeDraft, 10);
+		if (!Number.isFinite(value) || value <= 0) {
+			pageSizeDraft = String(pageSize);
+			return;
+		}
+		await applyPageSize(value);
+	}
+
+	function commitGridCols() {
+		const value = Number.parseInt(gridColsDraft, 10);
+		if (!Number.isFinite(value) || value <= 0) {
+			gridColsDraft = String(gridCols);
+			return;
+		}
+		applyGridCols(value);
+	}
 
 	function getApiParams(searchParams: URLSearchParams) {
 		let videoSource: { type: VideoSourceType; id: string } | null = null;
@@ -424,7 +522,7 @@
 		}
 	}
 
-	$: if ($page.url.search !== lastSearch) {
+	$: if (displayPrefsReady && $page.url.search !== lastSearch) {
 		lastSearch = $page.url.search;
 		handleSearchParamsChange($page.url.searchParams);
 	}
@@ -433,6 +531,8 @@
 
 	onMount(() => {
 		setBreadcrumb([{ label: '视频管理' }]);
+		loadDisplayPrefs();
+		displayPrefsReady = true;
 		loadVideoSources();
 	});
 </script>
@@ -458,86 +558,119 @@
 				/>
 			</div>
 
-			<!-- 排序下拉框 - 在移动端占满宽度 -->
-			<div class="w-full sm:w-auto">
-				<select
-					class="border-input bg-background ring-offset-background focus:ring-ring h-9 w-full rounded-md border px-3 py-1 text-sm focus:ring-2 focus:ring-offset-2 focus:outline-none sm:w-auto"
-					value="{currentSortBy}_{currentSortOrder}"
-					onchange={(e) => {
-						const [sortBy, sortOrder] = e.currentTarget.value.split('_') as [SortBy, SortOrder];
-						handleSortChange(sortBy, sortOrder);
-					}}
-				>
-					<option value="id_desc">添加时间 (最新)</option>
-					<option value="id_asc">添加时间 (最早)</option>
-					<option value="pubtime_desc">发布时间 (最新)</option>
-					<option value="pubtime_asc">发布时间 (最早)</option>
-					<option value="name_asc">名称 (A-Z)</option>
-					<option value="name_desc">名称 (Z-A)</option>
-				</select>
+			<div
+				class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:flex-nowrap"
+			>
+				<!-- 排序 + 显示数量 -->
+				<div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+					<!-- 排序下拉框 - 在移动端占满宽度 -->
+					<div class="w-full sm:w-auto">
+						<select
+							class="border-input bg-background ring-offset-background focus:ring-ring h-9 w-full rounded-md border px-3 py-1 text-sm focus:ring-2 focus:ring-offset-2 focus:outline-none sm:w-auto"
+							value="{currentSortBy}_{currentSortOrder}"
+							onchange={(e) => {
+								const [sortBy, sortOrder] = e.currentTarget.value.split('_') as [SortBy, SortOrder];
+								handleSortChange(sortBy, sortOrder);
+							}}
+						>
+							<option value="id_desc">添加时间 (最新)</option>
+							<option value="id_asc">添加时间 (最早)</option>
+							<option value="pubtime_desc">发布时间 (最新)</option>
+							<option value="pubtime_asc">发布时间 (最早)</option>
+							<option value="name_asc">名称 (A-Z)</option>
+							<option value="name_desc">名称 (Z-A)</option>
+						</select>
+					</div>
+
+					<!-- 显示数量设置 -->
+					<div class="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
+						<label class="flex items-center gap-2">
+							<span class="text-muted-foreground whitespace-nowrap text-sm">每页</span>
+							<input
+								class="border-input bg-background ring-offset-background focus:ring-ring h-9 w-full min-w-0 rounded-md border px-2 py-1 text-sm focus:ring-2 focus:ring-offset-2 focus:outline-none sm:w-24"
+								type="number"
+								min="1"
+								step="1"
+								bind:value={pageSizeDraft}
+								onchange={commitPageSize}
+							/>
+						</label>
+						<label class="flex items-center gap-2">
+							<span class="text-muted-foreground whitespace-nowrap text-sm">每行</span>
+							<input
+								class="border-input bg-background ring-offset-background focus:ring-ring h-9 w-full min-w-0 rounded-md border px-2 py-1 text-sm focus:ring-2 focus:ring-offset-2 focus:outline-none sm:w-24"
+								type="number"
+								min="1"
+								step="1"
+								bind:value={gridColsDraft}
+								onchange={commitGridCols}
+							/>
+						</label>
+					</div>
+				</div>
+
+				<!-- 操作按钮栏 - 移动端使用网格布局 -->
+				<div class="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
+					<!-- 筛选按钮 -->
+					<Button
+						variant={showFilters ? 'default' : 'outline'}
+						size="sm"
+						class="w-full sm:w-auto"
+						onclick={() => (showFilters = !showFilters)}
+					>
+						<FilterIcon class="mr-2 h-4 w-4" />
+						<span class="xs:inline hidden">筛选</span>
+						<span class="xs:hidden">筛选</span>
+					</Button>
+
+					<!-- 显示错误视频按钮 -->
+					<Button
+						variant={showFailedOnly ? 'destructive' : 'outline'}
+						size="sm"
+						class="w-full sm:w-auto"
+						onclick={() => {
+							showFailedOnly = !showFailedOnly;
+							setShowFailedOnly(showFailedOnly);
+							resetCurrentPage();
+							goto(`/videos?${ToQuery($appStateStore)}`);
+						}}
+					>
+						<span class="hidden sm:inline">只显示错误视频</span>
+						<span class="sm:hidden">错误视频</span>
+					</Button>
+
+					<!-- 批量重置按钮 -->
+					<Button
+						variant="outline"
+						size="sm"
+						class="col-span-2 w-full sm:col-span-1 sm:w-auto"
+						onclick={() => (resetAllDialogOpen = true)}
+						disabled={resettingAll || loading}
+					>
+						<RotateCcwIcon class="mr-2 h-4 w-4 {resettingAll ? 'animate-spin' : ''}" />
+						<span class="xs:inline hidden">批量重置</span>
+						<span class="xs:hidden">重置</span>
+					</Button>
+
+					<!-- 批量删除模式按钮 -->
+					<Button
+						variant={selectionMode ? 'outline' : 'destructive'}
+						size="sm"
+						class="col-span-2 w-full sm:col-span-1 sm:w-auto {selectionMode
+							? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
+							: ''}"
+						onclick={toggleSelectionMode}
+						disabled={loading}
+					>
+						{#if selectionMode}
+							<span>退出</span>
+						{:else}
+							<TrashIcon class="h-4 w-4 sm:mr-2" />
+							<span class="hidden sm:inline">批量删除</span>
+						{/if}
+					</Button>
+				</div>
 			</div>
-		</div>
-
-		<!-- 操作按钮栏 - 移动端使用网格布局 -->
-		<div class="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end sm:gap-2">
-			<!-- 筛选按钮 -->
-			<Button
-				variant={showFilters ? 'default' : 'outline'}
-				size="sm"
-				class="w-full sm:w-auto"
-				onclick={() => (showFilters = !showFilters)}
-			>
-				<FilterIcon class="mr-2 h-4 w-4" />
-				<span class="xs:inline hidden">筛选</span>
-				<span class="xs:hidden">筛选</span>
-			</Button>
-
-			<!-- 显示错误视频按钮 -->
-			<Button
-				variant={showFailedOnly ? 'destructive' : 'outline'}
-				size="sm"
-				class="w-full sm:w-auto"
-				onclick={() => {
-					showFailedOnly = !showFailedOnly;
-					setShowFailedOnly(showFailedOnly);
-					resetCurrentPage();
-					goto(`/videos?${ToQuery($appStateStore)}`);
-				}}
-			>
-				<span class="hidden sm:inline">只显示错误视频</span>
-				<span class="sm:hidden">错误视频</span>
-			</Button>
-
-			<!-- 批量重置按钮 -->
-			<Button
-				variant="outline"
-				size="sm"
-				class="col-span-2 w-full sm:col-span-1 sm:w-auto"
-				onclick={() => (resetAllDialogOpen = true)}
-				disabled={resettingAll || loading}
-			>
-				<RotateCcwIcon class="mr-2 h-4 w-4 {resettingAll ? 'animate-spin' : ''}" />
-				<span class="xs:inline hidden">批量重置</span>
-				<span class="xs:hidden">重置</span>
-			</Button>
-
-			<!-- 批量删除模式按钮 -->
-			<Button
-				variant={selectionMode ? 'outline' : 'destructive'}
-				size="sm"
-				class="col-span-2 w-full sm:col-span-1 sm:w-auto {selectionMode
-					? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
-					: ''}"
-				onclick={toggleSelectionMode}
-				disabled={loading}
-			>
-				{#if selectionMode}
-					<span>退出</span>
-				{:else}
-					<TrashIcon class="h-4 w-4 sm:mr-2" />
-					<span class="hidden sm:inline">批量删除</span>
-				{/if}
-			</Button>
 		</div>
 	</div>
 
@@ -677,7 +810,10 @@
 			<div class="text-muted-foreground">加载中...</div>
 		</div>
 	{:else if videosData?.videos.length}
-		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+		<div
+			class="grid gap-4 sm:grid-cols-2 md:grid-cols-[repeat(var(--videos-grid-cols),minmax(0,1fr))]"
+			style={`--videos-grid-cols: ${gridCols};`}
+		>
 			{#each videosData.videos as video (video.id)}
 				<VideoCard
 					{video}

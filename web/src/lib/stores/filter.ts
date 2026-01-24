@@ -25,7 +25,7 @@ export const appStateStore = writable<AppState>({
 	sortOrder: 'desc',
 	videoIds: [],
 	totalCount: 0,
-	pageSize: 20
+	pageSize: 40
 });
 
 export const ToQuery = (state: AppState): string => {
