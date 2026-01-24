@@ -224,6 +224,9 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
             info!("定时扫描任务已恢复");
         }
 
+        // 每轮开始时轮转日志文件，便于排查问题
+        file_logger::rotate_log_files_for_new_round();
+
         // 重新加载配置
         let config = crate::config::reload_config();
 

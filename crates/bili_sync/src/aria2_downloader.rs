@@ -484,9 +484,7 @@ impl Aria2Downloader {
         let bytes = tokio::task::spawn_blocking(|| -> Result<Vec<u8>> {
             let mut decoder = GzDecoder::new(ARIA2_BINARY_GZ);
             let mut out = Vec::new();
-            decoder
-                .read_to_end(&mut out)
-                .context("解压内置 aria2 二进制失败")?;
+            decoder.read_to_end(&mut out).context("解压内置 aria2 二进制失败")?;
             Ok(out)
         })
         .await
@@ -528,10 +526,7 @@ impl Aria2Downloader {
         let embedded_bytes = Self::get_embedded_aria2_binary().await?;
         match tokio::fs::write(&binary_path, embedded_bytes).await {
             Ok(_) => {
-                debug!(
-                    "aria2二进制文件写入配置目录成功，大小: {} bytes",
-                    embedded_bytes.len()
-                );
+                debug!("aria2二进制文件写入配置目录成功，大小: {} bytes", embedded_bytes.len());
 
                 // 在Unix系统上设置执行权限
                 #[cfg(unix)]
@@ -594,10 +589,7 @@ impl Aria2Downloader {
         let embedded_bytes = Self::get_embedded_aria2_binary().await?;
         match tokio::fs::write(&binary_path, embedded_bytes).await {
             Ok(_) => {
-                debug!(
-                    "aria2二进制文件写入临时目录成功，大小: {} bytes",
-                    embedded_bytes.len()
-                );
+                debug!("aria2二进制文件写入临时目录成功，大小: {} bytes", embedded_bytes.len());
 
                 // 在Unix系统上设置执行权限
                 #[cfg(unix)]

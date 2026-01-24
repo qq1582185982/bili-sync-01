@@ -8772,16 +8772,51 @@ pub async fn download_log_file(
     // 获取日志级别参数
     let level = params.get("level").map(|s| s.as_str()).unwrap_or("all");
 
+    // 允许指定具体文件名（便于排查历史轮次）
+    let requested_file = params.get("file").cloned();
+
     // 构建日志文件路径
     let log_dir = crate::config::CONFIG_DIR.join("logs");
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let file_name = if let Some(file) = requested_file {
+        file
+    } else if let Some(file) = crate::utils::file_logger::get_current_log_file_name(level) {
+        file
+    } else {
+        // 兜底：如果文件日志系统未初始化，尝试按“最新文件”选择
+        let prefix = match level {
+            "debug" => "logs-debug-",
+            "info" => "logs-info-",
+            "warn" => "logs-warn-",
+            "error" => "logs-error-",
+            _ => "logs-all-",
+        };
+        let latest = std::fs::read_dir(&log_dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                if !file_name.starts_with(prefix) || !file_name.ends_with(".csv") {
+                    return None;
+                }
+                let modified = entry
+                    .metadata()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                Some((modified, file_name))
+            })
+            .max_by_key(|(modified, _)| *modified)
+            .map(|(_, file_name)| file_name)
+            .unwrap_or_else(|| "".to_string());
 
-    let file_name = match level {
-        "debug" => format!("logs-debug-{}.csv", today),
-        "info" => format!("logs-info-{}.csv", today),
-        "warn" => format!("logs-warn-{}.csv", today),
-        "error" => format!("logs-error-{}.csv", today),
-        _ => format!("logs-all-{}.csv", today),
+        if latest.is_empty() {
+            return Err(InnerApiError::BadRequest("日志文件不存在".to_string()).into());
+        }
+        latest
     };
 
     let file_path = log_dir.join(&file_name);
@@ -8823,23 +8858,31 @@ pub async fn get_log_files() -> Result<ApiResponse<LogFilesResponse>, ApiError> 
     use std::fs;
 
     let log_dir = crate::config::CONFIG_DIR.join("logs");
-    let startup_time = &*crate::utils::file_logger::STARTUP_TIME;
-
     let mut files = vec![];
 
-    // 检查各个日志文件是否存在
-    let log_files = vec![
-        ("all", format!("logs-all-{}.csv", startup_time)),
-        ("debug", format!("logs-debug-{}.csv", startup_time)),
-        ("info", format!("logs-info-{}.csv", startup_time)),
-        ("warn", format!("logs-warn-{}.csv", startup_time)),
-        ("error", format!("logs-error-{}.csv", startup_time)),
-    ];
+    // 列出所有日志文件（每轮会生成新文件）
+    if let Ok(entries) = fs::read_dir(&log_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let level = if file_name.starts_with("logs-all-") {
+                "all"
+            } else if file_name.starts_with("logs-debug-") {
+                "debug"
+            } else if file_name.starts_with("logs-info-") {
+                "info"
+            } else if file_name.starts_with("logs-warn-") {
+                "warn"
+            } else if file_name.starts_with("logs-error-") {
+                "error"
+            } else {
+                continue;
+            };
 
-    for (level, file_name) in log_files {
-        let file_path = log_dir.join(&file_name);
-        if file_path.exists() {
-            if let Ok(metadata) = fs::metadata(&file_path) {
+            if !file_name.ends_with(".csv") {
+                continue;
+            }
+
+            if let Ok(metadata) = entry.metadata() {
                 files.push(LogFileInfo {
                     level: level.to_string(),
                     file_name,
@@ -8854,6 +8897,9 @@ pub async fn get_log_files() -> Result<ApiResponse<LogFilesResponse>, ApiError> 
             }
         }
     }
+
+    // 最新的放前面
+    files.sort_by(|a, b| b.modified.cmp(&a.modified));
 
     Ok(ApiResponse::ok(LogFilesResponse { files }))
 }

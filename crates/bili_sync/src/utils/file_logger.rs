@@ -1,14 +1,17 @@
 use crate::config::CONFIG_DIR;
-use chrono::{Local, NaiveDate, TimeZone};
+use chrono::{Local, TimeZone};
 use once_cell::sync::Lazy;
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 // 向后兼容：全局启动时间，用于其他地方的引用
 pub static STARTUP_TIME: Lazy<String> = Lazy::new(|| Local::now().format("%Y-%m-%d-%H-%M-%S").to_string());
+
+static SKIP_FIRST_ROUND_LOG_ROTATE: AtomicBool = AtomicBool::new(true);
 
 // 日志条目结构
 #[derive(Debug)]
@@ -28,8 +31,8 @@ pub struct FileLogWriter {
     error_writer: Arc<Mutex<Option<BufWriter<File>>>>,
     // 日志缓冲区
     log_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
-    // 当前日期，用于检测日期变化
-    current_date: Arc<Mutex<NaiveDate>>,
+    // 当前日志文件标识（每轮生成一个新文件）
+    current_log_id: Arc<Mutex<String>>,
     // 日志目录
     log_dir: std::path::PathBuf,
 }
@@ -43,8 +46,8 @@ impl FileLogWriter {
         // 清理超过30天的旧日志
         Self::cleanup_old_logs(&log_dir)?;
 
-        // 获取当前日期
-        let current_date = Local::now().date_naive();
+        // 初始化日志文件标识（启动时生成一份，后续每轮扫描会轮转）
+        let initial_log_id = STARTUP_TIME.clone();
 
         let instance = Self {
             all_writer: Arc::new(Mutex::new(None)),
@@ -53,25 +56,22 @@ impl FileLogWriter {
             warn_writer: Arc::new(Mutex::new(None)),
             error_writer: Arc::new(Mutex::new(None)),
             log_buffer: Arc::new(Mutex::new(VecDeque::new())),
-            current_date: Arc::new(Mutex::new(current_date)),
+            current_log_id: Arc::new(Mutex::new(initial_log_id.clone())),
             log_dir: log_dir.clone(),
         };
 
-        // 创建当前日期的日志文件
-        instance.create_daily_log_files(current_date)?;
+        // 创建启动时的日志文件
+        instance.create_round_log_files(&initial_log_id)?;
 
         Ok(instance)
     }
 
-    // 创建当日的日志文件
-    fn create_daily_log_files(&self, date: NaiveDate) -> anyhow::Result<()> {
-        let date_str = date.format("%Y-%m-%d").to_string();
-
-        let all_path = self.log_dir.join(format!("logs-all-{}.csv", date_str));
-        let debug_path = self.log_dir.join(format!("logs-debug-{}.csv", date_str));
-        let info_path = self.log_dir.join(format!("logs-info-{}.csv", date_str));
-        let warn_path = self.log_dir.join(format!("logs-warn-{}.csv", date_str));
-        let error_path = self.log_dir.join(format!("logs-error-{}.csv", date_str));
+    fn create_round_log_files(&self, log_id: &str) -> anyhow::Result<()> {
+        let all_path = self.log_dir.join(format!("logs-all-{}.csv", log_id));
+        let debug_path = self.log_dir.join(format!("logs-debug-{}.csv", log_id));
+        let info_path = self.log_dir.join(format!("logs-info-{}.csv", log_id));
+        let warn_path = self.log_dir.join(format!("logs-warn-{}.csv", log_id));
+        let error_path = self.log_dir.join(format!("logs-error-{}.csv", log_id));
 
         // 创建文件并写入CSV头
         let all_writer = Self::create_log_file(&all_path)?;
@@ -90,26 +90,41 @@ impl FileLogWriter {
         Ok(())
     }
 
-    // 检查是否需要轮转日志文件
-    fn check_and_rotate_if_needed(&self) -> anyhow::Result<()> {
-        let current_date = Local::now().date_naive();
-        let stored_date = self.current_date.lock().unwrap();
+    fn generate_unique_log_id(&self) -> String {
+        let base = Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
+        let mut candidate = base.clone();
+        let mut index = 1;
 
-        if current_date != *stored_date {
-            // 日期已变化，需要轮转日志
-            drop(stored_date); // 释放锁
-
-            // 刷新当前缓冲区到旧文件
-            self.flush_internal();
-
-            // 创建新的日志文件
-            self.create_daily_log_files(current_date)?;
-
-            // 更新当前日期
-            *self.current_date.lock().unwrap() = current_date;
+        loop {
+            let all_path = self.log_dir.join(format!("logs-all-{}.csv", candidate));
+            if !all_path.exists() {
+                return candidate;
+            }
+            candidate = format!("{}-{}", base, index);
+            index += 1;
         }
+    }
 
-        Ok(())
+    pub fn rotate_for_new_round(&self) -> anyhow::Result<String> {
+        // 先把上一轮剩余缓冲刷到旧文件，避免跨轮污染
+        self.flush_internal();
+
+        let new_id = self.generate_unique_log_id();
+        self.create_round_log_files(&new_id)?;
+        *self.current_log_id.lock().unwrap() = new_id.clone();
+        let _ = Self::cleanup_old_logs(&self.log_dir);
+        Ok(new_id)
+    }
+
+    pub fn current_log_file_name(&self, level: &str) -> String {
+        let id = self.current_log_id.lock().unwrap().clone();
+        match level {
+            "debug" => format!("logs-debug-{}.csv", id),
+            "info" => format!("logs-info-{}.csv", id),
+            "warn" => format!("logs-warn-{}.csv", id),
+            "error" => format!("logs-error-{}.csv", id),
+            _ => format!("logs-all-{}.csv", id),
+        }
     }
 
     fn create_log_file(path: &Path) -> anyhow::Result<BufWriter<File>> {
@@ -126,7 +141,8 @@ impl FileLogWriter {
     }
 
     fn cleanup_old_logs(log_dir: &Path) -> anyhow::Result<()> {
-        let thirty_days_ago = Local::now() - chrono::Duration::days(30);
+        // 只保留“今天”和“昨天”的日志文件
+        let keep_from_date = Local::now().date_naive() - chrono::Duration::days(1);
 
         if let Ok(entries) = fs::read_dir(log_dir) {
             for entry in entries.flatten() {
@@ -141,7 +157,7 @@ impl FileLogWriter {
                                     .single()
                                     .unwrap_or_else(Local::now);
 
-                                if modified_datetime < thirty_days_ago {
+                                if modified_datetime.date_naive() < keep_from_date {
                                     // 删除超过30天的日志文件
                                     let _ = fs::remove_file(entry.path());
                                 }
@@ -156,9 +172,6 @@ impl FileLogWriter {
     }
 
     pub fn write_log(&self, timestamp: &str, level: &str, message: &str, target: Option<&str>) {
-        // 检查是否需要轮转日志文件
-        let _ = self.check_and_rotate_if_needed();
-
         let target_str = target.unwrap_or("");
 
         // 创建日志条目
@@ -310,6 +323,33 @@ pub static FILE_LOG_WRITER: Lazy<Option<FileLogWriter>> = Lazy::new(|| match Fil
 pub fn flush_file_logger() {
     if let Some(ref writer) = *FILE_LOG_WRITER {
         writer.flush();
+    }
+}
+
+/// 每轮扫描开始时调用，生成新的日志文件
+pub fn rotate_log_files_for_new_round() -> Option<String> {
+    if let Some(ref writer) = *FILE_LOG_WRITER {
+        if SKIP_FIRST_ROUND_LOG_ROTATE.swap(false, Ordering::Relaxed) {
+            writer.flush();
+            return None;
+        }
+        match writer.rotate_for_new_round() {
+            Ok(id) => Some(id),
+            Err(e) => {
+                tracing::warn!("轮转日志文件失败: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    }
+}
+
+pub fn get_current_log_file_name(level: &str) -> Option<String> {
+    if let Some(ref writer) = *FILE_LOG_WRITER {
+        Some(writer.current_log_file_name(level))
+    } else {
+        None
     }
 }
 
