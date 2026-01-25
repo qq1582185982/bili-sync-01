@@ -80,6 +80,7 @@ async fn database_connection() -> Result<DatabaseConnection> {
 async fn migrate_database() -> Result<()> {
     // 检查数据库文件是否存在，不存在则会在连接时自动创建
     let db_path = CONFIG_DIR.join("data.sqlite");
+    info!("数据库文件路径: {}", db_path.display());
     if !db_path.exists() {
         debug!("数据库文件不存在，将创建新的数据库");
     } else {

@@ -1,8 +1,11 @@
-use std::collections::HashMap;
+﻿use std::collections::HashMap;
 
 use anyhow::{anyhow, Context, Result};
-use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
-use serde_json::Value;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    Set, Statement,
+};
+use serde_json::{Map, Value};
 use tracing::{debug, error, info, warn};
 
 use crate::config::{Config, ConfigBundle};
@@ -13,6 +16,12 @@ use bili_sync_entity::entities::{config_item, prelude::ConfigItem};
 #[derive(Clone)]
 pub struct ConfigManager {
     db: DatabaseConnection,
+}
+
+#[derive(Default)]
+struct LegacyMigrationMeta {
+    no_danmaku: bool,
+    no_subtitle: bool,
 }
 
 impl ConfigManager {
@@ -83,10 +92,29 @@ impl ConfigManager {
     async fn load_from_database(&self) -> Result<Config> {
         let config_items: Vec<config_item::Model> = ConfigItem::find().all(&self.db).await?;
 
+        let config_item_count = config_items.len();
+        let has_credential = config_items.iter().any(|item| item.key_name == "credential");
+
         if config_items.is_empty() {
+            if let Some(legacy) = self.try_load_legacy_config().await? {
+                info!("检测到旧版 config 表，已尝试自动转换到 config_items");
+                self.save_config(&legacy)
+                    .await
+                    .context("旧版 config 迁移到 config_items 失败")?;
+                return Ok(legacy);
+            }
             return Err(anyhow!("数据库中没有配置项"));
         }
 
+        if config_item_count < 5 || !has_credential {
+            if let Some(legacy) = self.try_load_legacy_config().await? {
+                info!("配置项数量过少或缺少凭证，尝试从旧版 config 迁移");
+                self.save_config(&legacy)
+                    .await
+                    .context("旧版 config 迁移到 config_items 失败")?;
+                return Ok(legacy);
+            }
+        }
         // 将数据库配置项转换为配置映射
         let mut config_map: HashMap<String, Value> = HashMap::new();
         for item in config_items {
@@ -140,7 +168,187 @@ impl ConfigManager {
 
         Ok(config)
     }
+    /// 尝试从旧版 config 表加载配置数据
+    async fn try_load_legacy_config(&self) -> Result<Option<Config>> {
+        let backend = self.db.get_database_backend();
+        let exists_sql = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='config'";
+        let exists_row = self
+            .db
+            .query_one(Statement::from_string(backend, exists_sql))
+            .await?;
+        let exists: i64 = exists_row
+            .and_then(|row| row.try_get_by_index(0).ok())
+            .unwrap_or(0);
+        if exists == 0 {
+            return Ok(None);
+        }
 
+        let data_sql = "SELECT data FROM config LIMIT 1";
+        let data_row = self
+            .db
+            .query_one(Statement::from_string(backend, data_sql))
+            .await?;
+        let data: Option<String> = match data_row {
+            Some(row) => row.try_get_by_index(0).ok(),
+            None => None,
+        };
+        let Some(data) = data else {
+            return Ok(None);
+        };
+
+        let raw_value: Value = serde_json::from_str(&data)
+            .context("解析旧版 config.data JSON 失败")?;
+        let (normalized_value, meta, legacy_unmapped) = self.normalize_legacy_config_value(&raw_value);
+
+        let legacy: Config = serde_json::from_value(normalized_value)
+            .context("从旧版配置构建新配置失败")?;
+
+        // 保留完整旧配置，确保零损耗回溯
+        self.update_config_item("legacy_config_raw", raw_value)
+            .await
+            .ok();
+        if !legacy_unmapped.is_empty() {
+            self.update_config_item("legacy_config_unmapped", Value::Object(legacy_unmapped))
+                .await
+                .ok();
+        }
+
+        // 应用旧版全局跳过配置到现有视频源
+        if let Err(e) = self.apply_skip_option_to_sources(meta.no_danmaku, meta.no_subtitle).await {
+            warn!("应用旧版跳过配置到视频源失败: {}", e);
+        }
+
+        Ok(Some(legacy))
+    }
+
+    /// 标准化旧版配置到当前结构，返回(新配置值, 迁移元信息, 未映射字段)
+    fn normalize_legacy_config_value(&self, raw: &Value) -> (Value, LegacyMigrationMeta, Map<String, Value>) {
+        let mut normalized = raw.clone();
+        let mut meta = LegacyMigrationMeta::default();
+        let mut legacy_unmapped = Map::new();
+
+        let Some(root) = normalized.as_object_mut() else {
+            return (normalized, meta, legacy_unmapped);
+        };
+
+        // 记录可能无法直接映射的字段
+        for key in [
+            "favorite_default_path",
+            "collection_default_path",
+            "submission_default_path",
+            "notifiers",
+            "version",
+        ] {
+            if let Some(value) = root.get(key) {
+                legacy_unmapped.insert(key.to_string(), value.clone());
+            }
+        }
+
+        // notifiers -> notification（尽量兼容旧结构）
+        if root.get("notification").is_none() {
+            if let Some(notifiers) = root.get("notifiers").cloned() {
+                root.insert("notification".to_string(), notifiers);
+            }
+        }
+
+        // skip_option -> nfo_config / 下载开关
+        if let Some(skip_option) = root.get("skip_option").cloned() {
+            legacy_unmapped.insert("skip_option".to_string(), skip_option.clone());
+            if let Some(skip) = skip_option.as_object() {
+                let no_video_nfo = skip.get("no_video_nfo").and_then(|v| v.as_bool()).unwrap_or(false);
+                let no_upper = skip.get("no_upper").and_then(|v| v.as_bool()).unwrap_or(false);
+                let no_danmaku = skip.get("no_danmaku").and_then(|v| v.as_bool()).unwrap_or(false);
+                let no_subtitle = skip.get("no_subtitle").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                meta.no_danmaku = no_danmaku;
+                meta.no_subtitle = no_subtitle;
+
+                // 合并到 nfo_config
+                let nfo_config = root
+                    .entry("nfo_config")
+                    .or_insert_with(|| Value::Object(Map::new()));
+                if let Some(nfo_obj) = nfo_config.as_object_mut() {
+                    if no_video_nfo {
+                        nfo_obj.insert("enabled".to_string(), Value::Bool(false));
+                    }
+                    if no_upper {
+                        nfo_obj.insert("include_actor_info".to_string(), Value::Bool(false));
+                    }
+                }
+            }
+        }
+
+        // nfo_time_type -> nfo_config.time_type
+        if let Some(nfo_time_type) = root.get("nfo_time_type").cloned() {
+            let nfo_config = root
+                .entry("nfo_config")
+                .or_insert_with(|| Value::Object(Map::new()));
+            if let Some(nfo_obj) = nfo_config.as_object_mut() {
+                nfo_obj.insert("time_type".to_string(), nfo_time_type);
+            }
+        }
+
+        // concurrent_limit.download -> concurrent_limit.parallel_download
+        if let Some(concurrent_limit) = root.get_mut("concurrent_limit").and_then(|v| v.as_object_mut()) {
+            if let Some(download) = concurrent_limit.get("download").cloned() {
+                legacy_unmapped.insert("concurrent_limit.download".to_string(), download.clone());
+            }
+            if concurrent_limit.get("parallel_download").is_none() {
+                if let Some(download) = concurrent_limit.remove("download") {
+                    if let Some(download_obj) = download.as_object() {
+                        let enabled = download_obj.get("enable").and_then(|v| v.as_bool()).unwrap_or(true);
+                        let threads = download_obj
+                            .get("concurrency")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(4);
+                        let use_aria2 = download_obj.get("use_aria2").and_then(|v| v.as_bool());
+
+                        let mut parallel_download = Map::new();
+                        parallel_download.insert("enabled".to_string(), Value::Bool(enabled));
+                        parallel_download.insert(
+                            "threads".to_string(),
+                            Value::Number(serde_json::Number::from(threads)),
+                        );
+                        if let Some(use_aria2) = use_aria2 {
+                            parallel_download.insert("use_aria2".to_string(), Value::Bool(use_aria2));
+                        }
+
+                        concurrent_limit.insert(
+                            "parallel_download".to_string(),
+                            Value::Object(parallel_download),
+                        );
+                    }
+                }
+            }
+        }
+
+        (normalized, meta, legacy_unmapped)
+    }
+
+    /// 将旧版全局跳过配置同步到现有视频源下载开关
+    async fn apply_skip_option_to_sources(&self, no_danmaku: bool, no_subtitle: bool) -> Result<()> {
+        if !no_danmaku && !no_subtitle {
+            return Ok(());
+        }
+
+        let mut updates = Vec::new();
+        if no_danmaku {
+            updates.push("download_danmaku = 0");
+        }
+        if no_subtitle {
+            updates.push("download_subtitle = 0");
+        }
+        let set_clause = updates.join(", ");
+
+        for table in ["collection", "favorite", "submission", "watch_later", "video_source"] {
+            let sql = format!("UPDATE {} SET {}", table, set_clause);
+            if let Err(e) = self.db.execute_unprepared(&sql).await {
+                warn!("更新表 {} 的下载开关失败: {}", table, e);
+            }
+        }
+
+        Ok(())
+    }
     /// 递归插入嵌套值
     fn insert_nested(map: &mut serde_json::Map<String, Value>, parts: &[&str], value: Value) {
         if parts.is_empty() {
@@ -474,3 +682,6 @@ impl ConfigManager {
         }
     }
 }
+
+
+
