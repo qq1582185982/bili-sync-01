@@ -58,6 +58,7 @@
 	let flatFolder = false; // 平铺目录模式
 	let downloadDanmaku = true; // 下载弹幕（默认开启）
 	let downloadSubtitle = true; // 下载字幕（默认开启）
+	let useDynamicApi = false; // 投稿源：使用动态API
 	let aiRename = false; // AI重命名（默认关闭）
 	let aiRenameVideoPrompt = ''; // AI重命名视频提示词
 	let aiRenameAudioPrompt = ''; // AI重命名音频提示词
@@ -614,6 +615,7 @@
 			flat_folder: flatFolder,
 			download_danmaku: downloadDanmaku,
 			download_subtitle: downloadSubtitle,
+			use_dynamic_api: useDynamicApi,
 			ai_rename: aiRename,
 			ai_rename_video_prompt: aiRenameVideoPrompt.trim() || undefined,
 			ai_rename_audio_prompt: aiRenameAudioPrompt.trim() || undefined,
@@ -758,6 +760,7 @@
 			flatFolder = false;
 			downloadDanmaku = true;
 			downloadSubtitle = true;
+			useDynamicApi = false;
 			aiRename = false;
 			aiRenameVideoPrompt = '';
 			aiRenameAudioPrompt = '';
@@ -2674,6 +2677,44 @@
 										></div>
 									</label>
 								</div>
+
+								<!-- 动态API（仅UP主投稿） -->
+								{#if sourceType === 'submission'}
+									<div
+										class="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-700"
+									>
+										<div class="flex items-center gap-2">
+											<svg
+												class="h-4 w-4 text-blue-600 dark:text-blue-400"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M5 12a7 7 0 0114 0M8 12a4 4 0 018 0M12 20h.01"
+												/>
+											</svg>
+											<div>
+												<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+													>使用动态API</span
+												>
+												<p class="text-[10px] text-gray-500 dark:text-gray-400">
+													只有使用动态API才能拉取到动态视频，但该接口不提供分页参数，每次请求只能拉取12条视频。
+													这会一定程度上增加请求次数，用户可根据实际情况酌情选择，推荐仅在UP主有较多动态视频时开启。
+												</p>
+											</div>
+										</div>
+										<label class="relative inline-flex cursor-pointer items-center">
+											<input type="checkbox" bind:checked={useDynamicApi} class="peer sr-only" />
+											<div
+												class="peer h-5 w-9 rounded-full bg-gray-300 peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-500 peer-focus:outline-none after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-600 dark:peer-checked:bg-blue-500"
+											></div>
+										</label>
+									</div>
+								{/if}
 
 								<!-- 下载弹幕 -->
 								<div

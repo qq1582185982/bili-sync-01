@@ -135,6 +135,7 @@ pub struct UpdateVideoSourceDownloadOptionsResponse {
     pub ai_rename_enable_multi_page: bool,
     pub ai_rename_enable_collection: bool,
     pub ai_rename_enable_bangumi: bool,
+    pub use_dynamic_api: bool,
     pub message: String,
 }
 
@@ -218,6 +219,8 @@ pub struct VideoSource {
     pub ai_rename_enable_multi_page: bool, // 对多P视频启用AI重命名
     pub ai_rename_enable_collection: bool, // 对合集视频启用AI重命名
     pub ai_rename_enable_bangumi: bool,    // 对番剧启用AI重命名
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_dynamic_api: Option<bool>, // 投稿源：是否使用动态API
 }
 
 #[derive(Serialize, ToSchema)]

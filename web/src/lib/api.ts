@@ -362,6 +362,7 @@ class ApiClient {
 			flat_folder?: boolean;
 			download_danmaku?: boolean;
 			download_subtitle?: boolean;
+			use_dynamic_api?: boolean;
 			ai_rename?: boolean;
 			ai_rename_video_prompt?: string;
 			ai_rename_audio_prompt?: string;
@@ -385,6 +386,7 @@ class ApiClient {
 			ai_rename_enable_multi_page: boolean;
 			ai_rename_enable_collection: boolean;
 			ai_rename_enable_bangumi: boolean;
+			use_dynamic_api: boolean;
 			message: string;
 		}>
 	> {
@@ -403,6 +405,7 @@ class ApiClient {
 			ai_rename_enable_multi_page: boolean;
 			ai_rename_enable_collection: boolean;
 			ai_rename_enable_bangumi: boolean;
+			use_dynamic_api: boolean;
 			message: string;
 		}>(`/video-sources/${sourceType}/${id}/download-options`, options);
 	}

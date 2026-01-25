@@ -31,6 +31,8 @@ pub struct Model {
     pub ai_rename_enable_multi_page: bool,
     pub ai_rename_enable_collection: bool,
     pub ai_rename_enable_bangumi: bool,
+    pub use_dynamic_api: bool,
+    pub dynamic_api_full_synced: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

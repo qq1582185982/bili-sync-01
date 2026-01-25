@@ -1037,6 +1037,7 @@ impl AddTaskQueue {
                 ai_rename_enable_bangumi: None,    // 任务队列中使用默认值
                 audio_only_m4a_only: None,         // 任务队列中使用默认值
                 flat_folder: None,                 // 任务队列中使用默认值
+                use_dynamic_api: None,             // 任务队列中使用默认值
             };
 
             match add_video_source_internal(db.clone(), request).await {

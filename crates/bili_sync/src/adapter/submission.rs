@@ -13,7 +13,7 @@ use sea_orm::{DatabaseConnection, Unchanged};
 use tracing::{debug, info, warn};
 
 use crate::adapter::{VideoSource, VideoSourceEnum, _ActiveModel};
-use crate::bilibili::{BiliClient, Submission, VideoInfo};
+use crate::bilibili::{BiliClient, Dynamic, Submission, VideoInfo};
 
 impl VideoSource for submission::Model {
     fn filter_expr(&self) -> SimpleExpr {
@@ -102,6 +102,10 @@ impl VideoSource for submission::Model {
             );
             true
         }
+    }
+
+    fn allow_skip_first_old(&self) -> bool {
+        self.use_dynamic_api
     }
 
     fn log_refresh_video_start(&self) {
@@ -284,6 +288,8 @@ pub(super) async fn submission_from<'a>(
         latest_row_at: Set("1970-01-01 00:00:00".to_string()),
         enabled: Set(true),
         scan_deleted_videos: Set(false),
+        use_dynamic_api: Set(false),
+        dynamic_api_full_synced: Set(false),
         ..Default::default()
     })
     .on_conflict(
@@ -293,13 +299,19 @@ pub(super) async fn submission_from<'a>(
     )
     .exec(connection)
     .await?;
-    Ok((
-        submission::Entity::find()
-            .filter(submission::Column::UpperId.eq(upper.mid))
-            .one(connection)
-            .await?
-            .context("submission not found")?
-            .into(),
-        Box::pin(submission_with_name.into_video_stream(cancellation_token.unwrap_or_default())),
-    ))
+    let submission_record = submission::Entity::find()
+        .filter(submission::Column::UpperId.eq(upper.mid))
+        .one(connection)
+        .await?
+        .context("submission not found")?;
+
+    let use_dynamic_api = submission_record.use_dynamic_api;
+    let token = cancellation_token.unwrap_or_default();
+    let video_stream: Pin<Box<dyn Stream<Item = Result<VideoInfo>> + 'a + Send>> = if use_dynamic_api {
+        Box::pin(Dynamic::new(bili_client, upper_id.to_owned()).into_video_stream(token))
+    } else {
+        Box::pin(submission_with_name.into_video_stream(token))
+    };
+
+    Ok((submission_record.into(), video_stream))
 }

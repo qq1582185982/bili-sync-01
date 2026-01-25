@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+﻿use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -815,6 +815,7 @@ pub async fn get_video_sources(
                 ai_rename_enable_multi_page: model.ai_rename_enable_multi_page,
                 ai_rename_enable_collection: model.ai_rename_enable_collection,
                 ai_rename_enable_bangumi: model.ai_rename_enable_bangumi,
+                use_dynamic_api: None,
             }
         })
         .collect();
@@ -865,6 +866,7 @@ pub async fn get_video_sources(
                 ai_rename_enable_multi_page: model.ai_rename_enable_multi_page,
                 ai_rename_enable_collection: model.ai_rename_enable_collection,
                 ai_rename_enable_bangumi: model.ai_rename_enable_bangumi,
+                use_dynamic_api: None,
             }
         })
         .collect();
@@ -915,6 +917,7 @@ pub async fn get_video_sources(
                 ai_rename_enable_multi_page: model.ai_rename_enable_multi_page,
                 ai_rename_enable_collection: model.ai_rename_enable_collection,
                 ai_rename_enable_bangumi: model.ai_rename_enable_bangumi,
+                use_dynamic_api: Some(model.use_dynamic_api),
             }
         })
         .collect();
@@ -965,6 +968,7 @@ pub async fn get_video_sources(
                 ai_rename_enable_multi_page: model.ai_rename_enable_multi_page,
                 ai_rename_enable_collection: model.ai_rename_enable_collection,
                 ai_rename_enable_bangumi: model.ai_rename_enable_bangumi,
+                use_dynamic_api: None,
             }
         })
         .collect();
@@ -1034,6 +1038,7 @@ pub async fn get_video_sources(
                 ai_rename_enable_multi_page: model.ai_rename_enable_multi_page,
                 ai_rename_enable_collection: model.ai_rename_enable_collection,
                 ai_rename_enable_bangumi: model.ai_rename_enable_bangumi,
+                use_dynamic_api: None,
             }
         })
         .collect();
@@ -2616,6 +2621,8 @@ pub async fn add_video_source_internal(
                 ai_rename_enable_bangumi: sea_orm::Set(params.ai_rename_enable_bangumi.unwrap_or(false)),
                 audio_only_m4a_only: sea_orm::Set(params.audio_only_m4a_only.unwrap_or(false)),
                 flat_folder: sea_orm::Set(params.flat_folder.unwrap_or(false)),
+                use_dynamic_api: sea_orm::Set(params.use_dynamic_api.unwrap_or(false)),
+                dynamic_api_full_synced: sea_orm::Set(params.use_dynamic_api.unwrap_or(false)),
             };
 
             let insert_result = submission::Entity::insert(submission).exec(&txn).await?;
@@ -4716,6 +4723,7 @@ pub async fn update_video_source_download_options_internal(
                 ai_rename_enable_multi_page,
                 ai_rename_enable_collection,
                 ai_rename_enable_bangumi,
+                use_dynamic_api: false,
                 message: format!("合集 {} 的下载选项已更新", collection.name),
             }
         }
@@ -4782,6 +4790,7 @@ pub async fn update_video_source_download_options_internal(
                 ai_rename_enable_multi_page,
                 ai_rename_enable_collection,
                 ai_rename_enable_bangumi,
+                use_dynamic_api: false,
                 message: format!("收藏夹 {} 的下载选项已更新", favorite.name),
             }
         }
@@ -4814,8 +4823,20 @@ pub async fn update_video_source_download_options_internal(
             let ai_rename_enable_bangumi = params
                 .ai_rename_enable_bangumi
                 .unwrap_or(submission.ai_rename_enable_bangumi);
+            let use_dynamic_api = params.use_dynamic_api.unwrap_or(submission.use_dynamic_api);
+            let mut dynamic_api_full_synced = submission.dynamic_api_full_synced;
+            let mut latest_row_at_override: Option<String> = None;
 
-            submission::Entity::update(submission::ActiveModel {
+            if use_dynamic_api && !submission.use_dynamic_api && !submission.dynamic_api_full_synced {
+                latest_row_at_override = Some("1970-01-01 00:00:00".to_string());
+                dynamic_api_full_synced = true;
+                info!(
+                    "UP主投稿 {} 首次启用动态API，已重置最新时间用于全量拉取",
+                    submission.upper_name
+                );
+            }
+
+            let mut update_model = submission::ActiveModel {
                 id: sea_orm::ActiveValue::Unchanged(id),
                 audio_only: sea_orm::Set(audio_only),
                 audio_only_m4a_only: sea_orm::Set(audio_only_m4a_only),
@@ -4828,10 +4849,16 @@ pub async fn update_video_source_download_options_internal(
                 ai_rename_enable_multi_page: sea_orm::Set(ai_rename_enable_multi_page),
                 ai_rename_enable_collection: sea_orm::Set(ai_rename_enable_collection),
                 ai_rename_enable_bangumi: sea_orm::Set(ai_rename_enable_bangumi),
+                use_dynamic_api: sea_orm::Set(use_dynamic_api),
+                dynamic_api_full_synced: sea_orm::Set(dynamic_api_full_synced),
                 ..Default::default()
-            })
-            .exec(&txn)
-            .await?;
+            };
+
+            if let Some(latest_row_at) = latest_row_at_override {
+                update_model.latest_row_at = sea_orm::Set(latest_row_at);
+            }
+
+            submission::Entity::update(update_model).exec(&txn).await?;
 
             crate::api::response::UpdateVideoSourceDownloadOptionsResponse {
                 success: true,
@@ -4848,6 +4875,7 @@ pub async fn update_video_source_download_options_internal(
                 ai_rename_enable_multi_page,
                 ai_rename_enable_collection,
                 ai_rename_enable_bangumi,
+                use_dynamic_api,
                 message: format!("UP主投稿 {} 的下载选项已更新", submission.upper_name),
             }
         }
@@ -4914,6 +4942,7 @@ pub async fn update_video_source_download_options_internal(
                 ai_rename_enable_multi_page,
                 ai_rename_enable_collection,
                 ai_rename_enable_bangumi,
+                use_dynamic_api: false,
                 message: "稍后观看的下载选项已更新".to_string(),
             }
         }
@@ -4980,6 +5009,7 @@ pub async fn update_video_source_download_options_internal(
                 ai_rename_enable_multi_page,
                 ai_rename_enable_collection,
                 ai_rename_enable_bangumi,
+                use_dynamic_api: false,
                 message: format!("番剧 {} 的下载选项已更新", video_source.name),
             }
         }

@@ -45,6 +45,7 @@ export interface VideoSource {
 	media_id?: string; // 番剧media_id
 	selected_seasons?: string[];
 	selected_videos?: string | null; // 投稿源：选中视频（JSON字符串）
+	use_dynamic_api?: boolean; // 投稿源：是否使用动态API
 	// 新的双列表模式关键词过滤
 	blacklist_keywords?: string[]; // 黑名单关键词列表（匹配的视频将被排除）
 	whitelist_keywords?: string[]; // 白名单关键词列表（只下载匹配的视频）
@@ -199,6 +200,7 @@ export interface AddVideoSourceRequest {
 	flat_folder?: boolean; // 平铺目录模式（不为每个视频创建子文件夹）
 	download_danmaku?: boolean; // 是否下载弹幕（默认true）
 	download_subtitle?: boolean; // 是否下载字幕（默认true）
+	use_dynamic_api?: boolean; // 投稿源：是否使用动态API
 	ai_rename?: boolean; // 是否启用AI重命名（默认false）
 	ai_rename_video_prompt?: string; // AI重命名视频提示词
 	ai_rename_audio_prompt?: string; // AI重命名音频提示词

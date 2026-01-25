@@ -14,6 +14,7 @@ use crate::utils::status::STATUS_COMPLETED;
 fn extract_bvid(video_info: &VideoInfo) -> String {
     match video_info {
         VideoInfo::Submission { bvid, .. } => bvid.clone(),
+        VideoInfo::Dynamic { bvid, .. } => bvid.clone(),
         VideoInfo::Detail { bvid, .. } => bvid.clone(),
         VideoInfo::Favorite { bvid, .. } => bvid.clone(),
         VideoInfo::WatchLater { bvid, .. } => bvid.clone(),
@@ -26,6 +27,7 @@ fn extract_bvid(video_info: &VideoInfo) -> String {
 fn extract_title(video_info: &VideoInfo) -> String {
     match video_info {
         VideoInfo::Submission { title, .. } => title.clone(),
+        VideoInfo::Dynamic { title, .. } => title.clone(),
         VideoInfo::Detail { title, .. } => title.clone(),
         VideoInfo::Favorite { title, .. } => title.clone(),
         VideoInfo::WatchLater { title, .. } => title.clone(),

@@ -138,6 +138,28 @@ impl VideoInfo {
                 cid: Set(None), // 后续通过get_view_info填充
                 ..default
             },
+            VideoInfo::Dynamic {
+                title,
+                bvid,
+                intro,
+                cover,
+                pubtime,
+            } => bili_sync_entity::video::ActiveModel {
+                bvid: Set(bvid),
+                name: Set(title),
+                intro: Set(intro),
+                cover: Set(cover),
+                ctime: Set(pubtime
+                    .with_timezone(&crate::utils::time_format::beijing_timezone())
+                    .naive_local()),
+                pubtime: Set(pubtime
+                    .with_timezone(&crate::utils::time_format::beijing_timezone())
+                    .naive_local()),
+                category: Set(2),
+                valid: Set(true),
+                cid: Set(None),
+                ..default
+            },
             VideoInfo::Bangumi {
                 title,
                 bvid,
@@ -276,6 +298,7 @@ impl VideoInfo {
             | VideoInfo::Favorite { fav_time: time, .. }
             | VideoInfo::WatchLater { fav_time: time, .. }
             | VideoInfo::Submission { ctime: time, .. }
+            | VideoInfo::Dynamic { pubtime: time, .. }
             | VideoInfo::Bangumi { pubtime: time, .. } => time,
             _ => unreachable!(),
         }

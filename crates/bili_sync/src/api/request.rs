@@ -79,6 +79,8 @@ pub struct AddVideoSourceRequest {
     pub audio_only_m4a_only: Option<bool>,
     // 是否启用平铺目录模式（不为每个视频创建子文件夹）
     pub flat_folder: Option<bool>,
+    // 是否使用动态API获取UP主投稿（仅submission有效）
+    pub use_dynamic_api: Option<bool>,
 }
 
 // 删除视频源的请求结构体
@@ -124,6 +126,8 @@ pub struct UpdateVideoSourceDownloadOptionsRequest {
     pub ai_rename_enable_collection: Option<bool>,
     /// 是否对番剧启用AI重命名
     pub ai_rename_enable_bangumi: Option<bool>,
+    /// 是否使用动态API获取UP主投稿（仅submission有效）
+    pub use_dynamic_api: Option<bool>,
 }
 
 // 更新投稿源选中视频列表的请求结构体

@@ -49,6 +49,8 @@ mod m20260104_000001_create_ai_conversation_history;
 mod m20260104_000002_add_audio_only_m4a_only_and_flat_folder;
 mod m20260108_000001_add_ai_rename_advanced_options;
 mod m20260125_000001_migrate_legacy_config;
+mod m20260125_000002_add_use_dynamic_api;
+mod m20260125_000003_add_dynamic_api_full_synced;
 
 pub struct Migrator;
 
@@ -105,6 +107,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260104_000002_add_audio_only_m4a_only_and_flat_folder::Migration),
             Box::new(m20260108_000001_add_ai_rename_advanced_options::Migration),
             Box::new(m20260125_000001_migrate_legacy_config::Migration),
+            Box::new(m20260125_000002_add_use_dynamic_api::Migration),
+            Box::new(m20260125_000003_add_dynamic_api_full_synced::Migration),
         ]
     }
 }

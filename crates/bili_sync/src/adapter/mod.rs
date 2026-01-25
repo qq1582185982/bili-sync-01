@@ -71,6 +71,11 @@ pub trait VideoSource {
         release_beijing_str.as_str() > latest_row_at_string
     }
 
+    /// 是否允许跳过第一条旧视频并继续扫描（用于动态API置顶旧视频场景）
+    fn allow_skip_first_old(&self) -> bool {
+        false
+    }
+
     /// 开始刷新视频
     fn log_refresh_video_start(&self);
 

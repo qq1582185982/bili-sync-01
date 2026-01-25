@@ -32,6 +32,7 @@
 	import FolderSyncIcon from '@lucide/svelte/icons/folder-sync';
 	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import SubtitlesIcon from '@lucide/svelte/icons/subtitles';
+	import ActivityIcon from '@lucide/svelte/icons/activity';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import HistoryIcon from '@lucide/svelte/icons/history';
 	import { goto } from '$app/navigation';
@@ -264,6 +265,23 @@
 				successToast: () => ({
 					title: '设置更新成功',
 					description: newFlatFolder ? '已启用平铺目录模式' : '已禁用平铺目录模式'
+				})
+			}
+		);
+	}
+
+	// 切换动态API（仅投稿源）
+	async function handleToggleDynamicApi(sourceId: number, currentUseDynamicApi: boolean) {
+		const newUseDynamicApi = !currentUseDynamicApi;
+		await updateAndReload(
+			() =>
+				api.updateVideoSourceDownloadOptions('submission', sourceId, {
+					use_dynamic_api: newUseDynamicApi
+				}),
+			{
+				successToast: () => ({
+					title: '设置更新成功',
+					description: newUseDynamicApi ? '已启用动态API' : '已关闭动态API'
 				})
 			}
 		);
@@ -655,6 +673,9 @@
 													{#if source.flat_folder}
 														<span class="text-purple-600">平铺目录</span>
 													{/if}
+													{#if source.use_dynamic_api}
+														<span class="text-blue-600">动态API已启用</span>
+													{/if}
 													{#if source.download_danmaku === false}
 														<span class="text-gray-500">弹幕下载已禁用</span>
 													{/if}
@@ -705,6 +726,19 @@
 														class="h-8 w-8 p-0"
 													>
 														<ListVideoIcon class="h-4 w-4 text-purple-600" />
+													</Button>
+
+													<Button
+														size="sm"
+														variant="ghost"
+														onclick={() =>
+															handleToggleDynamicApi(source.id, source.use_dynamic_api ?? false)}
+														title="只有使用动态API才能拉取到动态视频，但该接口不提供分页参数，每次请求只能拉取12条视频。这会一定程度上增加请求次数，用户可根据实际情况酌情选择，推荐仅在UP主有较多动态视频时开启。"
+														class="h-8 w-8 p-0"
+													>
+														<ActivityIcon
+															class="h-4 w-4 {source.use_dynamic_api ? 'text-blue-600' : 'text-gray-400'}"
+														/>
 													</Button>
 												{/if}
 

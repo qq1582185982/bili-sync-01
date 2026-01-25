@@ -428,6 +428,9 @@ pub async fn refresh_video_source<'a>(
                     // Submission 没有 upper 信息，使用默认值
                     (title.clone(), bvid.clone(), "未知".to_string(), None, None)
                 }
+                VideoInfo::Dynamic { title, bvid, .. } => {
+                    (title.clone(), bvid.clone(), "未知".to_string(), None, None)
+                }
                 VideoInfo::Bangumi {
                     title,
                     bvid,
@@ -457,6 +460,7 @@ pub async fn refresh_video_source<'a>(
                 VideoInfo::Collection { bvid, .. } => bvid.clone(),
                 VideoInfo::WatchLater { bvid, .. } => bvid.clone(),
                 VideoInfo::Submission { bvid, .. } => bvid.clone(),
+                VideoInfo::Dynamic { bvid, .. } => bvid.clone(),
                 VideoInfo::Bangumi { bvid, .. } => bvid.clone(),
             })
             .collect();
@@ -532,6 +536,7 @@ pub async fn refresh_video_source<'a>(
     let mut count = 0;
     let mut new_videos = Vec::new();
     let mut buffer: Vec<VideoInfo> = Vec::with_capacity(10);
+    let mut skipped_first_old = false;
     let mut video_streams = video_streams;
 
     while let Some(res) = video_streams.next().await {
@@ -563,6 +568,10 @@ pub async fn refresh_video_source<'a>(
 
         // 增量截断：遇到旧视频则结束扫描
         if !video_source.should_take(release_datetime, latest_row_at_string.as_str()) {
+            if !skipped_first_old && video_source.allow_skip_first_old() {
+                skipped_first_old = true;
+                continue;
+            }
             break;
         }
 
