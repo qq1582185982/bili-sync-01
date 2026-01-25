@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+﻿use std::collections::{HashMap, HashSet};
 
 use anyhow::{anyhow, Context, Result};
 use sea_orm::{
@@ -48,6 +48,49 @@ struct LegacyMigrationMeta {
     no_subtitle: bool,
 }
 
+
+fn describe_config_key(key: &str) -> &'static str {
+    match key {
+        "auth_token" => "管理页访问密钥",
+        "bind_address" => "服务监听地址",
+        "credential" => "B站登录凭证",
+        "filter_option" => "画质与编码过滤",
+        "danmaku_option" => "弹幕下载/样式设置",
+        "video_name" => "视频命名模板",
+        "page_name" => "分页命名模板",
+        "multi_page_name" => "多P分页命名模板",
+        "bangumi_name" => "番剧分页命名模板",
+        "folder_structure" => "目录结构模板",
+        "bangumi_folder_name" => "番剧文件夹命名模板",
+        "collection_folder_mode" => "合集文件夹模式",
+        "interval" => "扫描间隔（秒）",
+        "upper_path" => "UP主头像缓存路径",
+        "nfo_time_type" => "NFO时间类型（收藏/发布时间）",
+        "nfo_config" => "NFO生成配置",
+        "concurrent_limit" => "并发/限速/多线程配置",
+        "concurrent_limit.download" => "旧版多线程下载配置",
+        "time_format" => "时间格式",
+        "cdn_sorting" => "CDN优先级排序",
+        "submission_risk_control" => "UP主投稿风控配置",
+        "scan_deleted_videos" => "扫描已删除视频",
+        "enable_aria2_health_check" => "aria2健康检查",
+        "enable_aria2_auto_restart" => "aria2自动重启",
+        "aria2_health_check_interval" => "aria2健康检查间隔",
+        "multi_page_use_season_structure" => "多P目录Season结构",
+        "collection_use_season_structure" => "合集目录Season结构",
+        "bangumi_use_season_structure" => "番剧目录Season结构",
+        "notification" => "通知配置",
+        "notifiers" => "旧版通知配置结构",
+        "skip_option" => "旧版跳过下载选项",
+        "favorite_default_path" => "收藏夹默认路径模板（旧版）",
+        "collection_default_path" => "合集默认路径模板（旧版）",
+        "submission_default_path" => "投稿默认路径模板（旧版）",
+        "version" => "旧版配置版本号",
+        "risk_control" => "风控验证配置",
+        "ai_rename" => "AI重命名配置",
+        _ => "未知/未定义",
+    }
+}
 impl ConfigManager {
     pub fn new(db: DatabaseConnection) -> Self {
         Self { db }
@@ -118,6 +161,41 @@ impl ConfigManager {
                 .map(|obj| obj.keys().cloned().collect())
                 .unwrap_or_default();
             unmapped_keys = legacy_unmapped.keys().cloned().collect();
+
+            let unmapped_set: HashSet<String> = unmapped_keys.iter().cloned().collect();
+            mapped_keys.retain(|key| !unmapped_set.contains(key));
+
+            let report_suffix = if dry_run { "（预览）" } else { "" };
+            let mapped_list = if mapped_keys.is_empty() {
+                "无".to_string()
+            } else {
+                mapped_keys
+                    .iter()
+                    .map(|key| format!("{}({})", key, describe_config_key(key)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let unmapped_list = if unmapped_keys.is_empty() {
+                "无".to_string()
+            } else {
+                unmapped_keys
+                    .iter()
+                    .map(|key| format!("{}({})", key, describe_config_key(key)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            info!(
+                "配置迁移报告{}：已映射字段({}) = {}",
+                report_suffix,
+                mapped_keys.len(),
+                mapped_list
+            );
+            info!(
+                "配置迁移报告{}：未映射字段({}) = {}",
+                report_suffix,
+                unmapped_keys.len(),
+                unmapped_list
+            );
 
             if !dry_run {
                 let legacy: Config = serde_json::from_value(normalized_value)
@@ -880,6 +958,9 @@ impl ConfigManager {
         }
     }
 }
+
+
+
 
 
 
