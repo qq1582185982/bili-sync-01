@@ -1,4 +1,4 @@
-use serde::Deserialize;
+﻿use serde::Deserialize;
 use utoipa::IntoParams;
 use utoipa::ToSchema;
 
@@ -425,3 +425,9 @@ pub struct ValidateRegexRequest {
     /// 要验证的正则表达式
     pub pattern: String,
 }
+
+#[derive(Deserialize, IntoParams, ToSchema)]
+pub struct ConfigMigrationRequest {
+    pub dry_run: Option<bool>,
+}
+

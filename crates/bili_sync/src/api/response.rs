@@ -1,4 +1,4 @@
-use sea_orm::FromQueryResult;
+﻿use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -942,3 +942,25 @@ pub struct BatchRenameResponse {
     pub failed_count: usize,
     pub message: String,
 }
+
+#[derive(Serialize, ToSchema)]
+pub struct ConfigMigrationStatusResponse {
+    pub current_version: i32,
+    pub latest_version: i32,
+    pub pending: bool,
+    pub legacy_detected: bool,
+    pub last_migrated_at: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ConfigMigrationReportResponse {
+    pub current_version: i32,
+    pub target_version: i32,
+    pub applied: bool,
+    pub dry_run: bool,
+    pub legacy_detected: bool,
+    pub mapped_keys: Vec<String>,
+    pub unmapped_keys: Vec<String>,
+    pub notes: Vec<String>,
+}
+

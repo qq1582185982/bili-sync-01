@@ -25,16 +25,18 @@ use utoipa::OpenApi;
 use crate::api::auth::OpenAPIAuth;
 use crate::api::error::InnerApiError;
 use crate::api::request::{
-    AddVideoSourceRequest, BatchUpdateConfigRequest, ConfigHistoryRequest, QRGenerateRequest, QRPollRequest,
-    ResetSpecificTasksRequest, ResetVideoSourcePathRequest, SetupAuthTokenRequest, SubmissionVideosRequest,
-    UpdateConfigItemRequest, UpdateConfigRequest, UpdateCredentialRequest, UpdateVideoStatusRequest, VideosRequest,
+    AddVideoSourceRequest, BatchUpdateConfigRequest, ConfigHistoryRequest, ConfigMigrationRequest, QRGenerateRequest,
+    QRPollRequest, ResetSpecificTasksRequest, ResetVideoSourcePathRequest, SetupAuthTokenRequest,
+    SubmissionVideosRequest, UpdateConfigItemRequest, UpdateConfigRequest, UpdateCredentialRequest,
+    UpdateVideoStatusRequest, VideosRequest,
 };
 use crate::api::response::{
     AddVideoSourceResponse, BangumiSeasonInfo, BangumiSourceListResponse, BangumiSourceOption,
     BetaImageUpdateStatusResponse, ConfigChangeInfo, ConfigHistoryResponse, ConfigItemResponse, ConfigReloadResponse,
-    ConfigResponse, ConfigValidationResponse, DashBoardResponse, DeleteVideoResponse, DeleteVideoSourceResponse,
-    HotReloadStatusResponse, InitialSetupCheckResponse, MonitoringStatus, PageInfo, QRGenerateResponse, QRPollResponse,
-    QRUserInfo, ResetAllVideosResponse, ResetVideoResponse, ResetVideoSourcePathResponse, SetupAuthTokenResponse,
+    ConfigMigrationReportResponse, ConfigMigrationStatusResponse, ConfigResponse, ConfigValidationResponse,
+    DashBoardResponse, DeleteVideoResponse, DeleteVideoSourceResponse, HotReloadStatusResponse,
+    InitialSetupCheckResponse, MonitoringStatus, PageInfo, QRGenerateResponse, QRPollResponse, QRUserInfo,
+    ResetAllVideosResponse, ResetVideoResponse, ResetVideoSourcePathResponse, SetupAuthTokenResponse,
     SubmissionVideosResponse, UpdateConfigResponse, UpdateCredentialResponse, UpdateVideoStatusResponse, VideoInfo,
     VideoResponse, VideoSource, VideoSourcesResponse, VideosResponse,
 };
@@ -653,7 +655,7 @@ mod cleanup_tests {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(get_video_sources, get_videos, get_video, reset_video, reset_all_videos, reset_specific_tasks, update_video_status, add_video_source, update_video_source_enabled, update_video_source_scan_deleted, reset_video_source_path, delete_video_source, reload_config, get_config, update_config, get_bangumi_seasons, search_bilibili, get_user_favorites, get_user_collections, get_user_followings, get_subscribed_collections, get_submission_videos, get_logs, get_queue_status, proxy_image, get_config_item, get_config_history, validate_config, get_hot_reload_status, check_initial_setup, setup_auth_token, update_credential, generate_qr_code, poll_qr_status, get_current_user, clear_credential, pause_scanning_endpoint, resume_scanning_endpoint, get_task_control_status, get_video_play_info, proxy_video_stream, validate_favorite, get_user_favorites_by_uid, test_notification_handler, get_notification_config, update_notification_config, get_notification_status, test_risk_control_handler, get_beta_image_update_status),
+    paths(get_video_sources, get_videos, get_video, reset_video, reset_all_videos, reset_specific_tasks, update_video_status, add_video_source, update_video_source_enabled, update_video_source_scan_deleted, reset_video_source_path, delete_video_source, reload_config, get_config, update_config, get_bangumi_seasons, search_bilibili, get_user_favorites, get_user_collections, get_user_followings, get_subscribed_collections, get_submission_videos, get_logs, get_queue_status, proxy_image, get_config_item, get_config_history, get_config_migration_status, migrate_config_schema, validate_config, get_hot_reload_status, check_initial_setup, setup_auth_token, update_credential, generate_qr_code, poll_qr_status, get_current_user, clear_credential, pause_scanning_endpoint, resume_scanning_endpoint, get_task_control_status, get_video_play_info, proxy_video_stream, validate_favorite, get_user_favorites_by_uid, test_notification_handler, get_notification_config, update_notification_config, get_notification_status, test_risk_control_handler, get_beta_image_update_status),
     modifiers(&OpenAPIAuth),
     security(
         ("Token" = []),
@@ -9310,6 +9312,74 @@ pub async fn get_config_history(
     };
 
     Ok(ApiResponse::ok(response))
+}
+
+/// 获取配置迁移状态
+#[utoipa::path(
+    get,
+    path = "/api/config/migration/status",
+    responses(
+        (status = 200, description = "成功获取迁移状态", body = ConfigMigrationStatusResponse),
+        (status = 500, description = "内部服务器错误")
+    ),
+    security(("Token" = []))
+)]
+pub async fn get_config_migration_status(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+) -> Result<ApiResponse<ConfigMigrationStatusResponse>, ApiError> {
+    let manager = crate::config::ConfigManager::new(db.as_ref().clone());
+    let status = manager
+        .get_config_schema_status()
+        .await
+        .map_err(|e| ApiError::from(anyhow!("获取配置迁移状态失败: {}", e)))?;
+
+    Ok(ApiResponse::ok(ConfigMigrationStatusResponse {
+        current_version: status.current_version,
+        latest_version: status.latest_version,
+        pending: status.pending,
+        legacy_detected: status.legacy_detected,
+        last_migrated_at: status.last_migrated_at,
+    }))
+}
+
+/// 执行配置迁移
+#[utoipa::path(
+    post,
+    path = "/api/config/migrate",
+    request_body = ConfigMigrationRequest,
+    responses(
+        (status = 200, description = "迁移结果", body = ConfigMigrationReportResponse),
+        (status = 500, description = "内部服务器错误")
+    ),
+    security(("Token" = []))
+)]
+pub async fn migrate_config_schema(
+    Extension(db): Extension<Arc<DatabaseConnection>>,
+    Json(request): Json<ConfigMigrationRequest>,
+) -> Result<ApiResponse<ConfigMigrationReportResponse>, ApiError> {
+    let manager = crate::config::ConfigManager::new(db.as_ref().clone());
+    let dry_run = request.dry_run.unwrap_or(false);
+    let report = manager
+        .migrate_config_schema(dry_run)
+        .await
+        .map_err(|e| ApiError::from(anyhow!("配置迁移失败: {}", e)))?;
+
+    if !dry_run {
+        if let Err(e) = crate::config::reload_config_bundle().await {
+            warn!("迁移后重新加载配置失败: {}", e);
+        }
+    }
+
+    Ok(ApiResponse::ok(ConfigMigrationReportResponse {
+        current_version: report.current_version,
+        target_version: report.target_version,
+        applied: report.applied,
+        dry_run: report.dry_run,
+        legacy_detected: report.legacy_detected,
+        mapped_keys: report.mapped_keys,
+        unmapped_keys: report.unmapped_keys,
+        notes: report.notes,
+    }))
 }
 
 /// 验证配置

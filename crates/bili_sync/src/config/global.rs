@@ -277,6 +277,24 @@ pub async fn init_config_with_database(db: sea_orm::DatabaseConnection) -> Resul
     // 确保配置表存在
     manager.ensure_tables_exist().await?;
 
+    // 执行配置结构迁移（标准接口）
+    match manager.get_config_schema_status().await {
+        Ok(status) => {
+            if status.pending {
+                info!(
+                    "检测到配置迁移待处理: 当前版本={}, 最新版本={}, legacy_detected={}",
+                    status.current_version,
+                    status.latest_version,
+                    status.legacy_detected
+                );
+            }
+        }
+        Err(e) => warn!("获取配置迁移状态失败: {}", e),
+    }
+    if let Err(e) = manager.migrate_config_schema(false).await {
+        warn!("配置结构迁移失败（将继续尝试加载配置）: {}", e);
+    }
+
     // 尝试从数据库加载配置，如果失败则从TOML迁移
     let new_bundle = manager.load_config_bundle().await?;
 

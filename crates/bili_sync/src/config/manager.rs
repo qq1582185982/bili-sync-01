@@ -5,6 +5,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
     Set, Statement,
 };
+use serde::Serialize;
 use serde_json::{Map, Value};
 use tracing::{debug, error, info, warn};
 
@@ -18,6 +19,29 @@ pub struct ConfigManager {
     db: DatabaseConnection,
 }
 
+pub const LATEST_CONFIG_SCHEMA_VERSION: i32 = 1;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigMigrationStatus {
+    pub current_version: i32,
+    pub latest_version: i32,
+    pub pending: bool,
+    pub legacy_detected: bool,
+    pub last_migrated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigMigrationReport {
+    pub current_version: i32,
+    pub target_version: i32,
+    pub applied: bool,
+    pub dry_run: bool,
+    pub legacy_detected: bool,
+    pub mapped_keys: Vec<String>,
+    pub unmapped_keys: Vec<String>,
+    pub notes: Vec<String>,
+}
+
 #[derive(Default)]
 struct LegacyMigrationMeta {
     no_danmaku: bool,
@@ -27,6 +51,130 @@ struct LegacyMigrationMeta {
 impl ConfigManager {
     pub fn new(db: DatabaseConnection) -> Self {
         Self { db }
+    }
+
+    pub async fn get_config_schema_version(&self) -> Result<i32> {
+        if let Some(value) = self.get_config_item("config_schema_version").await? {
+            Ok(value.as_i64().unwrap_or(0) as i32)
+        } else {
+            Ok(0)
+        }
+    }
+
+    pub async fn set_config_schema_version(&self, version: i32) -> Result<()> {
+        self.update_config_item(
+            "config_schema_version",
+            Value::Number(serde_json::Number::from(version as i64)),
+        )
+        .await
+    }
+
+    pub async fn get_config_schema_status(&self) -> Result<ConfigMigrationStatus> {
+        let current_version = self.get_config_schema_version().await?;
+        let latest_version = LATEST_CONFIG_SCHEMA_VERSION;
+        let legacy_detected = self.legacy_config_exists().await?;
+        let pending = current_version < latest_version;
+        let last_migrated_at = self
+            .get_config_item("config_schema_migrated_at")
+            .await?
+            .and_then(|v| v.as_str().map(|s| s.to_string()));
+
+        Ok(ConfigMigrationStatus {
+            current_version,
+            latest_version,
+            pending,
+            legacy_detected,
+            last_migrated_at,
+        })
+    }
+
+    pub async fn migrate_config_schema(&self, dry_run: bool) -> Result<ConfigMigrationReport> {
+        let current_version = self.get_config_schema_version().await?;
+        let target_version = LATEST_CONFIG_SCHEMA_VERSION;
+        let mut notes = Vec::new();
+        let mut mapped_keys = Vec::new();
+        let mut unmapped_keys = Vec::new();
+        let mut legacy_detected = false;
+
+        if current_version >= target_version {
+            notes.push("当前配置已是最新版本".to_string());
+            return Ok(ConfigMigrationReport {
+                current_version,
+                target_version,
+                applied: false,
+                dry_run,
+                legacy_detected: false,
+                mapped_keys,
+                unmapped_keys,
+                notes,
+            });
+        }
+
+        if let Some(raw_value) = self.load_legacy_config_value().await? {
+            legacy_detected = true;
+            let (normalized_value, meta, legacy_unmapped) = self.normalize_legacy_config_value(&raw_value);
+            mapped_keys = normalized_value
+                .as_object()
+                .map(|obj| obj.keys().cloned().collect())
+                .unwrap_or_default();
+            unmapped_keys = legacy_unmapped.keys().cloned().collect();
+
+            if !dry_run {
+                let legacy: Config = serde_json::from_value(normalized_value)
+                    .context("从旧版配置构建新配置失败")?;
+                self.save_config(&legacy)
+                    .await
+                    .context("旧版配置写入 config_items 失败")?;
+
+                self.update_config_item("legacy_config_raw", raw_value)
+                    .await
+                    .ok();
+                if !legacy_unmapped.is_empty() {
+                    self.update_config_item(
+                        "legacy_config_unmapped",
+                        Value::Object(legacy_unmapped),
+                    )
+                    .await
+                    .ok();
+                }
+
+                if let Err(e) = self.apply_skip_option_to_sources(meta.no_danmaku, meta.no_subtitle).await {
+                    warn!("应用旧版跳过配置到视频源失败: {}", e);
+                }
+
+                self.set_config_schema_version(target_version).await?;
+                self.update_config_item(
+                    "config_schema_migrated_at",
+                    Value::String(now_standard_string()),
+                )
+                .await
+                .ok();
+            }
+
+            notes.push("已从旧版 config 表迁移配置".to_string());
+        } else {
+            notes.push("未检测到旧版 config 表，标记版本更新".to_string());
+            if !dry_run {
+                self.set_config_schema_version(target_version).await?;
+                self.update_config_item(
+                    "config_schema_migrated_at",
+                    Value::String(now_standard_string()),
+                )
+                .await
+                .ok();
+            }
+        }
+
+        Ok(ConfigMigrationReport {
+            current_version,
+            target_version,
+            applied: !dry_run,
+            dry_run,
+            legacy_detected,
+            mapped_keys,
+            unmapped_keys,
+            notes,
+        })
     }
 
     /// 确保配置表存在，如果不存在则创建
@@ -170,34 +318,10 @@ impl ConfigManager {
     }
     /// 尝试从旧版 config 表加载配置数据
     async fn try_load_legacy_config(&self) -> Result<Option<Config>> {
-        let backend = self.db.get_database_backend();
-        let exists_sql = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='config'";
-        let exists_row = self
-            .db
-            .query_one(Statement::from_string(backend, exists_sql))
-            .await?;
-        let exists: i64 = exists_row
-            .and_then(|row| row.try_get_by_index(0).ok())
-            .unwrap_or(0);
-        if exists == 0 {
-            return Ok(None);
-        }
-
-        let data_sql = "SELECT data FROM config LIMIT 1";
-        let data_row = self
-            .db
-            .query_one(Statement::from_string(backend, data_sql))
-            .await?;
-        let data: Option<String> = match data_row {
-            Some(row) => row.try_get_by_index(0).ok(),
-            None => None,
-        };
-        let Some(data) = data else {
+        let Some(raw_value) = self.load_legacy_config_value().await? else {
             return Ok(None);
         };
 
-        let raw_value: Value = serde_json::from_str(&data)
-            .context("解析旧版 config.data JSON 失败")?;
         let (normalized_value, meta, legacy_unmapped) = self.normalize_legacy_config_value(&raw_value);
 
         let legacy: Config = serde_json::from_value(normalized_value)
@@ -219,6 +343,53 @@ impl ConfigManager {
         }
 
         Ok(Some(legacy))
+    }
+
+    async fn legacy_config_exists(&self) -> Result<bool> {
+        let backend = self.db.get_database_backend();
+        let exists_sql = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='config'";
+        let exists_row = self
+            .db
+            .query_one(Statement::from_string(backend, exists_sql))
+            .await?;
+        let exists: i64 = exists_row
+            .and_then(|row| row.try_get_by_index(0).ok())
+            .unwrap_or(0);
+        if exists == 0 {
+            return Ok(false);
+        }
+
+        let count_sql = "SELECT COUNT(*) FROM config";
+        let count_row = self
+            .db
+            .query_one(Statement::from_string(backend, count_sql))
+            .await?;
+        let count: i64 = count_row
+            .and_then(|row| row.try_get_by_index(0).ok())
+            .unwrap_or(0);
+        Ok(count > 0)
+    }
+
+    async fn load_legacy_config_value(&self) -> Result<Option<Value>> {
+        if !self.legacy_config_exists().await? {
+            return Ok(None);
+        }
+        let backend = self.db.get_database_backend();
+        let data_sql = "SELECT data FROM config LIMIT 1";
+        let data_row = self
+            .db
+            .query_one(Statement::from_string(backend, data_sql))
+            .await?;
+        let data: Option<String> = match data_row {
+            Some(row) => row.try_get_by_index(0).ok(),
+            None => None,
+        };
+        let Some(data) = data else {
+            return Ok(None);
+        };
+        let raw_value: Value = serde_json::from_str(&data)
+            .context("解析旧版 config.data JSON 失败")?;
+        Ok(Some(raw_value))
     }
 
     /// 标准化旧版配置到当前结构，返回(新配置值, 迁移元信息, 未映射字段)
@@ -244,10 +415,22 @@ impl ConfigManager {
             }
         }
 
-        // notifiers -> notification（尽量兼容旧结构）
+        // 清理非法的 notification（确保为对象）
+        if let Some(notification) = root.get("notification").cloned() {
+            if !notification.is_object() {
+                legacy_unmapped.insert("notification".to_string(), notification);
+                root.remove("notification");
+            }
+        }
+
+        // notifiers -> notification（尽量兼容旧结构，仅当为对象时迁移）
         if root.get("notification").is_none() {
             if let Some(notifiers) = root.get("notifiers").cloned() {
-                root.insert("notification".to_string(), notifiers);
+                if notifiers.is_object() {
+                    root.insert("notification".to_string(), notifiers);
+                } else {
+                    legacy_unmapped.insert("notifiers".to_string(), notifiers);
+                }
             }
         }
 
@@ -267,6 +450,10 @@ impl ConfigManager {
                 let nfo_config = root
                     .entry("nfo_config")
                     .or_insert_with(|| Value::Object(Map::new()));
+                if !nfo_config.is_object() {
+                    legacy_unmapped.insert("nfo_config".to_string(), nfo_config.clone());
+                    *nfo_config = Value::Object(Map::new());
+                }
                 if let Some(nfo_obj) = nfo_config.as_object_mut() {
                     if no_video_nfo {
                         nfo_obj.insert("enabled".to_string(), Value::Bool(false));
@@ -283,12 +470,23 @@ impl ConfigManager {
             let nfo_config = root
                 .entry("nfo_config")
                 .or_insert_with(|| Value::Object(Map::new()));
+            if !nfo_config.is_object() {
+                legacy_unmapped.insert("nfo_config".to_string(), nfo_config.clone());
+                *nfo_config = Value::Object(Map::new());
+            }
             if let Some(nfo_obj) = nfo_config.as_object_mut() {
                 nfo_obj.insert("time_type".to_string(), nfo_time_type);
             }
         }
 
         // concurrent_limit.download -> concurrent_limit.parallel_download
+        if let Some(concurrent_limit_value) = root.get("concurrent_limit") {
+            if !concurrent_limit_value.is_object() {
+                legacy_unmapped.insert("concurrent_limit".to_string(), concurrent_limit_value.clone());
+                root.remove("concurrent_limit");
+            }
+        }
+
         if let Some(concurrent_limit) = root.get_mut("concurrent_limit").and_then(|v| v.as_object_mut()) {
             if let Some(download) = concurrent_limit.get("download").cloned() {
                 legacy_unmapped.insert("concurrent_limit.download".to_string(), download.clone());
@@ -682,6 +880,7 @@ impl ConfigManager {
         }
     }
 }
+
 
 
 

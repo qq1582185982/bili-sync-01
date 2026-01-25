@@ -30,6 +30,7 @@ use crate::api::handler::{
     get_beta_image_update_status,
     get_config,
     get_config_history,
+    get_config_migration_status,
     // 新增配置管理API
     get_config_item,
     get_current_user,
@@ -70,6 +71,7 @@ use crate::api::handler::{
     setup_auth_token,
     test_notification_handler,
     test_risk_control_handler,
+    migrate_config_schema,
     update_config,
     update_config_item_internal,
     update_credential,
@@ -219,6 +221,8 @@ pub async fn http_server(_database_connection: Arc<DatabaseConnection>) -> Resul
             }),
         )
         .route("/api/config/history", get(get_config_history))
+        .route("/api/config/migration/status", get(get_config_migration_status))
+        .route("/api/config/migrate", post(migrate_config_schema))
         .route("/api/config/validate", post(validate_config))
         .route("/api/config/hot-reload/status", get(get_hot_reload_status))
         // 初始设置API路由
