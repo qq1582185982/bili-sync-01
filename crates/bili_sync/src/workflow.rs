@@ -3376,6 +3376,7 @@ pub async fn dispatch_download_page(args: DownloadPageArgs<'_>, token: Cancellat
         })
         .collect::<FuturesUnordered<_>>();
     let (mut download_aborted, mut target_status) = (false, STATUS_OK);
+    let mut cancelled_by_user = false;
     let mut failed_pages: Vec<String> = Vec::new(); // 收集失败的分页信息
     let mut stream = tasks;
     while let Some((res, page_pid, page_name)) = stream.next().await {
@@ -3409,6 +3410,7 @@ pub async fn dispatch_download_page(args: DownloadPageArgs<'_>, token: Cancellat
                         "分页下载任务因用户暂停而终止 - 第{}页 {}: {}",
                         page_pid, page_name, error_msg
                     );
+                    cancelled_by_user = true;
                     continue; // 跳过暂停相关的错误，不触发风控或其他处理
                 }
 
@@ -3460,6 +3462,14 @@ pub async fn dispatch_download_page(args: DownloadPageArgs<'_>, token: Cancellat
             &args.video_model.name
         );
         bail!(DownloadAbortError());
+    }
+    if cancelled_by_user {
+        info!("分页下载因用户暂停而终止，跳过失败汇总: {}", &args.video_model.name);
+        return Ok(ExecutionStatus::Skipped);
+    }
+    if crate::task::TASK_CONTROLLER.is_paused() {
+        info!("任务已暂停，跳过分页失败汇总: {}", &args.video_model.name);
+        return Ok(ExecutionStatus::Skipped);
     }
     if target_status != STATUS_OK {
         // 充电视频在获取详情时已经被upower字段检测并处理，这里不需要特殊的充电视频逻辑

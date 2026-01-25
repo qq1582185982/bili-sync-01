@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
 use reqwest::Client as ReqwestClient;
+use reqwest::Method;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::bilibili::Client;
 use crate::config::CONFIG_DIR;
-use crate::http::headers::create_aria2_headers;
+use crate::http::headers::{create_api_headers, create_aria2_headers};
 
 /// 嵌入的aria2二进制文件 (编译时自动下载对应平台版本)
 #[cfg(target_os = "windows")]
@@ -267,31 +268,8 @@ impl Aria2Downloader {
 
     /// 计算最优的aria2进程数量
     fn calculate_optimal_instance_count() -> usize {
-        let config = crate::config::reload_config();
-        let total_threads = config.concurrent_limit.parallel_download.threads;
-
-        // 智能计算：根据总线程数和系统负载动态调整，增加并发进程数
-        let optimal_count = match total_threads {
-            1..=4 => 1,                                                          // 少量线程用单进程
-            5..=8 => 2,                                                          // 中等线程用双进程
-            9..=16 => 4,                                                         // 较多线程用四进程 (充分利用16线程)
-            17..=32 => 5,                                                        // 大量线程用五进程
-            _ => std::cmp::min(8, (total_threads as f64 / 6.0).ceil() as usize), // 超大线程数动态计算，更多进程
-        };
-
-        debug!(
-            "智能分析 - 总线程数: {}, 计算出最优进程数: {}, 决策依据: {}",
-            total_threads,
-            optimal_count,
-            match total_threads {
-                1..=4 => "少量线程使用单进程",
-                5..=8 => "中等线程使用双进程",
-                9..=16 => "充分利用线程数，使用四进程",
-                17..=32 => "大量线程使用五进程",
-                _ => "超大线程数使用更多进程提升并发",
-            }
-        );
-        optimal_count
+        // Force single aria2 instance; use internal split/connection for parallelism.
+        1
     }
 
     /// 清理所有aria2进程 (Windows兼容)
@@ -410,24 +388,35 @@ impl Aria2Downloader {
     /// 尝试获取文件大小（用于智能线程调整），带超时控制
     async fn try_get_file_size(&self, url: &str) -> Option<u64> {
         let result = timeout(Duration::from_secs(5), async {
+            let mut headers = create_api_headers();
+            if let Ok(range) = "bytes=0-0".parse() {
+                headers.insert("Range", range);
+            }
+
             self.client
-                .head(url)
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-                )
-                .header("Referer", "https://www.bilibili.com")
+                .request(Method::GET, url, None)
+                .headers(headers)
                 .send()
                 .await
         })
         .await;
 
         match result {
-            Ok(Ok(response)) => response
-                .headers()
-                .get("content-length")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok()),
+            Ok(Ok(response)) => {
+                let headers = response.headers();
+                if let Some(total) = headers
+                    .get("content-range")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(Self::parse_content_range_total)
+                {
+                    return Some(total);
+                }
+
+                headers
+                    .get("content-length")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok())
+            }
             Ok(Err(e)) => {
                 debug!("获取文件大小失败: {:#}", e);
                 None
@@ -439,6 +428,26 @@ impl Aria2Downloader {
         }
     }
 
+    fn is_media_like_file(file_name: &str) -> bool {
+        let name = file_name.to_ascii_lowercase();
+        name.ends_with(".tmp_video")
+            || name.ends_with(".tmp_audio")
+            || name.ends_with(".m4s")
+            || name.ends_with(".mp4")
+            || name.ends_with(".flv")
+            || name.ends_with(".mkv")
+            || name.ends_with(".ts")
+            || name.ends_with(".mp3")
+            || name.ends_with(".aac")
+            || name.ends_with(".flac")
+            || name.ends_with(".wav")
+            || name.ends_with(".ogg")
+    }
+
+    fn parse_content_range_total(value: &str) -> Option<u64> {
+        let total_part = value.split('/').nth(1)?;
+        total_part.parse::<u64>().ok()
+    }
     /// 启动所有aria2进程实例
     async fn start_all_instances(&mut self) -> Result<()> {
         let mut instances = Vec::new();
@@ -903,6 +912,9 @@ impl Aria2Downloader {
         let instances = self.aria2_instances.lock().await;
 
         if instances.is_empty() {
+            if crate::task::TASK_CONTROLLER.is_paused() {
+                bail!("用户主动暂停任务");
+            }
             bail!("没有可用的aria2实例");
         }
 
@@ -933,6 +945,9 @@ impl Aria2Downloader {
     pub async fn fetch_with_aria2_fallback(&self, urls: &[&str], path: &Path) -> Result<()> {
         if urls.is_empty() {
             bail!("No URLs provided");
+        }
+        if crate::task::TASK_CONTROLLER.is_paused() {
+            bail!("用户主动暂停任务");
         }
 
         // 尝试删除已存在的文件以确保重新下载（忽略文件不存在的错误）
@@ -1018,17 +1033,26 @@ impl Aria2Downloader {
         // 智能计算当前实例的线程数
         let current_config = crate::config::reload_config();
         let total_threads = current_config.concurrent_limit.parallel_download.threads;
-        let base_threads = Self::calculate_threads_per_instance(total_threads, self.instance_count);
+        let base_threads_default = Self::calculate_threads_per_instance(total_threads, self.instance_count);
+        let active_instances = {
+            let instances = self.aria2_instances.lock().await;
+            instances.iter().filter(|i| i.get_load() > 0).count()
+        };
+        let base_threads = if active_instances <= 1 { total_threads } else { base_threads_default };
 
         // 尝试获取文件大小，并根据大小智能调整线程数
         let threads = if let Some(file_size_bytes) = self.try_get_file_size(urls[0]).await {
-            let file_size_mb = file_size_bytes / 1_048_576; // 转换为MB
-            let smart_threads = Self::calculate_smart_threads_for_file(file_size_mb, base_threads, total_threads);
-            debug!(
-                "文件大小: {} MB，智能调整线程数: {} (基础: {}, 总线程: {})",
-                file_size_mb, smart_threads, base_threads, total_threads
-            );
-            smart_threads
+            let file_size_mb = file_size_bytes / 1_048_576; // MB
+            if file_size_mb <= 2 && Self::is_media_like_file(file_name) {
+                base_threads
+            } else {
+                let smart_threads = Self::calculate_smart_threads_for_file(file_size_mb, base_threads, total_threads);
+                debug!(
+                    "file_size_mb={}MB, smart_threads={}, base_threads={}, total_threads={}",
+                    file_size_mb, smart_threads, base_threads, total_threads
+                );
+                smart_threads
+            }
         } else {
             debug!("无法获取文件大小，使用基础线程数: {}", base_threads);
             base_threads

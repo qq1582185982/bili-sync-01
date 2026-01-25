@@ -163,10 +163,6 @@ impl Client {
         req
     }
 
-    /// HEAD request wrapper（用于探测资源信息）
-    pub fn head(&self, url: &str) -> reqwest::RequestBuilder {
-        self.0.head(url)
-    }
 }
 
 // clippy 建议实现 Default trait

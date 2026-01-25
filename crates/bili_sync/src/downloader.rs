@@ -7,7 +7,7 @@ use reqwest::{header, Method, StatusCode};
 use tokio::fs::{self, File, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio_util::io::StreamReader;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::bilibili::Client;
 pub struct Downloader {
@@ -68,7 +68,7 @@ impl Downloader {
             }
         };
 
-        let expected = resp.content_length().unwrap_or_default();
+        let expected = resp.header_content_length().unwrap_or_default();
 
         let mut stream_reader = StreamReader::new(resp.bytes_stream().map_err(std::io::Error::other));
         let received = match tokio::io::copy(&mut stream_reader, &mut file).await {
@@ -115,6 +115,12 @@ impl Downloader {
         let max_segments = ((total_size + MIN_SEGMENT_SIZE - 1) / MIN_SEGMENT_SIZE) as usize;
         let segment_count = threads.min(max_segments).max(1);
         ensure!(segment_count > 1, "分片数不足，跳过多线程下载");
+
+        let total_mb = total_size as f64 / 1024.0 / 1024.0;
+        info!(
+            "原生多线程下载启用: 大小={:.2}MB, 分片数={}, 线程数={}",
+            total_mb, segment_count, threads
+        );
 
         // 预创建并设置目标文件大小，便于随机写入
         {
@@ -171,7 +177,7 @@ impl Downloader {
 
         if let Ok(resp) = head_resp {
             if let Ok(resp) = resp.error_for_status() {
-                total_size = resp.content_length();
+                total_size = resp.header_content_length().filter(|size| *size > 0);
 
                 let accept_ranges = resp
                     .headers()
@@ -186,17 +192,11 @@ impl Downloader {
             let (probe_supported, probe_size) = self.probe_range_support_and_size(url).await?;
             range_supported = range_supported || probe_supported;
             if total_size.is_none() {
-                total_size = probe_size;
+                total_size = probe_size.filter(|size| *size > 0);
             }
         }
 
         Ok((total_size.unwrap_or(0), range_supported))
-    }
-
-    fn parse_total_size_from_content_range(value: &str) -> Option<u64> {
-        // 常见格式: bytes 0-0/12345
-        let (_, total) = value.rsplit_once('/')?;
-        total.parse::<u64>().ok()
     }
 
     async fn probe_range_support_and_size(&self, url: &str) -> Result<(bool, Option<u64>)> {
@@ -211,13 +211,7 @@ impl Downloader {
 
         let status = resp.status();
         if status == StatusCode::PARTIAL_CONTENT {
-            let total_size = resp
-                .headers()
-                .get(header::CONTENT_RANGE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(Self::parse_total_size_from_content_range);
-            // 只会有 1 byte，读取后立刻释放连接
-            let _ = resp.bytes().await;
+            let total_size = resp.header_file_size();
             Ok((true, total_size))
         } else {
             Ok((false, None))
@@ -404,6 +398,28 @@ async fn download_range_to_file(client: Client, url: &str, path: &Path, start: u
     );
 
     Ok(received)
+}
+
+trait ResponseExt {
+    fn header_content_length(&self) -> Option<u64>;
+    fn header_file_size(&self) -> Option<u64>;
+}
+
+impl ResponseExt for reqwest::Response {
+    fn header_content_length(&self) -> Option<u64> {
+        self.headers()
+            .get(header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+    }
+
+    fn header_file_size(&self) -> Option<u64> {
+        self.headers()
+            .get(header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.rsplit_once('/'))
+            .and_then(|(_, size_str)| size_str.parse::<u64>().ok())
+    }
 }
 
 pub async fn remux_with_ffmpeg(input_path: &Path, output_path: &Path) -> Result<()> {
