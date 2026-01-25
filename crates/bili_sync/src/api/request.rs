@@ -13,6 +13,9 @@ pub struct VideosRequest {
     pub page: Option<u64>,
     pub page_size: Option<u64>,
     pub show_failed_only: Option<bool>,
+    pub min_height: Option<u32>,
+    pub max_height: Option<u32>,
+    pub resolution: Option<u32>,
     pub force: Option<bool>,
     pub sort_by: Option<String>,    // "id", "name", "upper_name", "created_at", "updated_at"
     pub sort_order: Option<String>, // "asc", "desc"
@@ -344,6 +347,14 @@ pub struct ResetSpecificTasksRequest {
     pub submission: Option<i32>,
     pub watch_later: Option<i32>,
     pub bangumi: Option<i32>,
+    // 与 /api/videos 的过滤参数保持一致，便于“按当前筛选批量重置”
+    pub query: Option<String>,
+    pub show_failed_only: Option<bool>,
+    pub min_height: Option<u32>,
+    pub max_height: Option<u32>,
+    pub resolution: Option<u32>,
+    // 默认仅重置失败任务；force=true 时重置所有非 0 状态（包括已完成）
+    pub force: Option<bool>,
 }
 
 // 配置管理相关请求结构体

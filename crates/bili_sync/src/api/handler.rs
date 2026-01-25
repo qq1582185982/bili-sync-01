@@ -12,8 +12,8 @@ use bili_sync_entity::{collection, favorite, page, submission, video, video_sour
 use bili_sync_migration::Expr;
 use reqwest;
 use sea_orm::{
-    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait, Unchanged,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set, TransactionTrait, Unchanged,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -1053,6 +1053,46 @@ pub async fn get_video_sources(
     }))
 }
 
+fn resolution_to_height_range(resolution: u32) -> Option<(u32, u32)> {
+    match resolution {
+        // 说明：B站视频存在“非标准高度”的情况（例如 1920x1078），
+        // 仅按固定区间会把它误判为 720P。这里按相邻档位的“中点”划分区间，
+        // 让非标准高度更接近其应归属的档位。
+        //
+        // 档位：2160/1440/1080/720/480/360
+        // 分界：1800/1260/900/600/420
+        2160 => Some((1800, 99999)),
+        1440 => Some((1260, 1799)),
+        1080 => Some((900, 1259)),
+        720 => Some((600, 899)),
+        480 => Some((420, 599)),
+        360 => Some((0, 419)),
+        _ => None,
+    }
+}
+
+fn resolve_height_filters_parts(
+    min_height: Option<u32>,
+    max_height: Option<u32>,
+    resolution: Option<u32>,
+) -> (Option<u32>, Option<u32>) {
+    if min_height.is_some() || max_height.is_some() {
+        return (min_height, max_height);
+    }
+
+    if let Some(resolution_value) = resolution {
+        if let Some((min, max)) = resolution_to_height_range(resolution_value) {
+            return (Some(min), Some(max));
+        }
+    }
+
+    (None, None)
+}
+
+fn resolve_height_filters(params: &VideosRequest) -> (Option<u32>, Option<u32>) {
+    resolve_height_filters_parts(params.min_height, params.max_height, params.resolution)
+}
+
 /// 列出视频的基本信息，支持根据视频来源筛选、名称查找和分页
 #[utoipa::path(
     get,
@@ -1069,6 +1109,7 @@ pub async fn get_videos(
     Query(params): Query<VideosRequest>,
 ) -> Result<ApiResponse<VideosResponse>, ApiError> {
     let mut query = video::Entity::find();
+    let (min_height, max_height) = resolve_height_filters(&params);
 
     // 根据配置决定是否过滤已删除的视频
     let scan_deleted = crate::config::with_config(|bundle| bundle.config.scan_deleted_videos);
@@ -1128,6 +1169,34 @@ pub async fn get_videos(
         }
 
         query = query.filter(final_condition);
+    }
+
+    if min_height.is_some() || max_height.is_some() {
+        let mut page_query = page::Entity::find()
+            .select_only()
+            .column(page::Column::VideoId);
+
+        if let Some(min_height_value) = min_height {
+            page_query = page_query.filter(page::Column::Height.gte(min_height_value));
+        }
+        if let Some(max_height_value) = max_height {
+            page_query = page_query.filter(page::Column::Height.lte(max_height_value));
+        }
+
+        let video_ids: Vec<i32> = page_query
+            .group_by(page::Column::VideoId)
+            .into_tuple::<i32>()
+            .all(db.as_ref())
+            .await?;
+
+        if video_ids.is_empty() {
+            return Ok(ApiResponse::ok(VideosResponse {
+                videos: Vec::new(),
+                total_count: 0,
+            }));
+        }
+
+        query = query.filter(video::Column::Id.is_in(video_ids));
     }
 
     let total_count = query.clone().count(db.as_ref()).await?;
@@ -1529,8 +1598,9 @@ pub async fn reset_all_videos(
 ) -> Result<ApiResponse<ResetAllVideosResponse>, ApiError> {
     use std::collections::HashSet;
 
-    // 构建查询条件，与get_videos保持一致
+    // 构建查询条件，与get_videos保持一致（但不使用分页）
     let mut video_query = video::Entity::find();
+    let (min_height, max_height) = resolve_height_filters(&params);
 
     // 根据配置决定是否过滤已删除的视频
     let scan_deleted = crate::config::with_config(|bundle| bundle.config.scan_deleted_videos);
@@ -1555,63 +1625,105 @@ pub async fn reset_all_videos(
         }
     }
 
-    // 先查询符合条件的视频和相关页面数据
-    let (all_videos, all_pages) = tokio::try_join!(
-        video_query
+    if let Some(query_word) = params.query.as_ref() {
+        video_query = video_query.filter(
+            video::Column::Name
+                .contains(query_word)
+                .or(video::Column::Path.contains(query_word)),
+        );
+    }
+
+    // 筛选失败任务（仅显示下载状态中包含失败的视频）
+    if params.show_failed_only.unwrap_or(false) {
+        use sea_orm::sea_query::Expr;
+
+        let mut conditions = Vec::new();
+        for offset in 0..5 {
+            let shift = offset * 3;
+            conditions.push(Expr::cust(format!(
+                "((download_status >> {}) & 7) BETWEEN 1 AND 6",
+                shift
+            )));
+        }
+
+        let mut final_condition = conditions[0].clone();
+        for condition in conditions.into_iter().skip(1) {
+            final_condition = final_condition.or(condition);
+        }
+        video_query = video_query.filter(final_condition);
+    }
+
+    // 分辨率筛选：通过 page.height 反查 video_id，再与 video_query 求交集
+    if min_height.is_some() || max_height.is_some() {
+        let mut page_query = page::Entity::find()
             .select_only()
-            .columns([
-                video::Column::Id,
-                video::Column::Bvid,
-                video::Column::Name,
-                video::Column::UpperName,
-                video::Column::Path,
-                video::Column::Category,
-                video::Column::DownloadStatus,
-                video::Column::Cover,
-            ])
-            .into_tuple::<(i32, String, String, String, String, i32, u32, String)>()
-            .all(db.as_ref()),
-        page::Entity::find()
-            .inner_join(video::Entity)
-            .filter({
-                let mut page_query_filter = Condition::all();
+            .column(page::Column::VideoId);
 
-                // 根据配置决定是否过滤已删除的视频
-                if !scan_deleted {
-                    page_query_filter = page_query_filter.add(video::Column::Deleted.eq(0));
-                }
+        if let Some(min_height_value) = min_height {
+            page_query = page_query.filter(page::Column::Height.gte(min_height_value));
+        }
+        if let Some(max_height_value) = max_height {
+            page_query = page_query.filter(page::Column::Height.lte(max_height_value));
+        }
 
-                // 直接检查是否存在bangumi参数，单独处理
-                if let Some(id) = params.bangumi {
-                    page_query_filter =
-                        page_query_filter.add(video::Column::SourceId.eq(id).and(video::Column::SourceType.eq(1)));
-                } else {
-                    // 处理其他常规类型
-                    for (field, column) in [
-                        (params.collection, video::Column::CollectionId),
-                        (params.favorite, video::Column::FavoriteId),
-                        (params.submission, video::Column::SubmissionId),
-                        (params.watch_later, video::Column::WatchLaterId),
-                    ] {
-                        if let Some(id) = field {
-                            page_query_filter = page_query_filter.add(column.eq(id));
-                        }
-                    }
-                }
-
-                page_query_filter
-            })
-            .select_only()
-            .columns([
-                page::Column::Id,
-                page::Column::Pid,
-                page::Column::Name,
-                page::Column::DownloadStatus,
-                page::Column::VideoId,
-            ])
-            .into_tuple::<(i32, i32, String, u32, i32)>()
+        let video_ids: Vec<i32> = page_query
+            .group_by(page::Column::VideoId)
+            .into_tuple::<i32>()
             .all(db.as_ref())
-    )?;
+            .await?;
+
+        if video_ids.is_empty() {
+            return Ok(ApiResponse::ok(ResetAllVideosResponse {
+                resetted: false,
+                resetted_videos_count: 0,
+                resetted_pages_count: 0,
+            }));
+        }
+
+        video_query = video_query.filter(video::Column::Id.is_in(video_ids));
+    }
+
+    // 先查询符合条件的视频（不分页）
+    let all_videos = video_query
+        .select_only()
+        .columns([
+            video::Column::Id,
+            video::Column::Bvid,
+            video::Column::Name,
+            video::Column::UpperName,
+            video::Column::Path,
+            video::Column::Category,
+            video::Column::DownloadStatus,
+            video::Column::Cover,
+        ])
+        .into_tuple::<(i32, String, String, String, String, i32, u32, String)>()
+        .all(db.as_ref())
+        .await?;
+
+    if all_videos.is_empty() {
+        return Ok(ApiResponse::ok(ResetAllVideosResponse {
+            resetted: false,
+            resetted_videos_count: 0,
+            resetted_pages_count: 0,
+        }));
+    }
+
+    let selected_video_ids: Vec<i32> = all_videos.iter().map(|(id, ..)| *id).collect();
+
+    // 获取选中视频的所有分页信息（不再额外限制 height：与列表页行为一致，按 video 维度筛选）
+    let all_pages = page::Entity::find()
+        .filter(page::Column::VideoId.is_in(selected_video_ids))
+        .select_only()
+        .columns([
+            page::Column::Id,
+            page::Column::Pid,
+            page::Column::Name,
+            page::Column::DownloadStatus,
+            page::Column::VideoId,
+        ])
+        .into_tuple::<(i32, i32, String, u32, i32)>()
+        .all(db.as_ref())
+        .await?;
 
     // 获取force参数，默认为false
     let force_reset = params.force.unwrap_or(false);
@@ -1757,6 +1869,8 @@ pub async fn reset_specific_tasks(
 
     // 构建查询条件，与get_videos保持一致
     let mut video_query = video::Entity::find();
+    let (min_height, max_height) =
+        resolve_height_filters_parts(request.min_height, request.max_height, request.resolution);
 
     // 根据配置决定是否过滤已删除的视频
     let scan_deleted = crate::config::with_config(|bundle| bundle.config.scan_deleted_videos);
@@ -1781,76 +1895,120 @@ pub async fn reset_specific_tasks(
         }
     }
 
-    // 先查询符合条件的视频和相关页面数据
-    let (all_videos, all_pages) = tokio::try_join!(
-        video_query
+    if let Some(query_word) = request.query.as_ref() {
+        video_query = video_query.filter(
+            video::Column::Name
+                .contains(query_word)
+                .or(video::Column::Path.contains(query_word)),
+        );
+    }
+
+    // 筛选失败任务（仅显示下载状态中包含失败的视频）
+    if request.show_failed_only.unwrap_or(false) {
+        use sea_orm::sea_query::Expr;
+
+        let mut conditions = Vec::new();
+        for offset in 0..5 {
+            let shift = offset * 3;
+            conditions.push(Expr::cust(format!(
+                "((download_status >> {}) & 7) BETWEEN 1 AND 6",
+                shift
+            )));
+        }
+
+        let mut final_condition = conditions[0].clone();
+        for condition in conditions.into_iter().skip(1) {
+            final_condition = final_condition.or(condition);
+        }
+        video_query = video_query.filter(final_condition);
+    }
+
+    // 分辨率筛选：通过 page.height 反查 video_id，再与 video_query 求交集
+    if min_height.is_some() || max_height.is_some() {
+        let mut page_query = page::Entity::find()
             .select_only()
-            .columns([
-                video::Column::Id,
-                video::Column::Bvid,
-                video::Column::Name,
-                video::Column::UpperName,
-                video::Column::Path,
-                video::Column::Category,
-                video::Column::DownloadStatus,
-                video::Column::Cover,
-                video::Column::CollectionId,
-                video::Column::SinglePage,
-            ])
-            .into_tuple::<(
-                i32,
-                String,
-                String,
-                String,
-                String,
-                i32,
-                u32,
-                String,
-                Option<i32>,
-                Option<bool>
-            )>()
-            .all(db.as_ref()),
-        page::Entity::find()
-            .inner_join(video::Entity)
-            .filter({
-                let mut page_query_filter = Condition::all();
+            .column(page::Column::VideoId);
 
-                // 根据配置决定是否过滤已删除的视频
-                if !scan_deleted {
-                    page_query_filter = page_query_filter.add(video::Column::Deleted.eq(0));
-                }
+        if let Some(min_height_value) = min_height {
+            page_query = page_query.filter(page::Column::Height.gte(min_height_value));
+        }
+        if let Some(max_height_value) = max_height {
+            page_query = page_query.filter(page::Column::Height.lte(max_height_value));
+        }
 
-                // 直接检查是否存在bangumi参数，单独处理
-                if let Some(id) = request.bangumi {
-                    page_query_filter =
-                        page_query_filter.add(video::Column::SourceId.eq(id).and(video::Column::SourceType.eq(1)));
-                } else {
-                    // 处理其他常规类型
-                    for (field, column) in [
-                        (request.collection, video::Column::CollectionId),
-                        (request.favorite, video::Column::FavoriteId),
-                        (request.submission, video::Column::SubmissionId),
-                        (request.watch_later, video::Column::WatchLaterId),
-                    ] {
-                        if let Some(id) = field {
-                            page_query_filter = page_query_filter.add(column.eq(id));
-                        }
-                    }
-                }
-
-                page_query_filter
-            })
-            .select_only()
-            .columns([
-                page::Column::Id,
-                page::Column::Pid,
-                page::Column::Name,
-                page::Column::DownloadStatus,
-                page::Column::VideoId,
-            ])
-            .into_tuple::<(i32, i32, String, u32, i32)>()
+        let video_ids: Vec<i32> = page_query
+            .group_by(page::Column::VideoId)
+            .into_tuple::<i32>()
             .all(db.as_ref())
-    )?;
+            .await?;
+
+        if video_ids.is_empty() {
+            return Ok(ApiResponse::ok(ResetAllVideosResponse {
+                resetted: false,
+                resetted_videos_count: 0,
+                resetted_pages_count: 0,
+            }));
+        }
+
+        video_query = video_query.filter(video::Column::Id.is_in(video_ids));
+    }
+
+    // 查询符合条件的视频（不分页）
+    let all_videos = video_query
+        .select_only()
+        .columns([
+            video::Column::Id,
+            video::Column::Bvid,
+            video::Column::Name,
+            video::Column::UpperName,
+            video::Column::Path,
+            video::Column::Category,
+            video::Column::DownloadStatus,
+            video::Column::Cover,
+            video::Column::CollectionId,
+            video::Column::SinglePage,
+        ])
+        .into_tuple::<(
+            i32,
+            String,
+            String,
+            String,
+            String,
+            i32,
+            u32,
+            String,
+            Option<i32>,
+            Option<bool>,
+        )>()
+        .all(db.as_ref())
+        .await?;
+
+    if all_videos.is_empty() {
+        return Ok(ApiResponse::ok(ResetAllVideosResponse {
+            resetted: false,
+            resetted_videos_count: 0,
+            resetted_pages_count: 0,
+        }));
+    }
+
+    let selected_video_ids: Vec<i32> = all_videos.iter().map(|(id, ..)| *id).collect();
+
+    // 获取选中视频的所有分页信息（按 video 维度筛选）
+    let all_pages = page::Entity::find()
+        .filter(page::Column::VideoId.is_in(selected_video_ids))
+        .select_only()
+        .columns([
+            page::Column::Id,
+            page::Column::Pid,
+            page::Column::Name,
+            page::Column::DownloadStatus,
+            page::Column::VideoId,
+        ])
+        .into_tuple::<(i32, i32, String, u32, i32)>()
+        .all(db.as_ref())
+        .await?;
+
+    let force_reset = request.force.unwrap_or(false);
 
     // 处理页面重置 - 强制重置指定任务（不管当前状态）
     let resetted_pages_info = all_pages
@@ -1859,12 +2017,16 @@ pub async fn reset_specific_tasks(
             let mut page_status = PageStatus::from(download_status);
             let mut page_resetted = false;
 
-            // 强制重置指定的任务索引（不管当前状态）
+            // 重置指定的任务索引：默认仅重置失败任务；force=true 时重置所有非 0 状态
             for &task_index in task_indexes {
                 if task_index < 5 {
                     let current_status = page_status.get(task_index);
-                    if current_status != 0 {
-                        // 只要不是未开始状态就重置
+                    let should_reset = if force_reset {
+                        current_status != 0
+                    } else {
+                        (1..=6).contains(&current_status)
+                    };
+                    if should_reset {
                         page_status.set(task_index, 0); // 重置为未开始
                         page_resetted = true;
                     }
@@ -1904,12 +2066,16 @@ pub async fn reset_specific_tasks(
             let mut video_status = VideoStatus::from(video_info.download_status);
             let mut video_resetted = false;
 
-            // 强制重置指定任务（不管当前状态）
+            // 重置指定任务：默认仅重置失败任务；force=true 时重置所有非 0 状态
             for &task_index in task_indexes {
                 if task_index < 5 {
                     let current_status = video_status.get(task_index);
-                    if current_status != 0 {
-                        // 只要不是未开始状态就重置
+                    let should_reset = if force_reset {
+                        current_status != 0
+                    } else {
+                        (1..=6).contains(&current_status)
+                    };
+                    if should_reset {
                         video_status.set(task_index, 0); // 重置为未开始
                         video_resetted = true;
                     }
@@ -11879,7 +12045,7 @@ async fn reset_nfo_tasks_for_config_change(db: Arc<DatabaseConnection>) -> Resul
     let all_pages = page::Entity::find()
         .inner_join(video::Entity)
         .filter({
-            let mut page_query_filter = Condition::all();
+            let mut page_query_filter = sea_orm::Condition::all();
             if !scan_deleted {
                 page_query_filter = page_query_filter.add(video::Column::Deleted.eq(0));
             }

@@ -225,17 +225,11 @@ class ApiClient {
 
 	/**
 	 * 批量重置所有视频下载状态
-	 * @param params 可选的查询参数，用于筛选特定视频源的视频
+	 * @param params 可选的查询参数，用于筛选要重置的视频（与 /api/videos 参数保持一致的子集）
 	 * @param force 是否强制重置（包括已完成的视频）
 	 */
 	async resetAllVideos(
-		params?: {
-			collection?: number;
-			favorite?: number;
-			submission?: number;
-			bangumi?: number;
-			watch_later?: number;
-		},
+		params?: VideosRequest,
 		force: boolean = false
 	): Promise<ApiResponse<ResetAllVideosResponse>> {
 		const searchParams = new URLSearchParams();
@@ -265,18 +259,12 @@ class ApiClient {
 	/**
 	 * 选择性重置特定任务
 	 * @param taskIndexes 要重置的任务索引列表
-	 * @param params 可选的查询参数，用于筛选特定视频源的视频
+	 * @param params 可选的查询参数，用于筛选要重置的视频（与 /api/videos 参数保持一致的子集）
 	 * @param force 是否强制重置（包括已完成的任务）
 	 */
 	async resetSpecificTasks(
 		taskIndexes: number[],
-		params?: {
-			collection?: number;
-			favorite?: number;
-			submission?: number;
-			bangumi?: number;
-			watch_later?: number;
-		},
+		params?: VideosRequest,
 		force: boolean = false
 	): Promise<ApiResponse<ResetAllVideosResponse>> {
 		const requestBody = {
@@ -1053,6 +1041,7 @@ export const api = {
 			flat_folder?: boolean;
 			download_danmaku?: boolean;
 			download_subtitle?: boolean;
+			use_dynamic_api?: boolean;
 			ai_rename?: boolean;
 			ai_rename_video_prompt?: string;
 			ai_rename_audio_prompt?: string;

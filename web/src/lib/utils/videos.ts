@@ -8,6 +8,8 @@ export function buildVideosRequest({
 	query,
 	videoSource,
 	showFailedOnly,
+	minHeight,
+	maxHeight,
 	sortBy = 'id',
 	sortOrder = 'desc'
 }: {
@@ -16,6 +18,8 @@ export function buildVideosRequest({
 	query?: string;
 	videoSource?: VideoSourceFilter;
 	showFailedOnly?: boolean;
+	minHeight?: number | null;
+	maxHeight?: number | null;
 	sortBy?: SortBy;
 	sortOrder?: SortOrder;
 }): VideosRequest {
@@ -32,6 +36,13 @@ export function buildVideosRequest({
 
 	if (showFailedOnly) {
 		params.show_failed_only = true;
+	}
+
+	if (typeof minHeight === 'number' && Number.isFinite(minHeight)) {
+		params.min_height = minHeight;
+	}
+	if (typeof maxHeight === 'number' && Number.isFinite(maxHeight)) {
+		params.max_height = maxHeight;
 	}
 
 	if (videoSource?.type && videoSource.id) {

@@ -22,6 +22,8 @@ export interface VideosRequest {
 	page?: number;
 	page_size?: number;
 	show_failed_only?: boolean;
+	min_height?: number;
+	max_height?: number;
 	sort_by?: SortBy;
 	sort_order?: SortOrder;
 }

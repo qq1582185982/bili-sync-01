@@ -67,6 +67,66 @@
 	let currentSortBy: SortBy = 'id';
 	let currentSortOrder: SortOrder = 'desc';
 
+	let selectedResolution = '';
+	const RESOLUTION_OPTIONS = [
+		{ value: '', label: '全部分辨率' },
+		{ value: '2160', label: '2160p' },
+		{ value: '1440', label: '1440p' },
+		{ value: '1080', label: '1080p' },
+		{ value: '720', label: '720p' },
+		{ value: '480', label: '480p' },
+		{ value: '360', label: '360p' },
+	];
+
+	const RESOLUTION_RANGES: Record<string, { min: number; max: number }> = {
+		// 说明：B站存在“非标准高度”的情况（例如 1920x1078）。
+		// 这里按相邻档位的“中点”划分区间，避免误判（1078 应归为 1080p）。
+		'2160': { min: 1800, max: 99999 },
+		'1440': { min: 1260, max: 1799 },
+		'1080': { min: 900, max: 1259 },
+		'720': { min: 600, max: 899 },
+		'480': { min: 420, max: 599 },
+		'360': { min: 0, max: 419 }
+	};
+
+	function getResolutionRange(value: string) {
+		if (!value) {
+			return null;
+		}
+		return RESOLUTION_RANGES[value] ?? null;
+	}
+
+	function normalizeResolutionRange(minHeight: number | null, maxHeight: number | null) {
+		if (minHeight == null && maxHeight == null) {
+			return { minHeight: null, maxHeight: null };
+		}
+		if (minHeight != null && maxHeight != null) {
+			return { minHeight, maxHeight };
+		}
+		if (minHeight != null) {
+			const match = Object.values(RESOLUTION_RANGES).find((range) => range.min === minHeight);
+			if (match) {
+				return { minHeight: match.min, maxHeight: match.max };
+			}
+		}
+		return { minHeight: minHeight ?? null, maxHeight: maxHeight ?? null };
+	}
+
+	function getResolutionKey(minHeight: number | null, maxHeight: number | null) {
+		if (minHeight == null && maxHeight == null) {
+			return '';
+		}
+		const match = Object.entries(RESOLUTION_RANGES).find(([, range]) => {
+			return range.min === minHeight && range.max === maxHeight;
+		});
+		return match ? match[0] : '';
+	}
+
+	function getResolutionLabel(value: string) {
+		const option = RESOLUTION_OPTIONS.find((item) => item.value === value);
+		return option?.label ?? value;
+	}
+
 	function normalizeSortBy(value: string | null): SortBy {
 		if (!value) return 'id';
 		// 移除 UP主 排序后，兼容旧链接/旧书签
@@ -142,8 +202,8 @@
 		const nextUrl = buildVideosUrl();
 		const currentUrl = `${$page.url.pathname}${$page.url.search}`;
 		if (currentUrl === nextUrl || currentUrl === `${nextUrl}?`) {
-			const { query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder } = $appStateStore;
-			await loadVideos(query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder);
+			const { query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder, minHeight, maxHeight } = $appStateStore;
+			await loadVideos(query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder, minHeight, maxHeight);
 		} else {
 			goto(nextUrl);
 		}
@@ -187,11 +247,28 @@
 				videoSource = { type: source.type, id: value };
 			}
 		}
+		const minHeightRaw = searchParams.get('min_height');
+		const maxHeightRaw = searchParams.get('max_height');
+		const resolutionRaw = searchParams.get('resolution');
+		const minHeightParsed = minHeightRaw ? Number.parseInt(minHeightRaw, 10) : Number.NaN;
+		const maxHeightParsed = maxHeightRaw ? Number.parseInt(maxHeightRaw, 10) : Number.NaN;
+		const minHeight = Number.isFinite(minHeightParsed) && minHeightParsed >= 0 ? minHeightParsed : null;
+		const maxHeight = Number.isFinite(maxHeightParsed) && maxHeightParsed >= 0 ? maxHeightParsed : null;
+		const hasMinMax = Number.isFinite(minHeightParsed) || Number.isFinite(maxHeightParsed);
+		const fallbackRange =
+			!hasMinMax && resolutionRaw ? getResolutionRange(resolutionRaw) : null;
+		const normalized = normalizeResolutionRange(
+			hasMinMax ? minHeight : fallbackRange?.min ?? null,
+			hasMinMax ? maxHeight : fallbackRange?.max ?? null
+		);
+
 		return {
 			query: searchParams.get('query') || '',
 			videoSource,
 			pageNum: parseInt(searchParams.get('page') || '0'),
 			showFailedOnly: searchParams.get('show_failed_only') === 'true',
+			minHeight: normalized.minHeight,
+			maxHeight: normalized.maxHeight,
 			sortBy: normalizeSortBy(searchParams.get('sort_by')),
 			sortOrder: normalizeSortOrder(searchParams.get('sort_order'))
 		};
@@ -203,7 +280,9 @@
 		filter?: { type: string; id: string } | null,
 		showFailedOnly: boolean = false,
 		sortBy: SortBy = 'id',
-		sortOrder: SortOrder = 'desc'
+		sortOrder: SortOrder = 'desc',
+		minHeight: number | null = null,
+		maxHeight: number | null = null
 	) {
 		const params = buildVideosRequest({
 			page: pageNum,
@@ -212,7 +291,9 @@
 			videoSource: filter,
 			showFailedOnly,
 			sortBy,
-			sortOrder
+			sortOrder,
+			minHeight,
+			maxHeight
 		});
 
 		const result = await runRequest(() => api.getVideos(params), {
@@ -251,9 +332,11 @@
 			pageNum,
 			showFailedOnly: showFailedOnlyParam,
 			sortBy,
-			sortOrder
+			sortOrder,
+			minHeight,
+			maxHeight
 		} = getApiParams(searchParams);
-		setAll(query, pageNum, videoSource, showFailedOnlyParam, sortBy, sortOrder);
+		setAll(query, pageNum, videoSource, showFailedOnlyParam, sortBy, sortOrder, minHeight, maxHeight);
 
 		// 同步筛选状态
 		if (videoSource) {
@@ -266,8 +349,9 @@
 		showFailedOnly = showFailedOnlyParam;
 		currentSortBy = sortBy;
 		currentSortOrder = sortOrder;
+		selectedResolution = getResolutionKey(minHeight, maxHeight);
 
-		loadVideos(query, pageNum, videoSource, showFailedOnlyParam, sortBy, sortOrder);
+		loadVideos(query, pageNum, videoSource, showFailedOnlyParam, sortBy, sortOrder, minHeight, maxHeight);
 	}
 
 	async function handleResetVideo(video: VideoInfo, forceReset: boolean) {
@@ -278,9 +362,9 @@
 				toast.success('重置成功', {
 					description: `视频「${video.name}」已重置`
 				});
-				const { query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder } =
+				const { query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder, minHeight, maxHeight } =
 					$appStateStore;
-				await loadVideos(query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder);
+				await loadVideos(query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder, minHeight, maxHeight);
 			} else {
 				toast.info('重置无效', {
 					description: `视频「${video.name}」没有失败的状态，无需重置`
@@ -298,16 +382,30 @@
 		resettingAll = true;
 		try {
 			let result;
-			const { videoSource } = $appStateStore;
+			const { videoSource, query: queryWord, showFailedOnly, minHeight, maxHeight } = $appStateStore;
+
+			// 让“批量重置”遵循当前筛选（视频源 / 搜索关键词 / 失败筛选 / 分辨率筛选）
+			const filterParams = buildVideosRequest({
+				page: 0,
+				pageSize: 1,
+				query: queryWord,
+				videoSource,
+				showFailedOnly,
+				minHeight,
+				maxHeight,
+				sortBy: currentSortBy,
+				sortOrder: currentSortOrder
+			});
+			delete filterParams.page;
+			delete filterParams.page_size;
+			delete filterParams.sort_by;
+			delete filterParams.sort_order;
+
+			const finalFilterParams = Object.keys(filterParams).length ? filterParams : undefined;
 
 			if (resetAllTasks) {
 				// 重置所有任务，根据当前过滤器传递参数
-				const filterParams = videoSource
-					? {
-							[videoSource.type]: parseInt(videoSource.id)
-						}
-					: undefined;
-				result = await api.resetAllVideos(filterParams, forceReset);
+				result = await api.resetAllVideos(finalFilterParams, forceReset);
 			} else {
 				// 选择性重置特定任务
 				const taskIndexes = [];
@@ -341,12 +439,7 @@
 				}
 
 				// 调用选择性重置API，根据当前过滤器传递参数
-				const filterParams = videoSource
-					? {
-							[videoSource.type]: parseInt(videoSource.id)
-						}
-					: undefined;
-				result = await api.resetSpecificTasks(uniqueTaskIndexes, filterParams, forceReset);
+				result = await api.resetSpecificTasks(uniqueTaskIndexes, finalFilterParams, forceReset);
 			}
 
 			const data = result.data;
@@ -362,7 +455,9 @@
 						videoSource: currentVideoSource,
 						showFailedOnly,
 						sortBy,
-						sortOrder
+						sortOrder,
+						minHeight,
+						maxHeight
 					} = $appStateStore;
 					await loadVideos(
 						query,
@@ -370,7 +465,9 @@
 						currentVideoSource,
 						showFailedOnly,
 						sortBy,
-						sortOrder
+						sortOrder,
+						minHeight,
+						maxHeight
 					);
 				}, 100);
 			} else {
@@ -390,13 +487,16 @@
 	function handleSourceFilter(sourceType: VideoSourceType, sourceId: string) {
 		selectedSourceType = sourceType;
 		selectedSourceId = sourceId;
+		const range = getResolutionRange(selectedResolution);
 		setAll(
 			'',
 			0,
 			{ type: sourceType, id: sourceId },
 			showFailedOnly,
 			currentSortBy,
-			currentSortOrder
+			currentSortOrder,
+			range ? range.min : null,
+			range ? range.max : null
 		);
 		goto(`/videos?${ToQuery($appStateStore)}`);
 	}
@@ -405,9 +505,10 @@
 		selectedSourceType = '';
 		selectedSourceId = '';
 		showFailedOnly = false;
+		selectedResolution = '';
 		currentSortBy = 'id';
 		currentSortOrder = 'desc';
-		setAll('', 0, null, false, 'id', 'desc');
+		setAll('', 0, null, false, 'id', 'desc', null, null);
 		goto('/videos');
 	}
 
@@ -417,6 +518,37 @@
 		setSort(sortBy, sortOrder);
 		resetCurrentPage();
 		goto(`/videos?${ToQuery($appStateStore)}`);
+	}
+
+	function handleResolutionChange(value: string) {
+		selectedResolution = value;
+		const range = getResolutionRange(value);
+		const nextMinHeight = range ? range.min : null;
+		const nextMaxHeight = range ? range.max : null;
+		const { query, videoSource } = $appStateStore;
+		setAll(
+			query,
+			0,
+			videoSource,
+			showFailedOnly,
+			currentSortBy,
+			currentSortOrder,
+			nextMinHeight,
+			nextMaxHeight
+		);
+		const nextState = {
+			...$appStateStore,
+			query,
+			currentPage: 0,
+			videoSource,
+			showFailedOnly,
+			sortBy: currentSortBy,
+			sortOrder: currentSortOrder,
+			minHeight: nextMinHeight,
+			maxHeight: nextMaxHeight
+		};
+		const nextQuery = ToQuery(nextState);
+		goto(nextQuery ? `/videos?${nextQuery}` : '/videos');
 	}
 
 	// 处理重置任务选择
@@ -500,9 +632,9 @@
 				});
 
 				// 重新加载视频列表
-				const { query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder } =
+				const { query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder, minHeight, maxHeight } =
 					$appStateStore;
-				await loadVideos(query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder);
+				await loadVideos(query, currentPage, videoSource, showFailedOnly, sortBy, sortOrder, minHeight, maxHeight);
 
 				// 清空选择
 				clearSelection();
@@ -700,6 +832,7 @@
 					{/if}
 				</div>
 			</div>
+
 		</div>
 	{/if}
 
@@ -745,11 +878,29 @@
 					{/if}
 				{/each}
 			</div>
+
+			<div class="border-t pt-3">
+				<div class="flex items-center gap-2">
+					<span class="text-sm font-medium">按分辨率筛选</span>
+				</div>
+				<div class="mt-2 w-full sm:max-w-xs">
+					<select
+						class="border-input bg-background ring-offset-background focus:ring-ring h-9 w-full rounded-md border px-3 py-1 text-sm focus:ring-2 focus:ring-offset-2 focus:outline-none"
+						bind:value={selectedResolution}
+						onchange={(e) => handleResolutionChange(e.currentTarget.value)}
+					>
+						{#each RESOLUTION_OPTIONS as option}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+				</div>
+			</div>
+
 		</div>
 	{/if}
 
 	<!-- 当前筛选状态 -->
-	{#if (selectedSourceType && selectedSourceId && videoSources) || showFailedOnly}
+	{#if (selectedSourceType && selectedSourceId && videoSources) || showFailedOnly || selectedResolution}
 		<div class="flex flex-wrap items-center gap-2">
 			<span class="text-muted-foreground text-sm">当前筛选:</span>
 
@@ -771,6 +922,19 @@
 				{/if}
 			{/if}
 
+
+			{#if selectedResolution}
+				<Badge variant="secondary" class="flex items-center gap-1">分辨率 {getResolutionLabel(selectedResolution)}
+					<button
+						onclick={() => handleResolutionChange('')}
+						class="hover:bg-muted-foreground/20 ml-1 rounded"
+					>
+						<span class="sr-only">清除分辨率筛选</span>
+						x
+					</button>
+				</Badge>
+			{/if}
+
 			{#if showFailedOnly}
 				<Badge variant="destructive" class="flex items-center gap-1">
 					只显示错误视频
@@ -789,7 +953,7 @@
 				</Badge>
 			{/if}
 
-			{#if (selectedSourceType && selectedSourceId) || showFailedOnly}
+			{#if (selectedSourceType && selectedSourceId) || showFailedOnly || selectedResolution}
 				<Button variant="ghost" size="sm" onclick={clearFilters}>清除所有筛选</Button>
 			{/if}
 		</div>
@@ -841,6 +1005,7 @@
 				<div class="text-muted-foreground">暂无视频数据</div>
 				<p class="text-muted-foreground text-sm">尝试调整搜索条件或添加视频源</p>
 			</div>
+
 		</div>
 	{/if}
 </div>
