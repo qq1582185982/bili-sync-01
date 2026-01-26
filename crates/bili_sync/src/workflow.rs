@@ -3994,7 +3994,17 @@ pub async fn fetch_page_poster(
     fanart_path: Option<PathBuf>,
     token: CancellationToken,
 ) -> Result<ExecutionStatus> {
+    // 兜底修复：旧版本可能只生成了 *-thumb.jpg（或用户曾中断/清理文件），
+    // 但状态位仍显示封面已完成，导致 fanart 缺失也不会补全。
+    // 这里在“无需下载”时也做一次本地自愈：如果 thumb 存在但 fanart 不存在，则复制生成 fanart。
     if !should_run {
+        if let Some(fanart_path) = fanart_path {
+            if !fanart_path.exists() && poster_path.exists() {
+                ensure_parent_dir_for_file(&fanart_path).await?;
+                fs::copy(&poster_path, &fanart_path).await?;
+                return Ok(ExecutionStatus::Succeeded);
+            }
+        }
         return Ok(ExecutionStatus::Skipped);
     }
     let single_page = video_model.single_page.context("single_page is null")?;
@@ -4578,7 +4588,13 @@ pub async fn fetch_video_poster(
     custom_cover_url: Option<&str>,
     custom_fanart_url: Option<&str>,
 ) -> Result<ExecutionStatus> {
+    // 兜底修复：如果状态显示封面已完成但 fanart 文件缺失，则用已存在的 thumb 生成 fanart。
     if !should_run {
+        if !fanart_path.exists() && poster_path.exists() {
+            ensure_parent_dir_for_file(&fanart_path).await?;
+            fs::copy(&poster_path, &fanart_path).await?;
+            return Ok(ExecutionStatus::Succeeded);
+        }
         return Ok(ExecutionStatus::Skipped);
     }
 
