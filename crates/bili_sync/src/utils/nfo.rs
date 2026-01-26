@@ -383,7 +383,8 @@ impl NFO<'_> {
                     } else if let Some(ref staff_info) = movie.staff_info {
                         // 使用联合投稿的staff信息（包含头像）
                         let staff_list = Self::parse_staff_info(staff_info);
-                        for (index, (name, title, face)) in staff_list.iter().enumerate() {
+                        for (index, (mid, name, title, face)) in staff_list.iter().enumerate() {
+                            let mid_value = *mid;
                             let name_clone = name.clone();
                             let title_clone = title.clone();
                             let face_clone = face.clone();
@@ -407,6 +408,16 @@ impl NFO<'_> {
                                                 .await?;
                                         }
                                     }
+                                    // 稳定标识：B站空间链接（便于脚本按UID映射）
+                                    if mid_value > 0 {
+                                        writer
+                                            .create_element("profile")
+                                            .write_text_content_async(BytesText::new(&format!(
+                                                "https://space.bilibili.com/{}",
+                                                mid_value
+                                            )))
+                                            .await?;
+                                    }
                                     writer
                                         .create_element("order")
                                         .write_text_content_async(BytesText::new(&(index + 1).to_string()))
@@ -419,6 +430,7 @@ impl NFO<'_> {
                         // 备选：使用UP主信息作为创作者
                         let actor_info = Self::get_actor_info(movie.upper_id, movie.upper_name, config);
                         if let Some((actor_name, role_name)) = actor_info {
+                            let upper_id = movie.upper_id;
                             writer
                                 .create_element("actor")
                                 .write_inner_content_async::<_, _, Error>(|writer| async move {
@@ -438,6 +450,16 @@ impl NFO<'_> {
                                                 .write_text_content_async(BytesText::new(thumb))
                                                 .await?;
                                         }
+                                    }
+                                    // 稳定标识：B站空间链接（便于脚本按UID映射）
+                                    if upper_id > 0 {
+                                        writer
+                                            .create_element("profile")
+                                            .write_text_content_async(BytesText::new(&format!(
+                                                "https://space.bilibili.com/{}",
+                                                upper_id
+                                            )))
+                                            .await?;
                                     }
                                     writer
                                         .create_element("order")
@@ -766,7 +788,8 @@ impl NFO<'_> {
                     } else if let Some(ref staff_info) = tvshow.staff_info {
                         // 使用联合投稿的staff信息（包含头像）
                         let staff_list = Self::parse_staff_info(staff_info);
-                        for (index, (name, title, face)) in staff_list.iter().enumerate() {
+                        for (index, (mid, name, title, face)) in staff_list.iter().enumerate() {
+                            let mid_value = *mid;
                             let name_clone = name.clone();
                             let title_clone = title.clone();
                             let face_clone = face.clone();
@@ -790,6 +813,16 @@ impl NFO<'_> {
                                                 .await?;
                                         }
                                     }
+                                    // 稳定标识：B站空间链接（便于脚本按UID映射）
+                                    if mid_value > 0 {
+                                        writer
+                                            .create_element("profile")
+                                            .write_text_content_async(BytesText::new(&format!(
+                                                "https://space.bilibili.com/{}",
+                                                mid_value
+                                            )))
+                                            .await?;
+                                    }
                                     writer
                                         .create_element("order")
                                         .write_text_content_async(BytesText::new(&(index + 1).to_string()))
@@ -802,6 +835,7 @@ impl NFO<'_> {
                         // 备选：使用UP主信息作为创作者
                         let actor_info = Self::get_actor_info(tvshow.upper_id, tvshow.upper_name, config);
                         if let Some((actor_name, role_name)) = actor_info {
+                            let upper_id = tvshow.upper_id;
                             writer
                                 .create_element("actor")
                                 .write_inner_content_async::<_, _, Error>(|writer| async move {
@@ -821,6 +855,16 @@ impl NFO<'_> {
                                                 .write_text_content_async(BytesText::new(thumb))
                                                 .await?;
                                         }
+                                    }
+                                    // 稳定标识：B站空间链接（便于脚本按UID映射）
+                                    if upper_id > 0 {
+                                        writer
+                                            .create_element("profile")
+                                            .write_text_content_async(BytesText::new(&format!(
+                                                "https://space.bilibili.com/{}",
+                                                upper_id
+                                            )))
+                                            .await?;
                                     }
                                     writer
                                         .create_element("order")
@@ -1338,7 +1382,8 @@ impl NFO<'_> {
                     } else if let Some(ref staff_info) = season.staff_info {
                         // 使用联合投稿的staff信息（包含头像）
                         let staff_list = Self::parse_staff_info(staff_info);
-                        for (index, (name, title, face)) in staff_list.iter().enumerate() {
+                        for (index, (mid, name, title, face)) in staff_list.iter().enumerate() {
+                            let mid_value = *mid;
                             let name_clone = name.clone();
                             let title_clone = title.clone();
                             let face_clone = face.clone();
@@ -1362,6 +1407,16 @@ impl NFO<'_> {
                                                 .await?;
                                         }
                                     }
+                                    // 稳定标识：B站空间链接（便于脚本按UID映射）
+                                    if mid_value > 0 {
+                                        writer
+                                            .create_element("profile")
+                                            .write_text_content_async(BytesText::new(&format!(
+                                                "https://space.bilibili.com/{}",
+                                                mid_value
+                                            )))
+                                            .await?;
+                                    }
                                     writer
                                         .create_element("order")
                                         .write_text_content_async(BytesText::new(&(index + 1).to_string()))
@@ -1374,6 +1429,7 @@ impl NFO<'_> {
                         // 备选：使用UP主信息作为创作者
                         let actor_info = Self::get_actor_info(season.upper_id, season.upper_name, config);
                         if let Some((actor_name, role_name)) = actor_info {
+                            let upper_id = season.upper_id;
                             writer
                                 .create_element("actor")
                                 .write_inner_content_async::<_, _, Error>(|writer| async move {
@@ -1393,6 +1449,16 @@ impl NFO<'_> {
                                                 .write_text_content_async(BytesText::new(thumb))
                                                 .await?;
                                         }
+                                    }
+                                    // 稳定标识：B站空间链接（便于脚本按UID映射）
+                                    if upper_id > 0 {
+                                        writer
+                                            .create_element("profile")
+                                            .write_text_content_async(BytesText::new(&format!(
+                                                "https://space.bilibili.com/{}",
+                                                upper_id
+                                            )))
+                                            .await?;
                                     }
                                     writer
                                         .create_element("order")
@@ -1574,43 +1640,27 @@ impl NFO<'_> {
     /// 根据配置策略获取演员信息（返回演员名称和角色名称）
     ///
     /// 设计目标：
-    /// - `actor.name` 优先使用 UP 主 UID（便于脚本稳定识别，即使 UP 主改名也能匹配）；
-    /// - `actor.role` 优先使用 UP 主昵称（用于展示）；
+    /// - `actor.name` 使用 UP 主昵称（媒体库按演员分类更符合直觉，避免出现纯数字导致漏归类）；
+    /// - `actor.role` 固定为「UP主」；
     /// - 当昵称为空时按策略处理（占位/默认/跳过）。
     fn get_actor_info(upper_id: i64, upper_name: &str, config: &NFOConfig) -> Option<(String, String)> {
         let trimmed_name = upper_name.trim();
 
-        if upper_id > 0 {
-            // 有效 UID 情况：name 使用 UID，role 使用昵称（昵称为空则按策略补齐）
-            let role_name = if !trimmed_name.is_empty() {
-                trimmed_name.to_string()
-            } else {
-                match config.empty_upper_strategy {
-                    EmptyUpperStrategy::Skip => return None,
-                    EmptyUpperStrategy::Placeholder => config.empty_upper_placeholder.clone(),
-                    EmptyUpperStrategy::Default => config.empty_upper_default_name.clone(),
-                }
-            };
-            return Some((upper_id.to_string(), role_name));
-        }
-
-        // 无效 UID 情况：使用昵称作为 name/role（无法提供稳定ID）
-        if !trimmed_name.is_empty() {
-            return Some((trimmed_name.to_string(), trimmed_name.to_string()));
-        }
-
-        // 名称也为空，按策略处理
-        match config.empty_upper_strategy {
-            EmptyUpperStrategy::Skip => None,
-            EmptyUpperStrategy::Placeholder => {
-                let name = config.empty_upper_placeholder.clone();
-                Some((name.clone(), name))
+        let name = if !trimmed_name.is_empty() {
+            trimmed_name.to_string()
+        } else {
+            match config.empty_upper_strategy {
+                EmptyUpperStrategy::Skip => return None,
+                EmptyUpperStrategy::Placeholder => config.empty_upper_placeholder.clone(),
+                EmptyUpperStrategy::Default => config.empty_upper_default_name.clone(),
             }
-            EmptyUpperStrategy::Default => {
-                let name = config.empty_upper_default_name.clone();
-                Some((name.clone(), name))
-            }
-        }
+        };
+
+        // upper_id 这里不再写入 actor.name，避免媒体库把纯数字当作演员名导致漏归类。
+        // 如果后续需要稳定标识，可另行在 NFO 中扩展字段或通过 uniqueid/bvid 做映射。
+        let _ = upper_id;
+
+        Some((name, "UP主".to_string()))
     }
 
     /// 解析演员信息字符串，返回 (角色名, 声优名) 的向量
@@ -1648,19 +1698,20 @@ impl NFO<'_> {
         actors
     }
 
-    /// 解析 staff_info JSON，返回 (名称, 职位, 头像URL) 的向量
+    /// 解析 staff_info JSON，返回 (mid, 名称, 职位, 头像URL) 的向量
     /// staff_info 格式: [{"mid": 123, "title": "UP主", "name": "用户名", "face": "头像URL"}, ...]
-    fn parse_staff_info(staff_info: &serde_json::Value) -> Vec<(String, String, Option<String>)> {
+    fn parse_staff_info(staff_info: &serde_json::Value) -> Vec<(i64, String, String, Option<String>)> {
         let mut staff_list = Vec::new();
 
         if let Some(arr) = staff_info.as_array() {
             for item in arr {
+                let mid = item.get("mid").and_then(|v| v.as_i64()).unwrap_or(0);
                 let name = item.get("name").and_then(|v| v.as_str()).unwrap_or_default();
                 let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("参与者");
                 let face = item.get("face").and_then(|v| v.as_str()).map(|s| s.to_string());
 
                 if !name.is_empty() {
-                    staff_list.push((name.to_string(), title.to_string(), face));
+                    staff_list.push((mid, name.to_string(), title.to_string(), face));
                 }
             }
         }
@@ -2604,7 +2655,7 @@ mod tests {
         };
 
         let actor_info = NFO::get_actor_info(movie.upper_id, movie.upper_name, &config);
-        assert_eq!(actor_info, Some(("官方内容".to_string(), "官方内容".to_string())));
+        assert_eq!(actor_info, Some(("官方内容".to_string(), "UP主".to_string())));
 
         // 测试Default策略
         let config = NFOConfig {
@@ -2614,15 +2665,15 @@ mod tests {
         };
 
         let actor_info = NFO::get_actor_info(movie.upper_id, movie.upper_name, &config);
-        assert_eq!(actor_info, Some(("哔哩哔哩".to_string(), "哔哩哔哩".to_string())));
+        assert_eq!(actor_info, Some(("哔哩哔哩".to_string(), "UP主".to_string())));
 
-        // 测试非空UP主名称（UID作为name，UP主名称作为role）
+        // 测试非空UP主名称（昵称作为name，role固定为UP主）
         let actor_info = NFO::get_actor_info(123456, "测试UP主", &config);
-        assert_eq!(actor_info, Some(("123456".to_string(), "测试UP主".to_string())));
+        assert_eq!(actor_info, Some(("测试UP主".to_string(), "UP主".to_string())));
 
-        // 测试无效UID（0或负数）时使用昵称
+        // 测试无效UID（0或负数）时同样使用昵称
         let actor_info = NFO::get_actor_info(0, "测试UP主", &config);
-        assert_eq!(actor_info, Some(("测试UP主".to_string(), "测试UP主".to_string())));
+        assert_eq!(actor_info, Some(("测试UP主".to_string(), "UP主".to_string())));
 
         println!("空UP主处理策略测试通过");
     }
