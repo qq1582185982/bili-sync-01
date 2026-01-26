@@ -3253,6 +3253,7 @@ pub async fn download_video_pages(
     let ingest_video_name = final_video_model.name.clone();
     let ingest_upper_name = final_video_model.upper_name.clone();
     let ingest_deleted = final_video_model.deleted;
+    let ingest_old_video_path = final_video_model.path.clone();
     // 从 share_copy 提取番剧系列名称（《剧名》格式）
     let ingest_series_name = final_video_model.share_copy.as_ref().and_then(|s| {
         // 匹配《》中的内容
@@ -3294,6 +3295,7 @@ pub async fn download_video_pages(
 
     debug!("=== 路径保存 ===");
     debug!("最终保存到数据库的路径: {:?}", path_to_save);
+    debug!("数据库中原始视频路径: {:?}", ingest_old_video_path);
     debug!("原始基础路径: {:?}", base_path);
     if let Some(ref bangumi_folder_path) = bangumi_folder_path {
         debug!("番剧文件夹路径: {:?}", bangumi_folder_path);
@@ -3302,6 +3304,61 @@ pub async fn download_video_pages(
         debug!("季度文件夹名: {}", season_folder);
     }
     debug!("=== 路径计算结束 ===");
+
+    // 如果用户修改了视频源目录（或合作视频归类UP主发生变化），
+    // 仅“重置视频信息/更新详情”时也可能需要把已有文件夹同步到新路径，否则会出现“合作类视频仍在旧位置”。
+    // 这里做一个安全的自动迁移：仅在以下条件满足时才移动：
+    // - 非番剧
+    // - 非平铺目录（避免误移动整个视频源根目录）
+    // - 旧路径存在且是目录
+    // - 新路径不存在
+    // - 旧路径 != 新路径
+    if !is_bangumi && !flat_folder && !ingest_old_video_path.is_empty() && ingest_old_video_path != path_to_save {
+        let old_dir = std::path::Path::new(&ingest_old_video_path);
+        let new_dir = std::path::Path::new(&path_to_save);
+        if old_dir.is_dir() && !new_dir.exists() {
+            if let Some(parent) = new_dir.parent() {
+                if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                    warn!("创建目标目录失败，跳过自动迁移: {:?} -> {:?}, err={}", old_dir, new_dir, e);
+                } else {
+                    match tokio::fs::rename(old_dir, new_dir).await {
+                        Ok(_) => {
+                            info!("检测到路径变更，已自动迁移视频文件夹: {:?} -> {:?}", old_dir, new_dir);
+
+                            // 同步更新分页的文件路径（只替换前缀，避免路径指向旧目录导致后续操作混乱）
+                            if let Ok(pages) = page::Entity::find()
+                                .filter(page::Column::VideoId.eq(ingest_video_id))
+                                .all(connection)
+                                .await
+                            {
+                                for p in pages {
+                                    if let Some(p_path) = &p.path {
+                                        if p_path.starts_with(&ingest_old_video_path) {
+                                            let new_path = format!("{}{}", path_to_save, &p_path[ingest_old_video_path.len()..]);
+                                            let active = page::ActiveModel {
+                                                id: sea_orm::ActiveValue::Unchanged(p.id),
+                                                path: Set(Some(new_path)),
+                                                ..Default::default()
+                                            };
+                                            if let Err(e) = active.update(connection).await {
+                                                warn!("更新分页路径失败: page_id={}, err={}", p.id, e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                "自动迁移视频文件夹失败（可能跨盘/被占用），将继续使用旧位置: {:?} -> {:?}, err={}",
+                                old_dir, new_dir, e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // 只在任务完成时记录"最新入库"事件（用于首页展示）
     // get_completed() 检查最高位标记，表示所有子任务都已完成（成功或达到最大重试次数）
