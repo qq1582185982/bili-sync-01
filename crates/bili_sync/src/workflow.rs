@@ -1194,17 +1194,30 @@ pub async fn download_unprocessed_videos(
                 if download_aborted {
                     continue;
                 }
-                succeeded_count += 1;
+                // 只有当 video_status 的 completed 标记位为 true 时，才算真正下载完成。
+                // 避免“用户暂停/取消时，任务被误判为成功完成”。
+                let video_name = match &model.name {
+                    sea_orm::ActiveValue::Set(v) | sea_orm::ActiveValue::Unchanged(v) => v.clone(),
+                    _ => "未知".to_string(),
+                };
+                let completed = match &model.download_status {
+                    sea_orm::ActiveValue::Set(v) | sea_orm::ActiveValue::Unchanged(v) => {
+                        VideoStatus::from(*v).get_completed()
+                    }
+                    _ => false,
+                };
+                if completed {
+                    succeeded_count += 1;
+                } else {
+                    skipped_count += 1;
+                    info!("下载任务未完成（可能因用户暂停/取消），不计入成功: {}", video_name);
+                }
                 // 任务成功完成，更新数据库
                 if let Err(db_err) = update_videos_model(vec![model.clone()], connection).await {
                     error!("更新数据库失败: {:#}", db_err);
 
                     // 发送数据库错误通知（异步执行，不阻塞主流程）
                     use sea_orm::ActiveValue;
-                    let video_name = match &model.name {
-                        ActiveValue::Set(v) | ActiveValue::Unchanged(v) => v.clone(),
-                        _ => "未知".to_string(),
-                    };
                     let video_bvid = match &model.bvid {
                         ActiveValue::Set(v) | ActiveValue::Unchanged(v) => v.clone(),
                         _ => "未知".to_string(),
@@ -3145,6 +3158,7 @@ pub async fn download_video_pages(
         .for_each(|(res, task_name)| match res {
             ExecutionStatus::Skipped => debug!("处理视频「{}」{}已成功过，跳过", &video_model.name, task_name),
             ExecutionStatus::Succeeded => debug!("处理视频「{}」{}成功", &video_model.name, task_name),
+            ExecutionStatus::Cancelled => info!("处理视频「{}」{}因用户暂停而终止", &video_model.name, task_name),
             ExecutionStatus::Ignored(e) => {
                 let error_msg = e.to_string();
                 if !error_msg.contains("status code: 87007") {
@@ -3465,11 +3479,11 @@ pub async fn dispatch_download_page(args: DownloadPageArgs<'_>, token: Cancellat
     }
     if cancelled_by_user {
         info!("分页下载因用户暂停而终止，跳过失败汇总: {}", &args.video_model.name);
-        return Ok(ExecutionStatus::Skipped);
+        return Ok(ExecutionStatus::Cancelled);
     }
     if crate::task::TASK_CONTROLLER.is_paused() {
         info!("任务已暂停，跳过分页失败汇总: {}", &args.video_model.name);
-        return Ok(ExecutionStatus::Skipped);
+        return Ok(ExecutionStatus::Cancelled);
     }
     if target_status != STATUS_OK {
         // 充电视频在获取详情时已经被upower字段检测并处理，这里不需要特殊的充电视频逻辑
@@ -3808,6 +3822,10 @@ pub async fn download_page(
                 "处理视频「{}」第 {} 页{}成功",
                 &video_model.name, page_model.pid, task_name
             ),
+            ExecutionStatus::Cancelled => info!(
+                "处理视频「{}」第 {} 页{}因用户暂停而终止",
+                &video_model.name, page_model.pid, task_name
+            ),
             ExecutionStatus::Ignored(e) => {
                 let error_msg = e.to_string();
                 if !error_msg.contains("status code: 87007") {
@@ -3993,7 +4011,7 @@ pub async fn fetch_page_poster(
     let urls = vec![url];
     tokio::select! {
         biased;
-        _ = token.cancelled() => return Ok(ExecutionStatus::Skipped),
+        _ = token.cancelled() => return Ok(ExecutionStatus::Cancelled),
         res = downloader.fetch_with_fallback(&urls, &poster_path) => res,
     }?;
     if let Some(fanart_path) = fanart_path {
@@ -4575,7 +4593,7 @@ pub async fn fetch_video_poster(
     let urls = vec![thumb_url];
     tokio::select! {
         biased;
-        _ = token.cancelled() => return Ok(ExecutionStatus::Skipped),
+        _ = token.cancelled() => return Ok(ExecutionStatus::Cancelled),
         res = downloader.fetch_with_fallback(&urls, &poster_path) => res,
     }?;
 
@@ -4586,7 +4604,7 @@ pub async fn fetch_video_poster(
         let fanart_urls = vec![fanart_url];
         tokio::select! {
             biased;
-            _ = token.cancelled() => return Ok(ExecutionStatus::Skipped),
+            _ = token.cancelled() => return Ok(ExecutionStatus::Cancelled),
             res = downloader.fetch_with_fallback(&fanart_urls, &fanart_path) => {
                 match res {
                     Ok(_) => {
@@ -4639,7 +4657,7 @@ pub async fn fetch_upper_face(
     let urls = vec![upper_face_url.as_str()];
     tokio::select! {
         biased;
-        _ = token.cancelled() => return Ok(ExecutionStatus::Skipped),
+        _ = token.cancelled() => return Ok(ExecutionStatus::Cancelled),
         res = downloader.fetch_with_fallback(&urls, &upper_face_path) => res,
     }?;
     Ok(ExecutionStatus::Succeeded)
@@ -4809,7 +4827,7 @@ pub async fn fetch_bangumi_poster(
 
     tokio::select! {
         biased;
-        _ = token.cancelled() => return Ok(ExecutionStatus::Skipped),
+        _ = token.cancelled() => return Ok(ExecutionStatus::Cancelled),
         res = downloader.fetch_with_fallback(&urls, &poster_path) => res,
     }?;
 

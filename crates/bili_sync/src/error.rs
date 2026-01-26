@@ -347,6 +347,9 @@ impl ErrorClassifier {
 pub enum ExecutionStatus {
     Skipped,
     Succeeded,
+    /// 用户暂停/取消导致的提前结束：不应当把对应子任务标记为已完成
+    ///（否则会出现“暂停后仍显示已下载完成”的误判）。
+    Cancelled,
     Ignored(anyhow::Error),
     Failed(anyhow::Error),
     // 任务可以返回该状态固定自己的 status

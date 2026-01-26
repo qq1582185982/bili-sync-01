@@ -138,8 +138,11 @@ impl<const N: usize> Status<N> {
             self.set_status(offset, *status);
         } else if self.get_status(offset) < STATUS_MAX_RETRY {
             match result {
+                // Skipped：代表该子任务不需要执行（例如用户禁用了弹幕/字幕等），应当视为完成
                 ExecutionStatus::Succeeded | ExecutionStatus::Skipped => self.set_ok(offset),
                 ExecutionStatus::Failed(_) | ExecutionStatus::ClassifiedFailed(_) => self.plus_one(offset),
+                // Cancelled：用户暂停/取消导致提前结束，不改变子任务状态，便于恢复后继续执行
+                ExecutionStatus::Cancelled => {}
                 _ => {}
             }
         }
@@ -244,6 +247,14 @@ mod test {
             ]);
             assert_eq!(<[u32; 3]>::from(status), *after);
         }
+    }
+
+    #[test]
+    fn test_cancelled_does_not_mark_completed() {
+        let mut status = Status::<1>::default();
+        status.update_status(&[ExecutionStatus::Cancelled]);
+        assert_eq!(status.get(0), 0);
+        assert!(!status.get_completed());
     }
 
     #[test]

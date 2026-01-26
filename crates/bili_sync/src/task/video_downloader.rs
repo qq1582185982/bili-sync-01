@@ -240,7 +240,7 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
         }
 
         // 从数据库加载视频源，而不是从配置文件
-        let video_sources = match load_video_sources_from_db(&optimized_connection).await {
+        let enabled_sources = match load_video_sources_from_db(&optimized_connection).await {
             Ok(sources) => sources,
             Err(e) => {
                 error!("从数据库加载视频源失败: {}", e);
@@ -257,7 +257,7 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
             }
         };
 
-        let enabled_sources_count = video_sources.len();
+        let enabled_sources_count = enabled_sources.len();
         let disabled_sources_count = total_sources_count.saturating_sub(enabled_sources_count);
 
         if disabled_sources_count > 0 {
@@ -348,7 +348,22 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
             };
 
             // 将视频源按新旧分组
-            let (new_sources, old_sources) = group_sources_by_new_old(video_sources, &last_scanned_ids);
+            let (new_sources, mut old_sources) =
+                group_sources_by_new_old(enabled_sources.clone(), &last_scanned_ids);
+
+            // 兜底：如果由于扫描进度记录导致本轮“没有任何可扫描源”，自动重置 last_processed_* 并改为扫描全部源。
+            // 典型场景：用户在“新源优先扫描”阶段暂停/恢复，多次切换后 last_processed_* 被推进到较大的 ID，
+            // 从而把较小 ID 的旧源都判定为“已处理过”而跳过，最终 old_sources.len() 变成 0。
+            if new_sources.is_empty() && old_sources.is_empty() && !enabled_sources.is_empty() {
+                warn!("扫描进度导致本轮无可扫描源，自动重置扫描进度并重新扫描全部源");
+                last_scanned_ids.reset_all_processed_ids();
+                if let Err(e) = update_last_scanned_ids(&optimized_connection, &last_scanned_ids).await {
+                    warn!("重置扫描进度失败: {}", e);
+                }
+
+                old_sources = enabled_sources.clone();
+                old_sources.sort_by_key(|s| s.id);
+            }
 
             if !new_sources.is_empty() {
                 info!("检测到 {} 个新添加的视频源，将优先扫描这些新源", new_sources.len());
@@ -411,7 +426,8 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
                     // 重要：暂停时必须重置扫描状态
                     TASK_CONTROLLER.set_scanning(false);
                     crate::utils::task_notifier::TASK_STATUS_NOTIFIER.set_finished();
-                    is_interrupted = true;
+                    // 用户暂停不属于“风控中断”。这里不设置 is_interrupted，
+                    // 让本轮结束时仍会重置 last_processed_id，避免下一轮出现“视频源数量=0”无法继续扫描的问题。
                     break;
                 }
 
