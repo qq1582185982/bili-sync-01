@@ -38,6 +38,7 @@
 	import { goto } from '$app/navigation';
 
 	let loading = false;
+	let bulkUpdating = false;
 
 	// 响应式相关
 	const isMobileQuery = new IsMobile();
@@ -48,6 +49,10 @@
 
 	// 折叠状态管理 - 默认所有分类都是折叠状态
 	let collapsedSections: Record<string, boolean> = {};
+
+	// 批量操作状态（按分类）
+	let bulkModeSections: Record<string, boolean> = {};
+	let bulkSelectedIds: Record<string, Set<number>> = {};
 
 	// 删除对话框状态
 	let showDeleteDialog = false;
@@ -148,6 +153,95 @@
 		}
 
 		await loadVideoSources();
+	}
+
+	function getSelectedSet(sectionKey: string) {
+		return bulkSelectedIds[sectionKey] ?? new Set<number>();
+	}
+
+	function setSelectedSet(sectionKey: string, set: Set<number>) {
+		bulkSelectedIds = { ...bulkSelectedIds, [sectionKey]: set };
+	}
+
+	function clearSelection(sectionKey: string) {
+		const { [sectionKey]: _removed, ...rest } = bulkSelectedIds;
+		bulkSelectedIds = rest;
+	}
+
+	function toggleBulkMode(sectionKey: string) {
+		const next = !(bulkModeSections[sectionKey] === true);
+		bulkModeSections = { ...bulkModeSections, [sectionKey]: next };
+		if (!next) {
+			clearSelection(sectionKey);
+		}
+	}
+
+	function toggleSelect(sectionKey: string, sourceId: number) {
+		const current = getSelectedSet(sectionKey);
+		const next = new Set(current);
+		if (next.has(sourceId)) {
+			next.delete(sourceId);
+		} else {
+			next.add(sourceId);
+		}
+		setSelectedSet(sectionKey, next);
+	}
+
+	function selectAll(sectionKey: string, sources: { id: number }[]) {
+		setSelectedSet(sectionKey, new Set(sources.map((s) => s.id)));
+	}
+
+	function clearAll(sectionKey: string) {
+		setSelectedSet(sectionKey, new Set());
+	}
+
+	async function bulkSetEnabled(sectionKey: string, sourceType: string, enabled: boolean) {
+		const ids = Array.from(getSelectedSet(sectionKey));
+		if (ids.length === 0) {
+			toast.error('请先选择要操作的视频源');
+			return;
+		}
+
+		bulkUpdating = true;
+		let successCount = 0;
+		const failed: { id: number; message: string }[] = [];
+
+		for (const id of ids) {
+			const result = await runRequest(() => api.updateVideoSourceEnabled(sourceType, id, enabled), {
+				showErrorToast: false,
+				onError: (error) => {
+					console.error('批量更新失败:', error);
+				}
+			});
+
+			if (!result) {
+				failed.push({ id, message: '请求失败' });
+				continue;
+			}
+
+			if (result.data.success) {
+				successCount += 1;
+			} else {
+				failed.push({ id, message: result.data.message });
+			}
+		}
+
+		const actionLabel = enabled ? '启用' : '禁用';
+		if (failed.length === 0) {
+			toast.success(`批量${actionLabel}成功`, { description: `共 ${successCount} 个视频源` });
+		} else {
+			const preview = failed
+				.slice(0, 3)
+				.map((item) => `#${item.id} ${item.message}`)
+				.join('；');
+			toast.error(`批量${actionLabel}完成（成功 ${successCount}，失败 ${failed.length}）`, {
+				description: preview + (failed.length > 3 ? '…' : '')
+			});
+		}
+
+		await loadVideoSources();
+		clearSelection(sectionKey);
+		bulkUpdating = false;
 	}
 
 	// 切换视频源启用状态
@@ -527,6 +621,12 @@
 			collapsedSections[sectionKey] = !collapsedSections[sectionKey];
 		}
 		collapsedSections = { ...collapsedSections };
+
+		// 折叠时退出批量模式，避免误操作
+		if (collapsedSections[sectionKey] !== false) {
+			bulkModeSections = { ...bulkModeSections, [sectionKey]: false };
+			clearSelection(sectionKey);
+		}
 	}
 
 	function navigateToAddSource() {
@@ -590,6 +690,62 @@
 					{#if collapsedSections[sourceKey] === false}
 						<CardContent>
 							{#if sources && sources.length > 0}
+								{@const bulkMode = bulkModeSections[sourceKey] === true}
+								{@const selectedSet = bulkSelectedIds[sourceKey] ?? new Set<number>()}
+
+								<div
+									class="mb-3 flex flex-wrap items-center gap-2 {isMobile ? 'justify-between' : ''}"
+								>
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={bulkUpdating}
+										onclick={() => toggleBulkMode(sourceKey)}
+									>
+										{bulkMode ? '退出批量' : '批量操作'}
+									</Button>
+
+									{#if bulkMode}
+										<span class="text-muted-foreground text-sm">
+											已选 {selectedSet.size} / {sources.length}
+										</span>
+
+										<div class="ml-auto flex flex-wrap items-center gap-2">
+											<Button
+												size="sm"
+												variant="outline"
+												disabled={bulkUpdating}
+												onclick={() => selectAll(sourceKey, sources)}
+											>
+												全选
+											</Button>
+											<Button
+												size="sm"
+												variant="outline"
+												disabled={bulkUpdating || selectedSet.size === 0}
+												onclick={() => clearAll(sourceKey)}
+											>
+												清空
+											</Button>
+											<Button
+												size="sm"
+												disabled={bulkUpdating || selectedSet.size === 0}
+												onclick={() => bulkSetEnabled(sourceKey, sourceConfig.type, true)}
+											>
+												批量启用
+											</Button>
+											<Button
+												size="sm"
+												variant="secondary"
+												disabled={bulkUpdating || selectedSet.size === 0}
+												onclick={() => bulkSetEnabled(sourceKey, sourceConfig.type, false)}
+											>
+												批量禁用
+											</Button>
+										</div>
+									{/if}
+								</div>
+
 								<div class="space-y-3">
 									{#each sources as source (source.id)}
 										<div
@@ -597,6 +753,17 @@
 												? 'flex-col gap-3'
 												: 'flex-row items-center justify-between gap-3'} rounded-lg border p-3"
 										>
+											{#if bulkMode}
+												<label class="flex items-center {isMobile ? 'self-start' : ''}">
+													<input
+														type="checkbox"
+														checked={selectedSet.has(source.id)}
+														disabled={bulkUpdating}
+														onchange={() => toggleSelect(sourceKey, source.id)}
+														class="h-4 w-4 rounded border-gray-300"
+													/>
+												</label>
+											{/if}
 											<div class="min-w-0 flex-1">
 												<div
 													class="flex {isMobile
