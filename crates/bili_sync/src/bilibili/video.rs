@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail, ensure, Result};
 use futures::stream::FuturesUnordered;
 use futures::TryStreamExt;
 use prost::Message;
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -169,6 +169,24 @@ impl<'a> Video<'a> {
         // 其他情况假设视频存在
         tracing::debug!("视频存在性检查完成，视频存在 - BVID: {}", self.bvid);
         Ok(true)
+    }
+
+    async fn ensure_global_mixin_key(&self) -> Result<()> {
+        if MIXIN_KEY.load().is_some() {
+            return Ok(());
+        }
+        tracing::debug!("mixin_key 未初始化，尝试获取 wbi_img 以初始化签名");
+        self.refresh_global_mixin_key().await
+    }
+
+    async fn refresh_global_mixin_key(&self) -> Result<()> {
+        let wbi_img = self.client.wbi_img().await?;
+        let mixin_key: Option<String> = wbi_img.into();
+        let Some(mixin_key) = mixin_key else {
+            bail!("解析 mixin key 失败");
+        };
+        crate::bilibili::set_global_mixin_key(mixin_key);
+        Ok(())
     }
 
     /// 调用视频详情API获取epid信息，用于API降级处理
@@ -1009,7 +1027,8 @@ impl<'a> Video<'a> {
             ("dm_img_inter", dm_img_inter.as_str()),         // 弹幕交互统计
         ];
 
-        let encoded_params = encoded_query(params.clone(), MIXIN_KEY.load().as_deref());
+        self.ensure_global_mixin_key().await?;
+        let mut encoded_params = encoded_query(params.clone(), MIXIN_KEY.load().as_deref());
         tracing::debug!("API参数: {:?}", params);
         tracing::debug!("编码后参数: {:?}", encoded_params);
 
@@ -1021,27 +1040,44 @@ impl<'a> Video<'a> {
             page.cid
         );
 
-        let request = self
-            .client
-            .request(Method::GET, request_url)
-            .await
-            .query(&encoded_params)
-            .headers(create_api_headers());
-
         // 请求头日志已在建造器时设置
+        let mut did_refresh_wbi = false;
+        let res = loop {
+            let request = self
+                .client
+                .request(Method::GET, request_url)
+                .await
+                .query(&encoded_params)
+                .headers(create_api_headers());
 
-        let response = request.send().await;
-        match &response {
-            Ok(resp) => {
-                tracing::debug!("playurl请求成功 - 状态码: {}, URL: {}", resp.status(), resp.url());
-                tracing::debug!("响应头: {:?}", resp.headers());
-            }
-            Err(e) => {
-                tracing::error!("playurl请求失败 - BVID: {}, 错误: {}", self.bvid, e);
-            }
-        }
+            let response = match request.send().await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    tracing::error!("playurl请求失败 - BVID: {}, 错误: {}", self.bvid, e);
+                    return Err(e.into());
+                }
+            };
 
-        let res = response?.error_for_status()?.json::<serde_json::Value>().await?;
+            tracing::debug!(
+                "playurl请求成功 - 状态码: {}, URL: {}",
+                response.status(),
+                response.url()
+            );
+            tracing::debug!("响应头: {:?}", response.headers());
+
+            if response.status() == StatusCode::PRECONDITION_FAILED && !did_refresh_wbi {
+                tracing::warn!("playurl 返回 412，尝试刷新 mixin_key 后重试一次");
+                if let Err(e) = self.refresh_global_mixin_key().await {
+                    tracing::warn!("刷新 mixin_key 失败，继续按原错误处理: {:#}", e);
+                } else {
+                    did_refresh_wbi = true;
+                    encoded_params = encoded_query(params.clone(), MIXIN_KEY.load().as_deref());
+                    continue;
+                }
+            }
+
+            break response.error_for_status()?.json::<serde_json::Value>().await?;
+        };
 
         tracing::debug!(
             "playurl响应数据大小: {} bytes",

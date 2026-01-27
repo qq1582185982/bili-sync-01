@@ -679,6 +679,8 @@ pub struct BetaImageUpdateStatusResponse {
 #[derive(Serialize, ToSchema)]
 pub struct VideoPlayInfoResponse {
     pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
     pub video_streams: Vec<VideoStreamInfo>,
     pub audio_streams: Vec<AudioStreamInfo>,
     pub subtitle_streams: Vec<SubtitleStreamInfo>,

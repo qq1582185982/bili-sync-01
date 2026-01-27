@@ -477,6 +477,12 @@
 			const result = await api.getVideoPlayInfo(videoId);
 			onlinePlayInfo = result.data;
 			console.log('在线播放信息:', onlinePlayInfo);
+			if (!onlinePlayInfo?.success) {
+				toast.error('获取在线播放信息失败', {
+					description: onlinePlayInfo?.message || '请稍后重试'
+				});
+				onlinePlayInfo = null;
+			}
 		} catch (error) {
 			console.error('获取播放信息失败:', error);
 			toast.error('获取在线播放信息失败', {

@@ -789,6 +789,7 @@ export interface TaskControlStatusResponse {
 // 视频播放信息响应类型
 export interface VideoPlayInfoResponse {
 	success: boolean;
+	message?: string;
 	video_streams: VideoStreamInfo[];
 	audio_streams: AudioStreamInfo[];
 	subtitle_streams: SubtitleStreamInfo[];

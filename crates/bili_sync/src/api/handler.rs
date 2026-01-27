@@ -10458,26 +10458,95 @@ pub async fn get_video_play_info(
         dimension: None,
     };
 
+    let video_title = video_info.title.clone();
+    let bilibili_url =
+        // 根据视频类型生成正确的B站URL
+        if video_info.source_type == Some(1) && video_info.ep_id.is_some() {
+            // 番剧类型：使用 ep_id 生成番剧专用URL
+            format!(
+                "https://www.bilibili.com/bangumi/play/ep{}",
+                video_info.ep_id.as_ref().unwrap()
+            )
+        } else {
+            // 普通视频：使用 bvid 生成视频URL
+            format!("https://www.bilibili.com/video/{}", video_info.bvid)
+        };
+
+    let build_error_message = |err: &anyhow::Error| -> String {
+        // 先给常见“未登录/无凭证”一个更直观的提示
+        let err_str = err.to_string();
+        if err_str.contains("no credential found") || err_str.contains("未设置") {
+            return "未设置或未完整设置 B 站登录凭证，无法获取在线播放信息".to_string();
+        }
+
+        if let Some(bili_err) = err.downcast_ref::<crate::bilibili::BiliError>() {
+            match bili_err {
+                crate::bilibili::BiliError::RiskControlVerificationRequired(_) => {
+                    "触发B站风控，需要在管理页“验证码”完成验证后重试".to_string()
+                }
+                crate::bilibili::BiliError::RiskControlOccurred => {
+                    "触发B站风控，请稍后重试（频繁出现可尝试刷新凭证或完成验证码验证）".to_string()
+                }
+                crate::bilibili::BiliError::RequestFailed(-404, _) => "视频已被删除或不存在".to_string(),
+                crate::bilibili::BiliError::VideoStreamEmpty(_) => "没有可用的视频流".to_string(),
+                _ => bili_err.to_string(),
+            }
+        } else {
+            err_str
+        }
+    };
+
+    let fail = |message: String| {
+        ApiResponse::ok(VideoPlayInfoResponse {
+            success: false,
+            message: Some(message),
+            video_streams: Vec::new(),
+            audio_streams: Vec::new(),
+            subtitle_streams: Vec::new(),
+            video_title: video_title.clone(),
+            video_duration: Some(page_info.duration),
+            video_quality_description: "获取失败".to_string(),
+            video_bvid: Some(video_info.bvid.clone()),
+            bilibili_url: Some(bilibili_url.clone()),
+        })
+    };
+
     // 获取视频播放链接 - 根据视频类型选择不同的API
     let mut page_analyzer = if video_info.source_type == Some(1) && video_info.ep_id.is_some() {
         // 使用番剧专用API
         let ep_id = video_info.ep_id.as_ref().unwrap();
         debug!("API播放使用番剧专用API: ep_id={}", ep_id);
-        video
+        match video
             .get_bangumi_page_analyzer_with_fallback_in_range(&page_info, ep_id, max_qn, min_qn)
             .await
-            .map_err(|e| ApiError::from(anyhow!("获取番剧视频分析器失败: {}", e)))?
+        {
+            Ok(analyzer) => analyzer,
+            Err(e) => {
+                warn!("获取番剧视频分析器失败: {:#}", e);
+                return Ok(fail(build_error_message(&e)));
+            }
+        }
     } else {
         // 使用普通视频API
-        video
+        match video
             .get_page_analyzer_with_fallback_in_range(&page_info, max_qn, min_qn)
             .await
-            .map_err(|e| ApiError::from(anyhow!("获取视频分析器失败: {}", e)))?
+        {
+            Ok(analyzer) => analyzer,
+            Err(e) => {
+                warn!("获取视频分析器失败: {:#}", e);
+                return Ok(fail(build_error_message(&e)));
+            }
+        }
     };
 
-    let best_stream = page_analyzer
-        .best_stream(&filter_option)
-        .map_err(|e| ApiError::from(anyhow!("获取最佳视频流失败: {}", e)))?;
+    let best_stream = match page_analyzer.best_stream(&filter_option) {
+        Ok(stream) => stream,
+        Err(e) => {
+            warn!("获取最佳视频流失败: {:#}", e);
+            return Ok(fail(format!("获取最佳视频流失败: {}", e)));
+        }
+    };
 
     debug!(
         "获取到的流类型: {:?}",
@@ -10578,26 +10647,15 @@ pub async fn get_video_play_info(
 
     Ok(ApiResponse::ok(VideoPlayInfoResponse {
         success: true,
+        message: None,
         video_streams,
         audio_streams,
         subtitle_streams,
-        video_title: video_info.title,
+        video_title,
         video_duration: Some(page_info.duration),
         video_quality_description: quality_desc,
         video_bvid: Some(video_info.bvid.clone()),
-        bilibili_url: Some(
-            // 根据视频类型生成正确的B站URL
-            if video_info.source_type == Some(1) && video_info.ep_id.is_some() {
-                // 番剧类型：使用 ep_id 生成番剧专用URL
-                format!(
-                    "https://www.bilibili.com/bangumi/play/ep{}",
-                    video_info.ep_id.as_ref().unwrap()
-                )
-            } else {
-                // 普通视频：使用 bvid 生成视频URL
-                format!("https://www.bilibili.com/video/{}", video_info.bvid)
-            },
-        ),
+        bilibili_url: Some(bilibili_url),
     }))
 }
 
