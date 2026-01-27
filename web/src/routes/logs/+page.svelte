@@ -13,6 +13,7 @@
 
 	// 日志级别类型
 	type LogLevel = 'info' | 'warn' | 'error' | 'debug';
+	type LogFileLevel = LogLevel | 'all';
 
 	// 日志条目类型
 	interface LogEntry {
@@ -20,6 +21,14 @@
 		level: LogLevel;
 		message: string;
 		target?: string;
+	}
+
+	// 日志文件信息（每轮扫描会生成独立文件）
+	interface LogFileInfo {
+		level: LogFileLevel;
+		file_name: string;
+		size: number;
+		modified: number; // Unix 时间戳（秒）
 	}
 
 	// 日志响应类型
@@ -43,6 +52,10 @@
 	let authError = '';
 	// let logLimit = 500; // 可自定义的日志数量限制 - 未使用，已注释
 	let totalLogCount = 0; // 总日志数量
+	let logFiles: LogFileInfo[] = [];
+	let selectedLogFile = '';
+	let isLoadingLogFiles = false;
+	let logFilesError = '';
 
 	// 分页相关变量
 	let currentPage = 1;
@@ -170,7 +183,8 @@
 		isAuthenticated = await checkAuth();
 
 		if (isAuthenticated) {
-			// 加载日志
+			// 加载日志（内存缓冲区）+ 日志文件列表（磁盘）
+			void loadLogFiles();
 			await loadLogs();
 
 			// 设置自动刷新
@@ -247,11 +261,98 @@
 		filterLogs();
 	}
 
+	function getCurrentFileLevel(): LogFileLevel {
+		const raw = currentTab === 'all' ? 'all' : (currentTab as LogLevel);
+		return String(raw).trim().toLowerCase() as LogFileLevel;
+	}
+
+	let currentFileLevel: LogFileLevel = 'all';
+	let logFilesForCurrentTab: LogFileInfo[] = [];
+	let visibleLogFiles: LogFileInfo[] = [];
+	$: currentFileLevel = getCurrentFileLevel();
+	$: logFilesForCurrentTab = logFiles.filter(
+		(f) => String(f.level).trim().toLowerCase() === currentFileLevel
+	);
+	// 如果当前 Tab 没有对应级别文件（例如只生成了 all/debug），则回退显示全部文件，避免“明明有数据却显示暂无”
+	$: visibleLogFiles = logFilesForCurrentTab.length > 0 ? logFilesForCurrentTab : logFiles;
+
+	$: {
+		// 自动在切换 Tab 后选择“最新一轮”的同级别日志文件
+		if (visibleLogFiles.length === 0) {
+			selectedLogFile = '';
+		} else if (
+			!selectedLogFile ||
+			!visibleLogFiles.some((f) => f.file_name === selectedLogFile)
+		) {
+			selectedLogFile = visibleLogFiles[0].file_name;
+		}
+	}
+
 	// 根据当前选项卡过滤日志
 	function filterLogs() {
 		// 注意：现在我们使用服务器端过滤，这里主要用于显示
 		// 实际的过滤在loadLogs函数中通过API参数完成
 		filteredLogs = logs;
+	}
+
+	// 加载日志文件列表（每轮生成新文件）
+	async function loadLogFiles() {
+		if (!isAuthenticated) return;
+
+		await runRequest(
+			async () => {
+				const token = localStorage.getItem('auth_token');
+				if (!token) throw new Error('未找到认证token');
+
+				const response = await fetch(`/api/logs/files`, {
+					headers: {
+						Authorization: token,
+						'Content-Type': 'application/json'
+					}
+				});
+
+				if (!response.ok) {
+					if (response.status === 401) {
+						isAuthenticated = false;
+						authError = '认证失败，请重新登录';
+						return;
+					}
+					if (response.status === 404) {
+						logFilesError = '当前后端不支持日志文件列表（请升级后端）';
+						toast.error(logFilesError);
+						return;
+					}
+					throw new Error(`HTTP ${response.status}: 获取日志文件列表失败`);
+				}
+
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const result: any = await response.json();
+				logFilesError = '';
+
+				// 兼容不同的响应包装结构
+				const files = Array.isArray(result?.data?.files)
+					? result.data.files
+					: Array.isArray(result?.files)
+						? result.files
+						: [];
+
+				logFiles = files
+					.map((f: any) => ({
+						level: String(f.level ?? f.log_level ?? f.type ?? 'all')
+							.trim()
+							.toLowerCase() as LogFileLevel,
+						file_name: String(f.file_name ?? f.fileName ?? f.filename ?? f.name ?? '').trim(),
+						size: Number(f.size ?? f.file_size ?? f.length ?? 0),
+						modified: Number(f.modified ?? f.mtime ?? f.updated_at ?? f.updatedAt ?? 0)
+					}))
+					.filter((f: LogFileInfo) => Boolean(f.file_name));
+			},
+			{
+				setLoading: (value) => (isLoadingLogFiles = value),
+				context: '获取日志文件列表失败',
+				showErrorToast: false
+			}
+		);
 	}
 
 	// 分页相关函数
@@ -281,7 +382,7 @@
 	// 手动刷新
 	async function handleRefresh() {
 		const level = currentTab === 'all' ? undefined : (currentTab as LogLevel);
-		await loadLogs(level, currentPage);
+		await Promise.all([loadLogs(level, currentPage), loadLogFiles()]);
 	}
 
 	// 切换自动刷新
@@ -300,12 +401,14 @@
 	async function exportLogs() {
 		if (!isAuthenticated) return;
 
+		const maxExport = 10000;
+
 		await runRequest(
 			async () => {
 				// 获取当前选择级别的所有日志
 				const params = new URLSearchParams();
-				// 使用较大的limit值来获取尽可能多的日志
-				params.append('limit', '50000');
+				// 后端最大支持 10000 条
+				params.append('limit', String(maxExport));
 				params.append('page', '1');
 
 				if (currentTab !== 'all') {
@@ -329,7 +432,7 @@
 				}
 
 				const result = await response.json();
-				const parsed = parseLogsResponse(result, { page: 1, perPage: 50000 });
+				const parsed = parseLogsResponse(result, { page: 1, perPage: maxExport });
 				const allLogs = parsed.logs;
 
 				if (allLogs.length === 0) {
@@ -347,8 +450,8 @@
 				].join('\n');
 
 				// 创建文件名
-				const levelText = currentTab === 'all' ? '全部' : currentTab;
-				const fileName = `logs-${levelText}-${new Date().toISOString().split('T')[0]}.csv`;
+				const levelText = currentTab === 'all' ? 'all' : currentTab;
+				const fileName = `logs-buffer-${levelText}-${new Date().toISOString().split('T')[0]}.csv`;
 
 				// 下载文件
 				const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -357,7 +460,7 @@
 				link.download = fileName;
 				link.click();
 
-				toast.success(`成功导出 ${allLogs.length} 条${levelText}日志（来自内存缓冲区）`);
+				toast.success(`成功导出 ${allLogs.length} 条日志（内存缓冲区，最多 ${maxExport} 条）`);
 			},
 			{
 				setLoading: (value) => (isLoading = value),
@@ -371,52 +474,32 @@
 		if (!isAuthenticated) return;
 		await runRequest(
 			async () => {
-				const token = localStorage.getItem('auth_token');
-				if (!token) {
-					throw new Error('未找到认证token');
+				// 一次性下载同一轮次的 5 份日志：all / info / warn / error / debug
+				const baseFile = selectedLogFile || visibleLogFiles[0]?.file_name || '';
+				const logId = baseFile ? getLogIdFromFileName(baseFile) : null;
+				if (!logId) {
+					throw new Error('未找到可用的日志文件（请先运行一轮任务）');
 				}
 
-				// 构建请求参数
-				const params = new URLSearchParams();
-				params.append('level', currentTab === 'all' ? 'all' : currentTab);
+				const bundle = [
+					`logs-all-${logId}.csv`,
+					`logs-info-${logId}.csv`,
+					`logs-warn-${logId}.csv`,
+					`logs-error-${logId}.csv`,
+					`logs-debug-${logId}.csv`
+				];
 
-				// 直接下载文件
-				const response = await fetch(`/api/logs/download?${params.toString()}`, {
-					headers: {
-						Authorization: token
-					}
-				});
-
-				if (!response.ok) {
-					if (response.status === 401) {
-						isAuthenticated = false;
-						authError = '认证失败，请重新登录';
-						return;
-					}
-					throw new Error(`HTTP ${response.status}: 下载日志文件失败`);
+				let successCount = 0;
+				for (const fileName of bundle) {
+					// eslint-disable-next-line no-await-in-loop
+					await downloadLogFileByName(fileName);
+					successCount += 1;
+					// 让浏览器有时间处理下载队列，降低被拦截概率
+					// eslint-disable-next-line no-await-in-loop
+					await new Promise((r) => setTimeout(r, 150));
 				}
 
-				// 从响应头获取文件名
-				const contentDisposition = response.headers.get('content-disposition');
-				let fileName = `logs-${currentTab}-${new Date().toISOString().split('T')[0]}.csv`;
-				if (contentDisposition) {
-					const matches = /filename="([^"]+)"/.exec(contentDisposition);
-					if (matches) {
-						fileName = matches[1];
-					}
-				}
-
-				// 下载文件
-				const blob = await response.blob();
-				const link = document.createElement('a');
-				link.href = URL.createObjectURL(blob);
-				link.download = fileName;
-				link.click();
-
-				// 清理URL对象
-				URL.revokeObjectURL(link.href);
-
-				toast.success(`成功下载完整日志文件`);
+				toast.success(`已开始下载 ${successCount} 个日志文件（同一轮次）`);
 			},
 			{
 				setLoading: (value) => (isLoading = value),
@@ -435,6 +518,72 @@
 			minute: '2-digit',
 			second: '2-digit'
 		});
+	}
+
+	function formatUnixSeconds(seconds: number): string {
+		if (!seconds) return '-';
+		return new Date(seconds * 1000).toLocaleString('zh-CN', {
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+		});
+	}
+
+	function formatBytes(bytes: number): string {
+		if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+		let value = bytes;
+		let unitIndex = 0;
+		while (value >= 1024 && unitIndex < units.length - 1) {
+			value /= 1024;
+			unitIndex += 1;
+		}
+		return `${value.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+	}
+
+	function getLogIdFromFileName(fileName: string): string | null {
+		const match = /^logs-(all|debug|info|warn|error)-(.+)\.csv$/i.exec(fileName.trim());
+		return match?.[2] ?? null;
+	}
+
+	async function downloadLogFileByName(fileName: string) {
+		const token = localStorage.getItem('auth_token');
+		if (!token) throw new Error('未找到认证token');
+
+		const params = new URLSearchParams();
+		params.append('file', fileName);
+
+		const response = await fetch(`/api/logs/download?${params.toString()}`, {
+			headers: {
+				Authorization: token
+			}
+		});
+
+		if (!response.ok) {
+			if (response.status === 401) {
+				isAuthenticated = false;
+				authError = '认证失败，请重新登录';
+				return;
+			}
+			throw new Error(`HTTP ${response.status}: 下载日志文件失败 (${fileName})`);
+		}
+
+		const contentDisposition = response.headers.get('content-disposition');
+		let downloadName = fileName;
+		if (contentDisposition) {
+			const matches = /filename="([^"]+)"/.exec(contentDisposition);
+			if (matches) downloadName = matches[1];
+		}
+
+		const blob = await response.blob();
+		const link = document.createElement('a');
+		link.href = URL.createObjectURL(blob);
+		link.download = downloadName;
+		link.click();
+		URL.revokeObjectURL(link.href);
 	}
 
 	// 重新登录
@@ -488,6 +637,31 @@
 					</select>
 				</div>
 
+				<!-- 日志文件选择（每轮生成新文件） -->
+				<div class="flex items-center gap-2">
+					<label for="logFile" class="text-sm font-medium whitespace-nowrap">日志文件:</label>
+					<select
+						id="logFile"
+						bind:value={selectedLogFile}
+						class="border-input bg-background h-8 max-w-[260px] rounded-md border px-2 py-1 text-sm"
+						disabled={isLoadingLogFiles || !isAuthenticated}
+					>
+						{#if visibleLogFiles.length === 0}
+							<option value="" disabled>
+								{logFilesError || '暂无可选日志文件（请先运行一轮任务）'}
+							</option>
+						{:else}
+							{#each visibleLogFiles as file (file.file_name)}
+								<option value={file.file_name} title={file.file_name}>
+									[{String(file.level).toUpperCase()}] {formatUnixSeconds(file.modified)}（{formatBytes(
+										file.size
+									)}）
+								</option>
+							{/each}
+						{/if}
+					</select>
+				</div>
+
 				<Button variant="outline" size="sm" onclick={handleRefresh} disabled={isLoading}>
 					<RefreshCw class="h-4 w-4 {isLoading ? 'animate-spin' : ''}" />
 					刷新
@@ -520,10 +694,10 @@
 					size="sm"
 					onclick={downloadLogFile}
 					disabled={isLoading || !isAuthenticated}
-					title="下载完整日志文件（自动刷新缓冲区，无限制）"
+					title="从磁盘下载日志文件（同一轮次会下载 all/info/warn/error/debug 共5个文件）"
 				>
 					<Download class="h-4 w-4" />
-					下载完整文件
+					下载日志文件
 				</Button>
 			</div>
 		</div>

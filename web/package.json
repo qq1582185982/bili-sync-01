@@ -29,6 +29,7 @@
 		"@tailwindcss/typography": "^0.5.15",
 		"@tailwindcss/vite": "^4.0.0",
 		"autoprefixer": "^10.4.21",
+		"baseline-browser-mapping": "^2.9.18",
 		"bits-ui": "^2.14.4",
 		"clsx": "^2.1.1",
 		"eslint": "^9.18.0",
@@ -57,7 +58,7 @@
 		"@types/qrcode": "^1.5.5",
 		"d3-shape": "^3.2.0",
 		"flv.js": "^1.6.2",
-		"layerchart": "^2.0.0-next.27",
+		"layerchart": "2.0.0-next.44",
 		"lucide-svelte": "^0.511.0",
 		"qrcode": "^1.5.4"
 	}

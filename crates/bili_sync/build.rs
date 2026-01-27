@@ -13,6 +13,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=BILI_SYNC_RELEASE_CHANNEL");
+    track_frontend_build_output();
 
     // 将构建通道写入到编译期常量，供运行时区分“正式版/测试版”
     if let Ok(value) = env::var("BILI_SYNC_RELEASE_CHANNEL") {
@@ -61,6 +62,34 @@ fn main() {
             "Failed to gzip aria2 binary: {} -> {}: {e}",
             binary_path.display(),
             compressed_binary_path.display()
+        );
+    }
+}
+
+fn track_frontend_build_output() {
+    // 前端静态资源通过 rust-embed 编译进二进制。
+    // 若仅执行 `cargo build`，Cargo 默认不会感知 `web/build` 的变化，容易出现“后端已更新但前端还是旧版”的错觉。
+    // 这里显式声明依赖，让前端重新构建后能触发 Rust 重新编译。
+    let candidates = [
+        "../../web/build/index.html",
+        "../../web/build/_app/version.json",
+        "../../web/build/manifest.webmanifest",
+        "../../web/build/sw.js",
+        "../../web/build/registerSW.js",
+    ];
+
+    let mut any_exists = false;
+    for rel in candidates {
+        let path = Path::new(rel);
+        if path.exists() {
+            any_exists = true;
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+
+    if !any_exists {
+        println!(
+            "cargo:warning=未找到前端构建产物(web/build)。如需更新管理页，请先执行: cd web && npm run build"
         );
     }
 }
