@@ -40,6 +40,14 @@ use crate::utils::notification::NewVideoInfo;
 use crate::utils::scan_collector::create_new_video_info;
 use crate::utils::status::{PageStatus, VideoStatus, STATUS_OK};
 
+fn is_bili_request_failed_404(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<BiliError>()
+            .is_some_and(|e| matches!(e, BiliError::RequestFailed(-404, _)))
+    })
+}
+
 // 新增：番剧季信息结构体
 #[derive(Debug, Clone)]
 pub struct SeasonInfo {
@@ -851,12 +859,71 @@ pub async fn fetch_video_details(
                                 "获取视频 {} - {} 的详细信息失败，错误为：{:#}",
                                 &video_model.bvid, &video_model.name, e
                             );
-                            if let Some(BiliError::RequestFailed(-404, _)) = e.downcast_ref::<BiliError>() {
-                                let mut video_active_model: bili_sync_entity::video::ActiveModel = video_model.into();
-                                video_active_model.valid = Set(false);
-                                video_active_model.save(connection).await?;
+                            if is_bili_request_failed_404(&e) {
+                                // 404：视频已被删除/不可访问
+                                // 若这是“重置详情”导致的回填（数据库里已有 page.path），则需要：
+                                // - 跳过本次重置
+                                // - 恢复为未重置（把状态置为完成，避免每轮都重复尝试）
+                                // - 提醒用户
+                                use sea_orm::sea_query::Expr;
+                                use sea_orm::{Set, Unchanged};
 
-                                // 触发异步同步到内存DB
+                                let video_id = video_model.id;
+                                let (pages_total, pages_with_path) = tokio::try_join!(
+                                    page::Entity::find()
+                                        .filter(page::Column::VideoId.eq(video_id))
+                                        .count(connection),
+                                    page::Entity::find()
+                                        .filter(page::Column::VideoId.eq(video_id))
+                                        .filter(page::Column::Path.is_not_null())
+                                        .count(connection),
+                                )?;
+
+                                let should_restore_unreset = pages_with_path > 0;
+
+                                // 无论是否需要恢复，都把视频标记为无效（避免后续流程继续处理）
+                                let txn = connection.begin().await?;
+                                video::Entity::update(video::ActiveModel {
+                                    id: Unchanged(video_id),
+                                    valid: Set(false),
+                                    // 如果 single_page 被重置为空，基于现有 pages 数量做一个合理回填，避免反复进入详情阶段
+                                    single_page: Set(Some(pages_total <= 1)),
+                                    // 这里不写 download_status，统一在后续 restore 分支中写入
+                                    ..Default::default()
+                                })
+                                .exec(&txn)
+                                .await?;
+
+                                if should_restore_unreset {
+                                    warn!(
+                                        "视频「{}」({}) 已在B站删除/不可访问，已跳过重置并恢复为未重置状态",
+                                        &video_model.name, &video_model.bvid
+                                    );
+
+                                    let ok_video_status: u32 = VideoStatus::from([STATUS_OK; 5]).into();
+                                    let ok_page_status: u32 = PageStatus::from([STATUS_OK; 5]).into();
+
+                                    video::Entity::update(video::ActiveModel {
+                                        id: Unchanged(video_id),
+                                        download_status: Set(ok_video_status),
+                                        ..Default::default()
+                                    })
+                                    .exec(&txn)
+                                    .await?;
+
+                                    page::Entity::update_many()
+                                        .col_expr(page::Column::DownloadStatus, Expr::value(ok_page_status))
+                                        .filter(page::Column::VideoId.eq(video_id))
+                                        .exec(&txn)
+                                        .await?;
+                                } else {
+                                    warn!(
+                                        "视频「{}」({}) 已在B站删除/不可访问，已标记为无效并跳过处理",
+                                        &video_model.name, &video_model.bvid
+                                    );
+                                }
+
+                                txn.commit().await?;
                             } else {
                                 // 非404错误发送通知（404是视频被删除的正常情况）
                                 let video_name = video_model.name.clone();
@@ -1973,6 +2040,8 @@ pub async fn download_video_pages(
     };
     let mut status = VideoStatus::from(video_model.download_status);
     let separate_status = status.should_run();
+    // “重置后恢复”判断：如果数据库里已存在 page.path，通常代表曾经下载过；此时遇到 B站-404 应恢复为未重置
+    let has_existing_page_paths = pages.iter().any(|p| p.path.as_ref().is_some());
 
     // 检查是否为番剧
     let is_bangumi = matches!(video_source, VideoSourceEnum::BangumiSource(_));
@@ -3110,10 +3179,53 @@ pub async fn download_video_pages(
     );
 
     // 主要的5个任务结果，保持与VideoStatus<5>兼容
-    let main_results = [res_1, nfo_result, res_3, res_4, res_5]
+    let mut main_results = [res_1, nfo_result, res_3, res_4, res_5]
         .into_iter()
         .map(Into::into)
         .collect::<Vec<_>>();
+
+    // 若重置后遇到 B站-404（视频被删除/不可访问），将本次重置视为无效：
+    // - 把需要执行的任务全部标记为 Skipped（等同于“恢复为未重置”）
+    // - 更新数据库：video.valid=false，pages.download_status=OK（避免分页仍显示未完成）
+    let hit_bili_404 = main_results.iter().any(|r| match r {
+        ExecutionStatus::Ignored(e) => is_bili_request_failed_404(e),
+        _ => false,
+    });
+
+    if hit_bili_404 && has_existing_page_paths {
+        use sea_orm::sea_query::Expr;
+        use sea_orm::{Set, Unchanged};
+
+        warn!(
+            "视频「{}」({}) 已在B站删除/不可访问，已跳过本次重置并恢复为未重置状态",
+            &final_video_model.name, &final_video_model.bvid
+        );
+
+        // 把本轮“需要执行”的任务全部标记为跳过，让状态位恢复为完成
+        for (idx, should_run) in separate_status.iter().enumerate() {
+            if *should_run {
+                main_results[idx] = ExecutionStatus::Skipped;
+            }
+        }
+
+        // 立即修复数据库分页状态，避免前端仍显示“分页未完成”
+        let ok_page_status: u32 = PageStatus::from([STATUS_OK; 5]).into();
+        let txn = connection.begin().await?;
+        video::Entity::update(video::ActiveModel {
+            id: Unchanged(final_video_model.id),
+            valid: Set(false),
+            ..Default::default()
+        })
+        .exec(&txn)
+        .await?;
+        page::Entity::update_many()
+            .col_expr(page::Column::DownloadStatus, Expr::value(ok_page_status))
+            .filter(page::Column::VideoId.eq(final_video_model.id))
+            .exec(&txn)
+            .await?;
+        txn.commit().await?;
+    }
+
     status.update_status(&main_results);
 
     // 下载联合投稿中其他UP主的头像（在主UP主头像下载之后）
