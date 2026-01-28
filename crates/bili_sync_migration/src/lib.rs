@@ -51,6 +51,7 @@ mod m20260108_000001_add_ai_rename_advanced_options;
 mod m20260125_000001_migrate_legacy_config;
 mod m20260125_000002_add_use_dynamic_api;
 mod m20260125_000003_add_dynamic_api_full_synced;
+mod m20260127_000001_add_submission_scan_state;
 
 pub struct Migrator;
 
@@ -109,6 +110,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260125_000001_migrate_legacy_config::Migration),
             Box::new(m20260125_000002_add_use_dynamic_api::Migration),
             Box::new(m20260125_000003_add_dynamic_api_full_synced::Migration),
+            Box::new(m20260127_000001_add_submission_scan_state::Migration),
         ]
     }
 }

@@ -293,6 +293,10 @@ export interface ConfigResponse {
 	auto_backoff_max_multiplier?: number;
 	source_delay_seconds?: number;
 	submission_source_delay_seconds?: number;
+	// UP主投稿源扫描策略
+	submission_scan_batch_size?: number;
+	submission_adaptive_scan?: boolean;
+	submission_adaptive_max_hours?: number;
 	// 扫描已删除视频设置
 	scan_deleted_videos?: boolean;
 	// aria2监控配置
@@ -409,6 +413,10 @@ export interface UpdateConfigRequest {
 	auto_backoff_max_multiplier?: number;
 	source_delay_seconds?: number;
 	submission_source_delay_seconds?: number;
+	// UP主投稿源扫描策略
+	submission_scan_batch_size?: number;
+	submission_adaptive_scan?: boolean;
+	submission_adaptive_max_hours?: number;
 	// 扫描已删除视频设置
 	scan_deleted_videos?: boolean;
 	// aria2监控配置

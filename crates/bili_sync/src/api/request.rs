@@ -234,6 +234,10 @@ pub struct UpdateConfigRequest {
     pub auto_backoff_max_multiplier: Option<u64>,
     pub source_delay_seconds: Option<u64>,
     pub submission_source_delay_seconds: Option<u64>,
+    // UP主投稿源扫描策略
+    pub submission_scan_batch_size: Option<usize>,
+    pub submission_adaptive_scan: Option<bool>,
+    pub submission_adaptive_max_hours: Option<u64>,
     // 系统配置
     pub scan_deleted_videos: Option<bool>,
     // aria2监控配置

@@ -33,6 +33,9 @@ pub struct Model {
     pub ai_rename_enable_bangumi: bool,
     pub use_dynamic_api: bool,
     pub dynamic_api_full_synced: bool,
+    pub last_scan_at: Option<String>,
+    pub next_scan_at: Option<String>,
+    pub no_update_streak: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

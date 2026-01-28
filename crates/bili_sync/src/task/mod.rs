@@ -112,6 +112,10 @@ pub struct UpdateConfigTask {
     pub auto_backoff_max_multiplier: Option<u64>,
     pub source_delay_seconds: Option<u64>,
     pub submission_source_delay_seconds: Option<u64>,
+    // UP主投稿源扫描策略
+    pub submission_scan_batch_size: Option<usize>,
+    pub submission_adaptive_scan: Option<bool>,
+    pub submission_adaptive_max_hours: Option<u64>,
     // 多P视频目录结构配置
     pub multi_page_use_season_structure: Option<bool>,
     // 合集目录结构配置
@@ -1481,6 +1485,9 @@ impl ConfigTaskQueue {
                 auto_backoff_max_multiplier: task.auto_backoff_max_multiplier,
                 source_delay_seconds: task.source_delay_seconds,
                 submission_source_delay_seconds: task.submission_source_delay_seconds,
+                submission_scan_batch_size: task.submission_scan_batch_size,
+                submission_adaptive_scan: task.submission_adaptive_scan,
+                submission_adaptive_max_hours: task.submission_adaptive_max_hours,
                 // 系统配置相关字段，任务队列中不使用
                 scan_deleted_videos: None,
                 // aria2监控配置，任务队列中不使用

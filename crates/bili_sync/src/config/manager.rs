@@ -72,6 +72,7 @@ fn describe_config_key(key: &str) -> &'static str {
         "time_format" => "时间格式",
         "cdn_sorting" => "CDN优先级排序",
         "submission_risk_control" => "UP主投稿风控配置",
+        "submission_scan_strategy" => "UP主投稿源扫描策略（分批/自适应）",
         "scan_deleted_videos" => "扫描已删除视频",
         "enable_aria2_health_check" => "aria2健康检查",
         "enable_aria2_auto_restart" => "aria2自动重启",
@@ -871,7 +872,12 @@ impl ConfigManager {
     /// 解决配置冲突：当既有完整对象又有嵌套字段时，优先使用嵌套字段
     fn resolve_config_conflicts(&self, config_map: &mut HashMap<String, Value>) -> Result<()> {
         // 检测可能冲突的配置前缀
-        let potential_conflicts = ["notification", "concurrent_limit", "submission_risk_control"];
+        let potential_conflicts = [
+            "notification",
+            "concurrent_limit",
+            "submission_risk_control",
+            "submission_scan_strategy",
+        ];
 
         for prefix in potential_conflicts {
             let has_complete_object = config_map.contains_key(prefix);

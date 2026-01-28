@@ -21,6 +21,7 @@ pub use crate::config::global::{
 use crate::config::item::ConcurrentLimit;
 pub use crate::config::item::{
     EmptyUpperStrategy, NFOConfig, NFOTimeType, PathSafeTemplate, RateLimit, SubmissionRiskControlConfig,
+    SubmissionScanStrategyConfig,
 };
 pub use crate::config::manager::ConfigManager;
 
@@ -182,6 +183,9 @@ pub struct Config {
     pub cdn_sorting: bool,
     #[serde(default)]
     pub submission_risk_control: crate::config::item::SubmissionRiskControlConfig,
+    /// UP主投稿源扫描策略（分批/自适应）
+    #[serde(default)]
+    pub submission_scan_strategy: SubmissionScanStrategyConfig,
     #[serde(default)]
     pub scan_deleted_videos: bool,
     // 番剧预告片过滤配置
@@ -590,6 +594,7 @@ impl Clone for Config {
             time_format: self.time_format.clone(),
             cdn_sorting: self.cdn_sorting,
             submission_risk_control: self.submission_risk_control.clone(),
+            submission_scan_strategy: self.submission_scan_strategy.clone(),
             scan_deleted_videos: self.scan_deleted_videos,
             skip_bangumi_preview: self.skip_bangumi_preview,
             enable_aria2_health_check: self.enable_aria2_health_check,
@@ -631,6 +636,7 @@ impl Default for Config {
             time_format: default_time_format(),
             cdn_sorting: default_cdn_sorting(),
             submission_risk_control: crate::config::item::SubmissionRiskControlConfig::default(),
+            submission_scan_strategy: SubmissionScanStrategyConfig::default(),
             scan_deleted_videos: false,
             skip_bangumi_preview: default_skip_bangumi_preview(),
             enable_aria2_health_check: false,

@@ -221,15 +221,15 @@ fn parse_http_date_to_utc(value: &str) -> Option<DateTime<Utc>> {
 }
 
 fn get_local_built_time_utc() -> Result<DateTime<Utc>> {
-    // 1) 优先读取容器/镜像注入的构建时间（用于 Docker 环境避免误判）
-    // 期望格式：RFC3339（例如 2026-01-21T17:02:18+08:00 或 2026-01-21T09:02:18Z）
+    // 1) Prefer container/image injected built time (avoid false positives in Docker)
+    // Expected format: RFC3339 (e.g. 2026-01-21T17:02:18+08:00 or 2026-01-21T09:02:18Z)
     if let Ok(value) = std::env::var("BILI_SYNC_IMAGE_BUILT_AT") {
         if let Ok(parsed) = DateTime::parse_from_rfc3339(value.trim()) {
             return Ok(parsed.with_timezone(&Utc));
         }
     }
 
-    // 2) Docker 镜像内标记文件（Dockerfile 写入）
+    // 2) Marker file in Docker image (written by Dockerfile)
     if let Ok(value) = std::fs::read_to_string("/app/image-built-at.txt") {
         if let Ok(parsed) = DateTime::parse_from_rfc3339(value.trim()) {
             return Ok(parsed.with_timezone(&Utc));
@@ -238,13 +238,13 @@ fn get_local_built_time_utc() -> Result<DateTime<Utc>> {
 
     let mut candidates: Vec<DateTime<Utc>> = Vec::new();
 
-    // 3) Rust 编译时间（built.rs）
+    // 3) Rust compile time (built.rs)
     let built_rs_time = DateTime::parse_from_rfc2822(built_info::BUILT_TIME_UTC)
         .context("解析本地构建时间失败（built::BUILT_TIME_UTC）")?
         .with_timezone(&Utc);
     candidates.push(built_rs_time);
 
-    // 4) 可执行文件的修改时间（某些发布流程会以打包/构建镜像时间写入文件 mtime）
+    // 4) Executable mtime (some release pipelines preserve build time via mtime)
     if let Ok(exe) = std::env::current_exe() {
         if let Ok(metadata) = std::fs::metadata(exe) {
             if let Ok(modified) = metadata.modified() {
@@ -2766,6 +2766,9 @@ pub async fn add_video_source_internal(
                 latest_row_at: sea_orm::Set("1970-01-01 00:00:00".to_string()),
                 enabled: sea_orm::Set(true),
                 scan_deleted_videos: sea_orm::Set(false),
+                last_scan_at: sea_orm::Set(None),
+                next_scan_at: sea_orm::Set(None),
+                no_update_streak: sea_orm::Set(0),
                 selected_videos: sea_orm::Set(
                     params
                         .selected_videos
@@ -5972,6 +5975,10 @@ pub async fn get_config() -> Result<ApiResponse<crate::api::response::ConfigResp
         auto_backoff_max_multiplier: config.submission_risk_control.auto_backoff_max_multiplier,
         source_delay_seconds: config.submission_risk_control.source_delay_seconds,
         submission_source_delay_seconds: config.submission_risk_control.submission_source_delay_seconds,
+        // UP主投稿源扫描策略
+        submission_scan_batch_size: config.submission_scan_strategy.batch_size,
+        submission_adaptive_scan: config.submission_scan_strategy.adaptive_enabled,
+        submission_adaptive_max_hours: config.submission_scan_strategy.adaptive_max_hours,
         scan_deleted_videos: config.scan_deleted_videos,
         // aria2监控配置
         enable_aria2_health_check: config.enable_aria2_health_check,
@@ -6123,6 +6130,10 @@ pub async fn update_config(
             auto_backoff_max_multiplier: params.auto_backoff_max_multiplier,
             source_delay_seconds: params.source_delay_seconds,
             submission_source_delay_seconds: params.submission_source_delay_seconds,
+            // UP主投稿源扫描策略
+            submission_scan_batch_size: params.submission_scan_batch_size,
+            submission_adaptive_scan: params.submission_adaptive_scan,
+            submission_adaptive_max_hours: params.submission_adaptive_max_hours,
             // 多P视频目录结构配置
             multi_page_use_season_structure: params.multi_page_use_season_structure,
             // 合集目录结构配置
@@ -6660,6 +6671,32 @@ pub async fn update_config_internal(
         }
     }
 
+    // UP主投稿源扫描策略
+    if let Some(size) = params.submission_scan_batch_size {
+        if size != config.submission_scan_strategy.batch_size {
+            config.submission_scan_strategy.batch_size = size;
+            updated_fields.push("submission_scan_batch_size");
+        }
+    }
+
+    if let Some(enabled) = params.submission_adaptive_scan {
+        if enabled != config.submission_scan_strategy.adaptive_enabled {
+            config.submission_scan_strategy.adaptive_enabled = enabled;
+            updated_fields.push("submission_adaptive_scan");
+        }
+    }
+
+    if let Some(hours) = params.submission_adaptive_max_hours {
+        if hours == 0 {
+            return Err(anyhow!("自适应扫描最大间隔不能为 0").into());
+        }
+        let hours = hours.min(168); // 最高 7 天，避免误填导致长期不扫描
+        if hours != config.submission_scan_strategy.adaptive_max_hours {
+            config.submission_scan_strategy.adaptive_max_hours = hours;
+            updated_fields.push("submission_adaptive_max_hours");
+        }
+    }
+
     // 处理多P视频目录结构配置
     if let Some(use_season_structure) = params.multi_page_use_season_structure {
         if use_season_structure != config.multi_page_use_season_structure {
@@ -7094,6 +7131,14 @@ pub async fn update_config_internal(
                         .update_config_item(
                             "submission_risk_control",
                             serde_json::to_value(&config.submission_risk_control)?,
+                        )
+                        .await
+                }
+                "submission_scan_batch_size" | "submission_adaptive_scan" | "submission_adaptive_max_hours" => {
+                    manager
+                        .update_config_item(
+                            "submission_scan_strategy",
+                            serde_json::to_value(&config.submission_scan_strategy)?,
                         )
                         .await
                 }

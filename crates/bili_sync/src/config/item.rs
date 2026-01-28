@@ -243,6 +243,38 @@ pub struct SubmissionRiskControlConfig {
     pub submission_source_delay_seconds: u64,
 }
 
+/// UP主投稿源扫描优化配置
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SubmissionScanStrategyConfig {
+    /// 每轮最多扫描的投稿源数量；0 表示不限制（保持旧行为）
+    #[serde(default = "default_submission_scan_batch_size")]
+    pub batch_size: usize,
+    /// 是否启用自适应扫描频率（无更新的源自动降频）
+    #[serde(default)]
+    pub adaptive_enabled: bool,
+    /// 自适应扫描的最大间隔（小时）
+    #[serde(default = "default_submission_adaptive_max_hours")]
+    pub adaptive_max_hours: u64,
+}
+
+fn default_submission_scan_batch_size() -> usize {
+    0
+}
+
+fn default_submission_adaptive_max_hours() -> u64 {
+    24
+}
+
+impl Default for SubmissionScanStrategyConfig {
+    fn default() -> Self {
+        Self {
+            batch_size: default_submission_scan_batch_size(),
+            adaptive_enabled: false,
+            adaptive_max_hours: default_submission_adaptive_max_hours(),
+        }
+    }
+}
+
 fn default_large_submission_threshold() -> usize {
     80
 }

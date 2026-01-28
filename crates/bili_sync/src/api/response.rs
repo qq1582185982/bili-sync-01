@@ -360,6 +360,10 @@ pub struct ConfigResponse {
     pub auto_backoff_max_multiplier: u64,
     pub source_delay_seconds: u64,
     pub submission_source_delay_seconds: u64,
+    // UP主投稿源扫描策略
+    pub submission_scan_batch_size: usize,
+    pub submission_adaptive_scan: bool,
+    pub submission_adaptive_max_hours: u64,
     // 系统设置
     pub scan_deleted_videos: bool,
     // aria2监控配置

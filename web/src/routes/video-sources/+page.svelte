@@ -3,6 +3,9 @@
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
+	import { Switch } from '$lib/components/ui/switch';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import { toast } from 'svelte-sonner';
 	import api from '$lib/api';
@@ -122,6 +125,61 @@
 		});
 		if (!response) return;
 		setVideoSources(response.data);
+	}
+
+	// 投稿源扫描策略配置（分批/自适应）
+	let submissionScanBatchSize = '0';
+	let submissionAdaptiveScan = false;
+	let submissionAdaptiveMaxHours = '24';
+	let submissionScanConfigLoading = false;
+	let submissionScanConfigSaving = false;
+
+	async function loadSubmissionScanConfig() {
+		const response = await runRequest(() => api.getConfig(), {
+			setLoading: (value) => (submissionScanConfigLoading = value),
+			context: '加载投稿源扫描策略失败'
+		});
+		if (!response) return;
+
+		const cfg = response.data;
+		submissionScanBatchSize = String(cfg.submission_scan_batch_size ?? 0);
+		submissionAdaptiveScan = Boolean(cfg.submission_adaptive_scan ?? false);
+		submissionAdaptiveMaxHours = String(cfg.submission_adaptive_max_hours ?? 24);
+	}
+
+	async function saveSubmissionScanConfig() {
+		const batchSize = Number(submissionScanBatchSize);
+		const maxHours = Number(submissionAdaptiveMaxHours);
+
+		if (!Number.isFinite(batchSize) || batchSize < 0) {
+			toast.error('每轮扫描数量必须是非负数字');
+			return;
+		}
+		if (!Number.isFinite(maxHours) || maxHours < 1) {
+			toast.error('最大间隔必须大于等于 1 小时');
+			return;
+		}
+
+		submissionScanConfigSaving = true;
+		const result = await runRequest(
+			() =>
+				api.updateConfig({
+					submission_scan_batch_size: batchSize,
+					submission_adaptive_scan: submissionAdaptiveScan,
+					submission_adaptive_max_hours: maxHours
+				}),
+			{ context: '保存投稿源扫描策略失败' }
+		);
+		submissionScanConfigSaving = false;
+		if (!result) return;
+
+		if (result.data.success) {
+			toast.success(result.data.message || '保存成功');
+		} else {
+			toast.error('保存失败', { description: result.data.message });
+		}
+
+		await loadSubmissionScanConfig();
 	}
 
 	type UpdateResult = { success: boolean; message: string };
@@ -636,6 +694,7 @@
 	onMount(() => {
 		setBreadcrumb([{ label: '视频源管理' }]);
 		loadVideoSources();
+		loadSubmissionScanConfig();
 	});
 </script>
 
@@ -689,6 +748,75 @@
 					</CardHeader>
 					{#if collapsedSections[sourceKey] === false}
 						<CardContent>
+							{#if sourceKey === 'SUBMISSION'}
+								<div class="mb-4 rounded-lg border p-4">
+									<div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+										<div class="space-y-1">
+											<div class="text-sm font-semibold">投稿源扫描优化</div>
+											<div class="text-muted-foreground text-xs">
+												分批扫描可以降低单轮请求量；自适应会对长期无更新的UP自动降频，减少风控概率。
+											</div>
+										</div>
+
+										<div class="flex items-center gap-2 md:justify-end">
+											<Button
+												size="sm"
+												variant="outline"
+												disabled={submissionScanConfigLoading || submissionScanConfigSaving}
+												onclick={loadSubmissionScanConfig}
+											>
+												刷新
+											</Button>
+											<Button
+												size="sm"
+												disabled={submissionScanConfigLoading || submissionScanConfigSaving}
+												onclick={saveSubmissionScanConfig}
+											>
+												{submissionScanConfigSaving ? '保存中…' : '保存'}
+											</Button>
+										</div>
+									</div>
+
+									<div class="mt-4 grid gap-4 md:grid-cols-3">
+										<div class="space-y-1">
+											<Label>每轮扫描数量</Label>
+											<Input
+												type="number"
+												min="0"
+												step="1"
+												disabled={submissionScanConfigLoading || submissionScanConfigSaving}
+												bind:value={submissionScanBatchSize}
+											/>
+											<div class="text-muted-foreground text-xs">0 表示不限制（保持旧行为），建议 30~80。</div>
+										</div>
+
+										<div class="flex items-center gap-3 md:pt-7">
+											<Switch
+												disabled={submissionScanConfigLoading || submissionScanConfigSaving}
+												bind:checked={submissionAdaptiveScan}
+											/>
+											<div class="space-y-0.5">
+												<Label>自适应扫描频率</Label>
+												<div class="text-muted-foreground text-xs">连续无更新会逐步延长扫描间隔。</div>
+											</div>
+										</div>
+
+										<div class="space-y-1">
+											<Label>最大间隔（小时）</Label>
+											<Input
+												type="number"
+												min="1"
+												max="168"
+												step="1"
+												disabled={!submissionAdaptiveScan || submissionScanConfigLoading || submissionScanConfigSaving}
+												bind:value={submissionAdaptiveMaxHours}
+											/>
+											<div class="text-muted-foreground text-xs">范围 1~168。</div>
+										</div>
+									</div>
+								</div>
+							{/if}
+
 							{#if sources && sources.length > 0}
 								{@const bulkMode = bulkModeSections[sourceKey] === true}
 								{@const selectedSet = bulkSelectedIds[sourceKey] ?? new Set<number>()}

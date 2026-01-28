@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
+use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use tracing::{debug, error, info, warn};
 
 use crate::adapter::Args;
@@ -19,9 +20,104 @@ use crate::utils::scan_id_tracker::{
 };
 use crate::workflow::process_video_source;
 use bili_sync_entity::entities;
+use crate::utils::time_format::{now_naive, now_standard_string, parse_time_string, STANDARD_TIME_FORMAT};
+
+fn submission_scan_strategy_enabled(config: &Config) -> bool {
+    config.submission_scan_strategy.batch_size > 0 || config.submission_scan_strategy.adaptive_enabled
+}
+
+fn parse_time_or_min(time_str: Option<&str>) -> NaiveDateTime {
+    time_str
+        .and_then(parse_time_string)
+        .unwrap_or_else(|| {
+            NaiveDateTime::new(
+                NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
+                NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+            )
+        })
+}
+
+fn calc_submission_next_delay_secs(base_interval_secs: u64, streak: i32, max_hours: u64) -> u64 {
+    let multipliers: [u64; 5] = [1, 3, 9, 36, 72];
+    let idx = (streak.max(0) as usize).min(multipliers.len() - 1);
+    let delay = base_interval_secs.saturating_mul(multipliers[idx]);
+    let cap = max_hours.max(1).min(168).saturating_mul(3600);
+    delay.min(cap).max(base_interval_secs)
+}
+
+async fn update_submission_scan_state_success(
+    connection: &DatabaseConnection,
+    submission_id: i32,
+    new_video_count: usize,
+    config: &Config,
+) -> Result<()> {
+    let Some(model) = entities::submission::Entity::find_by_id(submission_id)
+        .one(connection)
+        .await?
+    else {
+        return Ok(());
+    };
+
+    let now = now_naive();
+    let now_str = now_standard_string();
+
+    let base_interval_secs = config.interval;
+    let max_hours = config.submission_scan_strategy.adaptive_max_hours;
+
+    let (next_dt, new_streak) = if new_video_count > 0 {
+        (now + Duration::seconds(base_interval_secs as i64), 0)
+    } else {
+        let streak = model.no_update_streak.saturating_add(1);
+        let delay = calc_submission_next_delay_secs(base_interval_secs, streak, max_hours);
+        (now + Duration::seconds(delay as i64), streak)
+    };
+
+    let mut active: entities::submission::ActiveModel = model.into();
+    active.last_scan_at = Set(Some(now_str));
+    active.next_scan_at = Set(Some(next_dt.format(STANDARD_TIME_FORMAT).to_string()));
+    active.no_update_streak = Set(new_streak);
+    active.update(connection).await?;
+
+    Ok(())
+}
+
+async fn update_submission_scan_state_error(
+    connection: &DatabaseConnection,
+    submission_id: i32,
+    is_risk_control: bool,
+    config: &Config,
+) -> Result<()> {
+    let Some(model) = entities::submission::Entity::find_by_id(submission_id)
+        .one(connection)
+        .await?
+    else {
+        return Ok(());
+    };
+
+    let now = now_naive();
+    let now_str = now_standard_string();
+
+    let base_interval_secs = config.interval;
+    let max_hours = config.submission_scan_strategy.adaptive_max_hours;
+
+    let delay = if is_risk_control {
+        calc_submission_next_delay_secs(base_interval_secs, 1, max_hours)
+    } else {
+        base_interval_secs
+    };
+    let next_dt = now + Duration::seconds(delay as i64);
+
+    let mut active: entities::submission::ActiveModel = model.into();
+    active.last_scan_at = Set(Some(now_str));
+    active.next_scan_at = Set(Some(next_dt.format(STANDARD_TIME_FORMAT).to_string()));
+    active.update(connection).await?;
+
+    Ok(())
+}
 
 /// 从数据库加载所有视频源的函数
 async fn load_video_sources_from_db(
+    config: &Config,
     connection: &Arc<DatabaseConnection>,
 ) -> Result<Vec<VideoSourceWithId>, Box<dyn std::error::Error + Send + Sync>> {
     let mut video_sources = Vec::new();
@@ -71,10 +167,73 @@ async fn load_video_sources_from_db(
     }
 
     // 加载UP主投稿源（只加载启用的）
-    let submissions = entities::submission::Entity::find()
+    let mut submissions = entities::submission::Entity::find()
         .filter(entities::submission::Column::Enabled.eq(true))
         .all(connection.as_ref())
         .await?;
+
+    if submission_scan_strategy_enabled(config) && !submissions.is_empty() {
+        let total_enabled_submissions = submissions.len();
+        let now = now_naive();
+        let tracker = crate::bilibili::submission::SUBMISSION_PAGE_TRACKER.read().unwrap();
+
+        let mut checkpoint = Vec::new();
+        let mut due = Vec::new();
+
+        for submission in submissions.into_iter() {
+            let upper_id_str = submission.upper_id.to_string();
+
+            if tracker.contains_key(&upper_id_str) {
+                checkpoint.push(submission);
+                continue;
+            }
+
+            if config.submission_scan_strategy.adaptive_enabled {
+                if let Some(next_scan_at) = submission.next_scan_at.as_deref() {
+                    if let Some(next_dt) = parse_time_string(next_scan_at) {
+                        if next_dt > now {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            due.push(submission);
+        }
+
+        if config.submission_scan_strategy.adaptive_enabled {
+            due.sort_by_key(|s| (parse_time_or_min(s.next_scan_at.as_deref()), s.id));
+        } else {
+            due.sort_by_key(|s| (parse_time_or_min(s.last_scan_at.as_deref()), s.id));
+        }
+        checkpoint.sort_by_key(|s| s.id);
+
+        let mut selected = checkpoint;
+        selected.extend(due);
+
+        let batch_size = config.submission_scan_strategy.batch_size;
+        if batch_size > 0 && selected.len() > batch_size {
+            selected.truncate(batch_size);
+        }
+
+        let selected_count = selected.len();
+        submissions = selected;
+
+        if selected_count < total_enabled_submissions {
+            let batch_size_desc = if config.submission_scan_strategy.batch_size == 0 {
+                "不限".to_string()
+            } else {
+                config.submission_scan_strategy.batch_size.to_string()
+            };
+            info!(
+                "投稿源扫描策略生效：本轮扫描 {}/{} 个投稿源（每轮上限: {}，自适应: {}）",
+                selected_count,
+                total_enabled_submissions,
+                batch_size_desc,
+                config.submission_scan_strategy.adaptive_enabled
+            );
+        }
+    }
 
     for submission in submissions {
         let upper_id = submission.upper_id.to_string();
@@ -240,7 +399,7 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
         }
 
         // 从数据库加载视频源，而不是从配置文件
-        let enabled_sources = match load_video_sources_from_db(&optimized_connection).await {
+        let enabled_sources = match load_video_sources_from_db(&config, &optimized_connection).await {
             Ok(sources) => sources,
             Err(e) => {
                 error!("从数据库加载视频源失败: {}", e);
@@ -499,6 +658,19 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
                             sources_with_new_content += 1;
                         }
 
+                        if submission_scan_strategy_enabled(&config) && source.source_type == SourceType::Submission {
+                            if let Err(e) = update_submission_scan_state_success(
+                                &optimized_connection,
+                                source.id,
+                                new_video_count,
+                                &config,
+                            )
+                            .await
+                            {
+                                warn!("更新投稿源扫描状态失败 (ID: {}): {}", source.id, e);
+                            }
+                        }
+
                         // 检查是否有新视频信息需要添加到收集器（修复：同时检查数量和向量）
                         if !new_videos.is_empty() {
                             // 获取待删除的视频ID列表，过滤掉充电专享视频
@@ -563,6 +735,15 @@ pub async fn video_downloader(connection: Arc<DatabaseConnection>) {
                     }
                     Err(e) => {
                         let classified_error = crate::error::ErrorClassifier::classify_error(&e);
+
+                        if submission_scan_strategy_enabled(&config) && source.source_type == SourceType::Submission {
+                            let is_risk_control = classified_error.error_type == crate::error::ErrorType::RiskControl;
+                            if let Err(err) =
+                                update_submission_scan_state_error(&optimized_connection, source.id, is_risk_control, &config).await
+                            {
+                                warn!("更新投稿源扫描状态失败 (ID: {}): {}", source.id, err);
+                            }
+                        }
                         if classified_error.error_type == crate::error::ErrorType::RiskControl {
                             error!("检测到风控，停止所有后续视频源的扫描: {}", classified_error.message);
                             info!("触发风控的源(ID: {})未完成处理，下次扫描将重新处理该源", source.id);
